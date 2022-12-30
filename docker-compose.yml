@@ -1,5 +1,6 @@
 version: "3.9"
 services:
+
   watchtower:
     image: containrrr/watchtower
     restart: always
@@ -12,10 +13,19 @@ services:
       - WATCHTOWER_INCLUDE_RESTARTING=true
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
   app:
     image: golang
     volumes:
       - $MOUNT_PATH:/storage:rw,rshared
-      
-volumes:
-  myapp:
+    depends_on:
+      - fxsupport
+    labels:
+          - "com.centurylinklabs.watchtower.enable=true"
+
+  fxsupport:
+    build: ./fxsupport/
+    volumes:
+      - /home/${CURRENT_USER}:/host:rw,rshared
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
