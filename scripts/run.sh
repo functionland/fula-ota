@@ -48,13 +48,13 @@ fi
 # Functions
 
 function install() {
-  echo -e -n "${CYAN}(!)${NC} Enter the domain name for your IoT Portal instance (e.g. iotportal.com): "
-  read DOMAIN
-  echo ""
+  # echo -e -n "${CYAN}(!)${NC} Enter the domain name for your Portal instance (e.g. functionland.com): "
+  # read DOMAIN
+  # echo ""
 
-  if [ "$DOMAIN" == "" ]; then
-    DOMAIN=$IP_ADDRESS
-  fi
+  # if [ "$DOMAIN" == "" ]; then
+  #   DOMAIN=$IP_ADDRESS
+  # fi
 
   dockerComposeVolumes
 

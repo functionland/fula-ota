@@ -35,8 +35,6 @@ echo "blox-linux.sh version $CORE_VERSION"
 docker --version
 docker-compose --version
 
-echo ""
-
 # Functions
 
 function checkDataDirExists() {
@@ -56,12 +54,12 @@ function checkDataDirNotExists() {
 function listCommands() {
   cat <<EOT
 Available commands:
-install
-start
-restart
-stop
-rebuild
-help
+	install
+	start
+	restart
+	stop
+	rebuild
+	help
 EOT
 }
 
