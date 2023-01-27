@@ -10,8 +10,9 @@ COPY ./go-fula/ .
 RUN go build -o /app ./cmd/blox 
 
 FROM alpine:latest
-COPY --from=BuildStage /app app
-USER nonroot:nonroot
+RUN apk --no-cache add ca-certificates
+WORKDIR /
+COPY --from=BuildStage /app /app
 ENTRYPOINT ["/app"]
 
 
