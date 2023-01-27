@@ -111,8 +111,8 @@ function rebuild() {
   dockerPrune
 }
 
-# Commands
 
+# Commands
 case $1 in
 "install")
   install

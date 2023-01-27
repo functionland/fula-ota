@@ -3,6 +3,7 @@
 #,linux/arm/v7
 export ARCH_SUPPORT="linux/amd64,linux/arm64"
 
+export TAG="release"
 export DOCKER_REPO="smzahraee"
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
 

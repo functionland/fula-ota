@@ -16,9 +16,9 @@ services:
 
   app:
     #build: ./go-fula/
-    image: smzahraee/go-fula
+    image: smzahraee/go-fula:$GO_FULA_TAG
     volumes:
-      - $MOUNT_PATH:/storage:rw,rshared
+      - /home/${CURRENT_USER}:/storage:rw,rshared
     depends_on:
       - fxsupport
     labels:
@@ -26,7 +26,7 @@ services:
 
   fxsupport:
     #build: ./fxsupport/
-    image: smzahraee/fxsupport
+    image: smzahraee/fxsupport:$FX_SUPPROT_TAG
     volumes:
       - /home/${CURRENT_USER}:/host:rw,rshared
     labels:
