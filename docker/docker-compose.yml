@@ -15,7 +15,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   app:
-    image: golang
+    build: ./go-fula/
     volumes:
       - $MOUNT_PATH:/storage:rw,rshared
     depends_on:
