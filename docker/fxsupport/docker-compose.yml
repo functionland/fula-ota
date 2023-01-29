@@ -18,7 +18,14 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-
+  go-fula:
+    image: index.docker.io/smzahraee/go-fula:$GO_FULA_TAG
+    volumes:
+      - /home/${CURRENT_USER}:/storage:rw,rshared
+    depends_on:
+      - fxsupport
+    labels:
+          - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
     image: smzahraee/fxsupport:$FX_SUPPROT_TAG
