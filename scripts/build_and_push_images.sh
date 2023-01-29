@@ -5,10 +5,14 @@ export ARCH_SUPPORT="linux/amd64,linux/arm64"
 
 export TAG="release"
 export DOCKER_REPO="smzahraee"
+
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
+export FX_SUPPORT_DOCKER_TAG="release"
+
 
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
-export GO_FULA_BRANCH="main"
+export GO_FULA_BRANCH="master"
+export GO_FULA_DOCKER_TAG="release"
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
