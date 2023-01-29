@@ -16,19 +16,19 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   app:
-    build: ./go-fula/
+    build: ./go-fula
     #image: smzahraee/go-fula:$GO_FULA_TAG
     volumes:
-      - /home/${CURRENT_USER}:/storage:rw,rshared
+      - /media/${CURRENT_USER}/:/storage:rw,rshared
     depends_on:
       - fxsupport
     labels:
-          - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
-    build: ./fxsupport/
+    build: ./fxsupport
     #image: smzahraee/fxsupport:$FX_SUPPROT_TAG
     volumes:
-      - /home/${CURRENT_USER}:/host:rw,rshared
+      - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:
       - "com.centurylinklabs.watchtower.enable=true"

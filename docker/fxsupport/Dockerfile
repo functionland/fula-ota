@@ -1,7 +1,7 @@
 FROM alpine
 
 WORKDIR /linux
-COPY docker-compose.yml .
-COPY docker.env docker.env
+COPY ./docker-compose.yml .
+COPY ./docker.env .
 RUN apk --no-cache add curl
 
