@@ -7,17 +7,19 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
+      - /home/${CURRENT_USER}/.docker/config.json:/config.json
     command: --interval 30
     environment:
+      - WATCHTOWER_DEBUG=true
       - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_NO_PULL=false
+      - WATCHTOWER_MONITOR_ONLY=false
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  app:
-    build: ./go-fula
-    #image: smzahraee/go-fula:$GO_FULA_TAG
+  go-fula:
+    image: index.docker.io/smzahraee/go-fula:$GO_FULA_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     depends_on:
@@ -26,8 +28,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
-    build: ./fxsupport
-    #image: smzahraee/fxsupport:$FX_SUPPROT_TAG
+    image: index.docker.io/smzahraee/fxsupport:$FX_SUPPROT_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:

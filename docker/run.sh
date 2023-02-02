@@ -21,8 +21,8 @@ if [ $# -gt 1 ]; then
 fi
 
 ENV_DIR="$DATA_DIR/env"
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../docker" && pwd)"
-PORTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/" && pwd)"
+PORTAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/" && pwd)"
 export CURRENT_USER=$(whoami)
 export MOUNT_PATH=/media/$CURRENT_USER
 
@@ -58,30 +58,27 @@ function install() {
 
   dockerComposeVolumes
 
-  source .env.staging && export COMPOSER_VERSION PHP_VERSION
+  #docker build --no-cache -t bloxota-build --build-arg HOSTNAME=$DOMAIN --build-arg COMPOSER_VERSION \
+  #  --build-arg PHP_VERSION -f $DOCKER_DIR/fxsupport/Dockerfile $PORTAL_DIR
 
-
-  docker build --no-cache -t bloxota-build --build-arg HOSTNAME=$DOMAIN --build-arg COMPOSER_VERSION \
-    --build-arg PHP_VERSION -f $DOCKER_DIR/fxsupport/Dockerfile $PORTAL_DIR
-
-  docker run --rm --name setup -v $DATA_DIR:/iotportaldata --env-file $ENV_DIR/uid.env bloxota-build
+  #docker run --rm --name setup -v $DATA_DIR:/iotportaldata --env-file $ENV_DIR/uid.env bloxota-build
 
   dockerComposeBuild
 }
 
 function dockerComposeUp() {
-  docker-compose -f $PORTAL_DIR/docker/docker-compose.yml --env-file $ENV_DIR/uid.env up -d --force-recreate
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/uid.env up -d --force-recreate
 }
 
 function dockerComposeDown() {
-  if [ $(docker-compose -f "${PORTAL_DIR}/docker/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" ps | wc -l) -gt 2 ]; then
+  if [ $(docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
-    docker-compose -f "${PORTAL_DIR}/docker/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" down
+    docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" down
   fi
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $PORTAL_DIR/docker/docker-compose.yml --env-file $ENV_DIR/uid.env build --no-cache
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/uid.env build --no-cache
 }
 
 function dockerComposeVolumes() {
@@ -97,7 +94,7 @@ function createDir() {
 }
 
 function dockerPrune() {
-  docker image prune --all --force --filter="label=com.iotportal.product=iotportal"
+  docker image prune --all --force --filter="com.centurylinklabs.watchtower.enable=true"
 }
 
 function restart() {

@@ -7,11 +7,13 @@ COPY ./go-fula/go.sum .
 RUN  go mod download -x
 
 COPY ./go-fula/ .
-RUN go build -o /app ./cmd/blox 
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app ./cmd/blox 
 
 FROM alpine:latest
-COPY --from=BuildStage /app app
-USER nonroot:nonroot
-ENTRYPOINT ["/app"]
+RUN apk --no-cache add ca-certificates
+WORKDIR /
+COPY --from=BuildStage /app /app
+EXPOSE 40001
+CMD ["/app"]
 
 
