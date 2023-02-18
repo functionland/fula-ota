@@ -14,6 +14,10 @@ export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_BRANCH="main"
 export GO_FULA_DOCKER_TAG="release"
 
+export SUGARFUNGE_NODE_BRANCH="main"
+export SUGARFUNGE_NODE_IMAGE="$DOCKER_REPO/sugarfunge-node"
+export GSUGARFUNGE_NODE_DOCKER_TAG="release"
+
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 docker login 
@@ -27,3 +31,6 @@ cd $SCRIPTS_DIR/../docker/fxsupport/ && ./build.sh
 echo "Building $GO_FULA_IMAGE ..."
 cd $SCRIPTS_DIR/../docker/go-fula/ && ./build.sh
 
+
+echo "Building $SUGARFUNGE_NODE_IMAGE ..."
+cd $SCRIPTS_DIR/../docker/sugarfunge-node/ && ./build.sh
