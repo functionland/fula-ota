@@ -11,14 +11,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /sugarfunge
 
 COPY ./sugarfunge-node /sugarfunge
-
+RUN cargo fetch
 RUN cargo build --locked --release
 
+WORKDIR /sugarfunge-api
+COPY ./sugarfunge-api /sugarfunge-api
+RUN cargo fetch
+RUN cargo build --locked --release
+
+RUN ls /sugarfunge-api/
 
 FROM alpine:latest
 
 COPY --from=builder /sugarfunge/target/release/sugarfunge-node /
+COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /
 
-ENTRYPOINT ["/sugarfunge-node"]
+COPY ./run_node.sh run_mode.sh
 
-CMD ["--dev", "--pruning", "archive", "--tmp"]
+CMD ./run_node.sh
+
+#ENTRYPOINT ["/sugarfunge-node"]ta
+#CMD ["--dev", "--pruning", "archive", "--tmp"]
