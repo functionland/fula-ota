@@ -15,7 +15,7 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  app:
+  go-fula:
     build: ./go-fula
     #image: smzahraee/go-fula:$GO_FULA_TAG
     volumes:
@@ -24,6 +24,14 @@ services:
       - fxsupport
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+      
+  sugarfunge-node:
+    build: ./sugarfunge-node
+    #image: smzahraee/go-fula:$GO_FULA_TAG
+    depends_on:
+      - fxsupport
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"	
 
   fxsupport:
     build: ./fxsupport
