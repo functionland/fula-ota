@@ -1,1 +1,3 @@
 docker/go-fula/go-fula
+docker/sugarfunge-node/sugarfunge-api
+docker/sugarfunge-node/sugarfunge-node
