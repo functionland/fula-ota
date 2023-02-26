@@ -4,6 +4,7 @@ services:
   watchtower:
     image: containrrr/watchtower
     restart: always
+    container_name: fula_updater
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
@@ -19,16 +20,27 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   go-fula:
-    image: index.docker.io/smzahraee/go-fula:$GO_FULA_TAG
+    image: $GO_FULA
+    container_name: fula_go
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     depends_on:
       - fxsupport
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+      
+  #sugarfunge-node:
+   # image: $SUGARFUNGE_NODE
+   #  container_name: fula_node
+   # depends_on:
+   #   - fxsupport
+   # labels:
+   #   - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
-    image: index.docker.io/smzahraee/fxsupport:$FX_SUPPROT_TAG
+    image: $FX_SUPPROT
+    container_name: fula_fxsupport
+    command: tail -F /dev/null
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:

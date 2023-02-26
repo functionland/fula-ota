@@ -1,4 +1,4 @@
-FROM rustlang/rust:nightly AS builder
+FROM rust:1.67-slim AS builder
 
 RUN rustup target add wasm32-unknown-unknown
 
@@ -21,7 +21,7 @@ RUN cargo build --locked --release
 
 RUN ls /sugarfunge-api/
 
-FROM alpine:latest
+FROM alpine:3.17
 
 COPY --from=builder /sugarfunge/target/release/sugarfunge-node /
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /

@@ -1,0 +1,14 @@
+[Unit]
+Description=%i service with docker compose
+PartOf=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory=/usr/bin/fula/
+ExecStart=/usr/bin/fula/fula.sh start
+ExecStop=/usr/bin/fula/fula.sh stop
+
+[Install]
+WantedBy=multi-user.target
