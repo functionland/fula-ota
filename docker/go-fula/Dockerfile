@@ -1,4 +1,4 @@
-FROM golang:latest as BuildStage
+FROM golang:1.19 as BuildStage
 
 WORKDIR /go-fula
 
@@ -9,7 +9,7 @@ RUN  go mod download -x
 COPY ./go-fula/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app ./cmd/blox 
 
-FROM alpine:latest
+FROM alpine:3.17
 
 WORKDIR /
 COPY --from=BuildStage /app /app
