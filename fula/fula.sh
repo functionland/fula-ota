@@ -125,4 +125,8 @@ case $1 in
 "rebuild")
   rebuild
   ;;
+"removeall")
+  docker rm -f $(docker ps -a -q)
+  remove
+   ;;
 esac
