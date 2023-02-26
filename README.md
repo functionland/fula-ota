@@ -32,25 +32,13 @@ Clone the repository to your system:
 git clone https://github.com/smzahraee/fula-ota
 ```
 
-Navigate to the `scripts` directory and give it permission to execute:
+For board installation Navigate to the `fula` directory and give it permission to execute:
 
 ```shell
-cd scripts && chmod +x *
+cd fula && chmod +x *
+sudo ./fula.sh rebuild
 ```
-
-Run the installation script. A `./fula-linux.sh` directory will be created.
-
-```shell
-./fula-linux.sh install 
-```
-
-Finally, start your IoT Portal instance.
-
-```shell
-./fula-linux.sh start 
-```
-
-## 📖 Script Commands Reference
+## 📖 Script Commands Reference on rpi board
 
 Command | Description
 ---------------------- | ------------------------------------
@@ -60,3 +48,14 @@ Command | Description
 `stop` | Stop all containers.
 `rebuild`	| Rebuild generated installation assets.
 `help` | List all commands.
+
+
+# Building Docker Images
+
+go to ```docker``` folder and run following commands
+
+```shell
+./build_and_push_images.sh
+```
+
+this command will push docker images into docker.io

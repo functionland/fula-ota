@@ -1,0 +1,47 @@
+version: "3.9"
+services:
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: always
+    container_name: fula_updater
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/timezone:/etc/timezone:ro
+      - /home/${CURRENT_USER}/.docker/config.json:/config.json
+    command: --interval 30
+    environment:
+      - WATCHTOWER_DEBUG=true
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_NO_PULL=false
+      - WATCHTOWER_MONITOR_ONLY=false
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  go-fula:
+    image: $GO_FULA
+    container_name: fula_go
+    volumes:
+      - /media/${CURRENT_USER}/:/storage:rw,rshared
+    depends_on:
+      - fxsupport
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      
+  #sugarfunge-node:
+   # image: $SUGARFUNGE_NODE
+   #  container_name: fula_node
+   # depends_on:
+   #   - fxsupport
+   # labels:
+   #   - "com.centurylinklabs.watchtower.enable=true"
+
+  fxsupport:
+    image: $FX_SUPPROT
+    container_name: fula_fxsupport
+    command: tail -F /dev/null
+    volumes:
+      - /media/${CURRENT_USER}/:/storage:rw,rshared
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
