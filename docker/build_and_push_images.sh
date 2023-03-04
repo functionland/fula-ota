@@ -8,8 +8,8 @@ docker login
 docker buildx create --name multiarch --driver docker-container --use
 
 
-#,linux/arm/v7
-export ARCH_SUPPORT="linux/amd64,linux/arm64"
+#,linux/arm/v7 linux/arm64 linux/amd64
+export ARCH_SUPPORT="linux/arm64,linux/amd64"
 
 export TAG="release"
 export DOCKER_REPO="smzahraee"
@@ -18,14 +18,14 @@ export DOCKER_REPO="smzahraee"
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
 export FX_SUPPORT_DOCKER_TAG="release"
 echo "Building $FX_SUPPORT_IMAGE ..."
-cd $SCRIPTS_DIR/fxsupport/ && ./build.sh
+#cd $SCRIPTS_DIR/fxsupport/ && ./build.sh
 
 #build go-fula
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_BRANCH="main"
 export GO_FULA_DOCKER_TAG="release"
 echo "Building $GO_FULA_IMAGE ..."
-cd $SCRIPTS_DIR//go-fula/ && ./build.sh
+#cd $SCRIPTS_DIR//go-fula/ && ./build.sh
 
 #build node and node-api
 export SUGARFUNGE_NODE_BRANCH="main"
