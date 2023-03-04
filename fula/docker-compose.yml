@@ -29,13 +29,13 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       
-  #sugarfunge-node:
-   # image: $SUGARFUNGE_NODE
-   #  container_name: fula_node
-   # depends_on:
-   #   - fxsupport
-   # labels:
-   #   - "com.centurylinklabs.watchtower.enable=true"
+  sugarfunge-node:
+    image: $SUGARFUNGE_NODE
+    container_name: fula_node
+    depends_on:
+      - fxsupport
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
     image: $FX_SUPPROT
