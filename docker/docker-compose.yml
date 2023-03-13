@@ -17,7 +17,7 @@ services:
 
   go-fula:
     build: ./go-fula
-    #image: smzahraee/go-fula:$GO_FULA_TAG
+    #image: functionland/go-fula:$GO_FULA_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     depends_on:
@@ -27,7 +27,7 @@ services:
       
   sugarfunge-node:
     build: ./sugarfunge-node
-    #image: smzahraee/go-fula:$GO_FULA_TAG
+    #image: functionland/go-fula:$GO_FULA_TAG
     depends_on:
       - fxsupport
     labels:
@@ -35,7 +35,7 @@ services:
 
   fxsupport:
     build: ./fxsupport
-    #image: smzahraee/fxsupport:$FX_SUPPROT_TAG
+    #image: functionland/fxsupport:$FX_SUPPROT_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:

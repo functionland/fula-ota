@@ -12,7 +12,7 @@ docker buildx create --name multiarch --driver docker-container --use
 export ARCH_SUPPORT="linux/arm64,linux/amd64"
 
 export TAG="release"
-export DOCKER_REPO="smzahraee"
+export DOCKER_REPO="functionland"
 
 #build fxsupport
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
