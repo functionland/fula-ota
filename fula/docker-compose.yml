@@ -24,6 +24,7 @@ services:
     container_name: fula_go
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
+    network_mode: "host"
     depends_on:
       - fxsupport
     labels:
