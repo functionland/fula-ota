@@ -29,7 +29,7 @@ sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 Clone the repository to your system:
 
 ```shell
-git clone https://github.com/smzahraee/fula-ota
+git clone https://github.com/functionland/fula-ota
 ```
 
 For board installation Navigate to the `fula` directory and give it permission to execute:
