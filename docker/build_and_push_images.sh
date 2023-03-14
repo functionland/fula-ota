@@ -18,14 +18,14 @@ export DOCKER_REPO="functionland"
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
 export FX_SUPPORT_DOCKER_TAG="release"
 echo "Building $FX_SUPPORT_IMAGE ..."
-#cd $SCRIPTS_DIR/fxsupport/ && ./build.sh
+cd $SCRIPTS_DIR/fxsupport/ && ./build.sh
 
 #build go-fula
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_BRANCH="main"
 export GO_FULA_DOCKER_TAG="release"
 echo "Building $GO_FULA_IMAGE ..."
-#cd $SCRIPTS_DIR//go-fula/ && ./build.sh
+cd $SCRIPTS_DIR/go-fula/ && ./build.sh
 
 #build node and node-api
 export SUGARFUNGE_NODE_BRANCH="main"
