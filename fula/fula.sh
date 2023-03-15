@@ -83,7 +83,7 @@ function createDir() {
 }
 
 function dockerPrune() {
-  docker image prune --all --force --filter="com.centurylinklabs.watchtower.enable=true"
+  docker image prune --all --force
 }
 
 function restart() {
