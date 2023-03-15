@@ -102,6 +102,7 @@ function remove()
   rm -f $SYSTEMD_PATH/fula.service 
   rm -rf $FULA_PATH/
   systemctl daemon-reload
+  dockerPrune
   echo "Removing Fula Finished"
 }
 
