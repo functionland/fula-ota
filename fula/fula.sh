@@ -44,7 +44,7 @@ service_exists() {
 
 # Functions
 function install() {
- # dockerComposeBuild
+  dockerComposeBuild
   echo "Installing Fula ..."
   mkdir -p $FULA_PATH/
   cp fula.sh $FULA_PATH/
@@ -58,7 +58,8 @@ function install() {
 }
 
 function dockerComposeUp() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
+  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
 }
 
 function dockerComposeDown() {
@@ -69,6 +70,7 @@ function dockerComposeDown() {
 }
 
 function dockerComposeBuild() {
+  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull --no-cache
   docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache
 }
 
@@ -91,6 +93,7 @@ function restart() {
 
 function remove()
 {
+  
   echo "Removing Fula ..."
   if service_exists fula.service; then
   	systemctl stop fula.service -q
