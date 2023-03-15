@@ -70,7 +70,7 @@ function dockerComposeDown() {
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull --no-cache
+  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
   docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache
 }
 
