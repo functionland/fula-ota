@@ -8,7 +8,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
-      - /home/${CURRENT_USER}/.docker/config.json:/config.json
     command: --interval 30
     environment:
       - WATCHTOWER_DEBUG=true
