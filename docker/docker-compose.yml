@@ -20,6 +20,7 @@ services:
     #image: functionland/go-fula:$GO_FULA_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
+    network_mode: "host"
     depends_on:
       - fxsupport
     labels:
