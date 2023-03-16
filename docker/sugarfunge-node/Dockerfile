@@ -1,4 +1,6 @@
-FROM rustlang/rust:nightly AS builder
+FROM --platform=$BUILDPLATFORM  rust:1.67 AS builder
+
+RUN rustup default nightly
 
 RUN rustup target add wasm32-unknown-unknown
 
