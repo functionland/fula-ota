@@ -9,7 +9,7 @@ docker buildx create --name multiarch --driver docker-container --use
 
 
 #,linux/arm/v7 linux/arm64 linux/amd64
-export ARCH_SUPPORT="linux/arm64,linux/arm/v7"
+export ARCH_SUPPORT="linux/arm64"
 
 export TAG="release"
 export DOCKER_REPO="functionland"
