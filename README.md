@@ -37,6 +37,7 @@ For board installation Navigate to the `fula` directory and give it permission t
 ```shell
 cd fula && chmod +x *
 sudo ./fula.sh rebuild
+sudo ./fula.sh start
 ```
 ## 📖 Script Commands Reference on rpi board
 
