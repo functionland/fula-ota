@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM  rust:1.67 AS builder
+FROM rustlang/rust:nightly AS builder
 
 RUN rustup default nightly
 
