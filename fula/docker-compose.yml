@@ -12,6 +12,8 @@ services:
     environment:
       - WATCHTOWER_DEBUG=true
       - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
       - WATCHTOWER_INCLUDE_STOPPED=true
       - WATCHTOWER_NO_PULL=false
       - WATCHTOWER_MONITOR_ONLY=false
@@ -23,7 +25,11 @@ services:
     container_name: fula_go
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - /var/run/dbus:/var/run/dbus
     network_mode: "host"
+    cap_add:
+      - ALL
+    privileged: true
     depends_on:
       - fxsupport
     labels:

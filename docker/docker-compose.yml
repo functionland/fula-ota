@@ -7,7 +7,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
-    command: --interval 30
+    command: --interval 30  --cleanup --label-enable
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_LABEL_ENABLE=true
@@ -20,7 +20,11 @@ services:
     #image: functionland/go-fula:$GO_FULA_TAG
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - /var/run/dbus:/var/run/dbus
     network_mode: "host"
+    cap_add:
+      - ALL
+    privileged: true
     depends_on:
       - fxsupport
     labels:
