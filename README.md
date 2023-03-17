@@ -21,7 +21,7 @@ newgrp docker
 Install Docker Compose 1.29.2
 
 ```shell
-sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.16.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 ```
@@ -37,6 +37,7 @@ For board installation Navigate to the `fula` directory and give it permission t
 ```shell
 cd fula && chmod +x *
 sudo ./fula.sh rebuild
+sudo ./fula.sh start
 ```
 ## 📖 Script Commands Reference on rpi board
 
