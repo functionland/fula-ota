@@ -26,6 +26,7 @@ services:
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
+      - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
     network_mode: "host"
     cap_add:
       - ALL
