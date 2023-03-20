@@ -4,8 +4,7 @@ PartOf=docker.service
 After=docker.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=true
+Type=simple
 WorkingDirectory=/usr/bin/fula/
 ExecStart=/usr/bin/fula/fula.sh start
 ExecStop=/usr/bin/fula/fula.sh stop
