@@ -22,7 +22,7 @@ cd $SCRIPTS_DIR/fxsupport/ && ./build.sh
 
 #build go-fula
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
-export GO_FULA_BRANCH="main"
+export GO_FULA_BRANCH="wap"
 export GO_FULA_DOCKER_TAG="release"
 echo "Building $GO_FULA_IMAGE ..."
 cd $SCRIPTS_DIR/go-fula/ && ./build.sh
