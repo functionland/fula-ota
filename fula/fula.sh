@@ -33,6 +33,16 @@ export MOUNT_PATH=/media/$CURRENT_USER
 # Determine default host machine IP address
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
+check_internet() {
+  wget -q --spider --timeout=10 https://www.google.com
+
+  if [ $? -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 service_exists() {
     local n=$1
     if [[ $(systemctl list-units --all -t service --full --no-legend "$n.service" | sed 's/^\s*//g' | cut -f1 -d' ') == $n.service ]]; then
@@ -58,7 +68,9 @@ function install() {
 }
 
 function dockerComposeUp() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  if check_internet; then
+    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  fi
   docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
 }
 
