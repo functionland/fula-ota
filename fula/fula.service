@@ -4,12 +4,11 @@ PartOf=docker.service
 After=docker.service
 
 [Service]
-Type=simple
+Type=oneshot
+RemainAfterExit=true
 WorkingDirectory=/usr/bin/fula/
 ExecStart=/usr/bin/fula/fula.sh start
 ExecStop=/usr/bin/fula/fula.sh stop
-Restart=always
-RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

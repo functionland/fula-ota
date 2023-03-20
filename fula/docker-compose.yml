@@ -22,6 +22,7 @@ services:
 
   go-fula:
     image: $GO_FULA
+    restart: always
     container_name: fula_go
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
@@ -38,6 +39,7 @@ services:
       
   sugarfunge-node:
     image: $SUGARFUNGE_NODE
+    restart: always
     container_name: fula_node
     depends_on:
       - fxsupport
@@ -46,6 +48,7 @@ services:
 
   fxsupport:
     image: $FX_SUPPROT
+    restart: always
     container_name: fula_fxsupport
     command: tail -F /dev/null
     volumes:
