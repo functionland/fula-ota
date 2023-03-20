@@ -10,14 +10,26 @@ check_internet() {
   fi
 }
 
+wap_pid=0
+
 while true; do
   if check_internet; then
     echo "Internet connected. Running /app."
+
+    # Kill the /wap process if it's running
+    if [ $wap_pid -ne 0 ]; then
+      kill $wap_pid
+    fi
+
     /app
     break
   else
     echo "Internet not connected. Running /wap."
-    /wap
-    sleep 15
+
+    # Run /wap in the background and store its PID
+    /wap &
+    wap_pid=$!
+
+    sleep 60
   fi
 done
