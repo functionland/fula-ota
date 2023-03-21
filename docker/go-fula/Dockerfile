@@ -8,13 +8,15 @@ RUN  go mod download -x
 
 COPY ./go-fula/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app ./cmd/blox 
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wap ./wap/cmd
 
 FROM alpine:3.17
 
 RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkmanager-cli dhcp iptables --no-cache
 WORKDIR /
 COPY --from=BuildStage /app /app
+COPY --from=BuildStage /wap /wap
+COPY ./check-internet.sh /check-internet.sh
+RUN chmod +x /check-internet.sh
 EXPOSE 40001
-CMD ["/app"]
-
-
+CMD ["/check-internet.sh"]
