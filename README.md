@@ -32,6 +32,11 @@ Clone the repository to your system:
 git clone https://github.com/functionland/fula-ota
 ```
 
+Install NetworkManager
+```shell
+sudo systemctl start NetworkManager
+```
+
 For board installation Navigate to the `fula` directory and give it permission to execute:
 
 ```shell
