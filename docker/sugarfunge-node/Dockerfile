@@ -28,7 +28,7 @@ FROM alpine:3.17
 COPY --from=builder /sugarfunge/target/release/sugarfunge-node /
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /
 
-COPY ./run_node.sh run_mode.sh
+COPY ./run_node.sh run_node.sh
 
 CMD ./run_node.sh
 
