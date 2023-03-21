@@ -16,7 +16,7 @@ RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkm
 WORKDIR /
 COPY --from=BuildStage /app /app
 COPY --from=BuildStage /wap /wap
-COPY ./go-fula/check-internet.sh /check-internet.sh
+COPY ./check-internet.sh /check-internet.sh
 RUN chmod +x /check-internet.sh
 EXPOSE 40001
 CMD ["/check-internet.sh"]
