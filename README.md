@@ -32,9 +32,10 @@ Clone the repository to your system:
 git clone https://github.com/functionland/fula-ota
 ```
 
-Install NetworkManager
+Install NetworkManager and set it to start automatically on boot
 ```shell
 sudo systemctl start NetworkManager
+sudo systemctl enable NetworkManager
 ```
 
 For board installation Navigate to the `fula` directory and give it permission to execute:
