@@ -11,6 +11,7 @@ check_internet() {
 }
 
 wap_pid=0
+run_wap_once=true
 
 while true; do
   if check_internet; then
@@ -24,12 +25,17 @@ while true; do
     /app
     break
   else
-    echo "Internet not connected. Running /wap."
+    if [ "$run_wap_once" = true ]; then
+      echo "Internet not connected. Running /wap."
 
-    # Run /wap in the background and store its PID
-    /wap &
-    wap_pid=$!
+      # Run /wap in the background and store its PID
+      /wap &
+      wap_pid=$!
 
-    sleep 60
+      # Set the flag to false so /wap won't run again
+      run_wap_once=false
+    fi
+
+    sleep 20
   fi
 done
