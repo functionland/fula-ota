@@ -1,4 +1,4 @@
-FROM rustlang/rust:nightly AS builder
+FROM rustlang/rust:nightly-alpine AS builder
 
 RUN rustup default nightly
 
