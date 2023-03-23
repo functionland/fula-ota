@@ -46,17 +46,6 @@ cd fula && chmod +x *
 sudo ./fula.sh rebuild
 sudo ./fula.sh start
 ```
-## 📖 Script Commands Reference on rpi board
-
-Command | Description
----------------------- | ------------------------------------
-`install` | Start the installer.
-`start` | Start all containers.
-`restart`	| Restart all containers (same as start).
-`stop` | Stop all containers.
-`rebuild`	| Rebuild generated installation assets.
-`help` | List all commands.
-
 
 # Building Docker Images
 
@@ -67,3 +56,14 @@ go to ```docker``` folder and run following commands
 ```
 
 this command will push docker images into docker.io
+
+## 📖 Script Commands Reference on rpi board
+
+Command | Description
+---------------------- | ------------------------------------
+`install` | Start the installer.
+`start` | Start all containers.
+`restart`	| Restart all containers (same as start).
+`stop` | Stop all containers.
+`rebuild`	| Rebuild generated installation assets.
+`help` | List all commands.
