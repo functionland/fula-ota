@@ -31,6 +31,7 @@ Clone the repository to your system:
 ```shell
 git clone https://github.com/functionland/fula-ota
 ```
+# Running the docker on end device
 
 Install NetworkManager and set it to start automatically on boot
 ```shell
