@@ -4,6 +4,7 @@ RUN rustup target add wasm32-unknown-unknown
 
 RUN apk add --update --no-cache \
         clang \
+        clang-libs \
         llvm \
         cmake \
         protobuf-c-dev \
