@@ -15,10 +15,6 @@ RUN apk add --update --no-cache \
         libc-dev \
         python3-dev
 
-# Find the installed version of the library and create a symlink if needed
-RUN LIBCLANG_PATH=$(find /usr/lib -name 'libclang.so*') && \
-    ln -s $LIBCLANG_PATH /usr/lib/libclang.so.12
-
 # Set the LD_LIBRARY_PATH environment variable
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib
 
