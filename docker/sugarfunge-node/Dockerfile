@@ -1,6 +1,4 @@
-FROM rustlang/rust:nightly-alpine AS builder
-
-RUN rustup default nightly
+FROM rustlang/rust:nightly AS builder
 
 RUN rustup target add wasm32-unknown-unknown
 
