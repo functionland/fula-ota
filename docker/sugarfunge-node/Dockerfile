@@ -1,14 +1,18 @@
 FROM rustlang/rust:nightly-alpine AS builder
 
-RUN rustup default nightly
-
 RUN rustup target add wasm32-unknown-unknown
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --update --no-cache \
         clang \
-        libclang-dev \
+        clang-dev \
         cmake \
-        protobuf-compiler
+        protobuf-c-dev \
+        protobuf-dev \
+        musl-dev \
+        build-base \
+        gcc \
+        libc-dev \
+        python3-dev
 
 WORKDIR /sugarfunge
 
