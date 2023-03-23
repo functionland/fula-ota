@@ -4,7 +4,7 @@ RUN rustup target add wasm32-unknown-unknown
 
 RUN apk add --update --no-cache \
         clang \
-        clang-dev \
+        llvm \
         cmake \
         protobuf-c-dev \
         protobuf-dev \
@@ -13,6 +13,13 @@ RUN apk add --update --no-cache \
         gcc \
         libc-dev \
         python3-dev
+
+# Find the installed version of the library and create a symlink if needed
+RUN LIBCLANG_PATH=$(find /usr/lib -name 'libclang.so*') && \
+    ln -s $LIBCLANG_PATH /usr/lib/libclang.so.12
+
+# Set the LD_LIBRARY_PATH environment variable
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib
 
 WORKDIR /sugarfunge
 
