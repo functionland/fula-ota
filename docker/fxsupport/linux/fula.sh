@@ -16,6 +16,8 @@ NC='\033[0m' # No Color
 
 FULA_PATH=/usr/bin/fula
 SYSTEMD_PATH=/etc/systemd/system
+HW_CHECK_SC=$FULA_PATH/hw_test.py
+RESIZE_SC=$FULA_PATH/resize.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -32,6 +34,16 @@ export MOUNT_PATH=/media/$CURRENT_USER
 
 # Determine default host machine IP address
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
+
+check_internet() {
+  wget -q --spider --timeout=10 https://www.google.com
+
+  if [ $? -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
 
 service_exists() {
     local n=$1
@@ -51,6 +63,11 @@ function install() {
   cp docker.env $FULA_PATH/
   cp docker-compose.yml $FULA_PATH/  
   cp fula.service $SYSTEMD_PATH/
+  
+  cp hw_test.py $FULA_PATH/
+  cp resize.sh $FULA_PATH/
+  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  
   systemctl daemon-reload
   systemctl enable fula.service
   systemctl start fula.service
@@ -58,7 +75,9 @@ function install() {
 }
 
 function dockerComposeUp() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  if check_internet; then
+    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  fi
   docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
 }
 

@@ -16,6 +16,8 @@ NC='\033[0m' # No Color
 
 FULA_PATH=/usr/bin/fula
 SYSTEMD_PATH=/etc/systemd/system
+HW_CHECK_SC=$FULA_PATH/hw_test.py
+RESIZE_SC=$FULA_PATH/resize.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -61,6 +63,11 @@ function install() {
   cp docker.env $FULA_PATH/
   cp docker-compose.yml $FULA_PATH/  
   cp fula.service $SYSTEMD_PATH/
+  
+  cp hw_test.py $FULA_PATH/
+  cp resize.sh $FULA_PATH/
+  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  
   systemctl daemon-reload
   systemctl enable fula.service
   systemctl start fula.service
