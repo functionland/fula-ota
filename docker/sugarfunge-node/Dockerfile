@@ -13,7 +13,10 @@ RUN apk add --update --no-cache \
         build-base \
         gcc \
         libc-dev \
-        python3-dev
+        python3-dev \
+        git
+
+ENV  RUSTFLAGS=-Ctarget-feature=-crt-static
 
 # Set the LD_LIBRARY_PATH environment variable
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib
