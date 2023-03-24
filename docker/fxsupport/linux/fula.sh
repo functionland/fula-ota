@@ -106,6 +106,12 @@ function dockerPrune() {
 }
 
 function restart() {
+  if [ -f "$HW_CHECK_SC" ]; then
+     python $HW_CHECK_SC
+  fi
+  if [ -f "$RESIZE_SC" ]; then
+     sh $RESIZE_SC
+  fi
   dockerComposeDown
   dockerComposeUp
 }
