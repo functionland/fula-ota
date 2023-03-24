@@ -146,7 +146,7 @@ case $1 in
   ;;
 "start" | "restart")
   restart
-  docker cp fula_fxsupport:/linux /usr/bin/fula
+  docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   ;;
 "stop")
   dockerComposeDown
