@@ -1,7 +1,5 @@
 FROM rustlang/rust:nightly AS builder
 
-RUN rustup default nightly
-
 RUN rustup target add wasm32-unknown-unknown
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,12 +23,12 @@ RUN ls /sugarfunge-api/
 
 FROM alpine:3.17
 
-COPY --from=builder /sugarfunge/target/release/sugarfunge-node /
-COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /
+COPY --from=builder /sugarfunge/target/release/sugarfunge-node /sugarfunge-node
+COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api
 
-COPY ./run_node.sh run_node.sh
+COPY ./run_node.sh /run_node.sh
 
-CMD ./run_node.sh
+CMD /run_node.sh
 
 #ENTRYPOINT ["/sugarfunge-node"]ta
 #CMD ["--dev", "--pruning", "archive", "--tmp"]

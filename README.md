@@ -7,7 +7,7 @@ Install Docker Engine 20.10
 
 ```shell
 curl -fsSL https://get.docker.com -o get-docker.sh
-sudo VERSION=20.10 sh get-docker.sh
+sudo sh get-docker.sh
 ```
 
 Optionally, manage Docker as a non-root user by following the instructions at [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user).
@@ -31,6 +31,7 @@ Clone the repository to your system:
 ```shell
 git clone https://github.com/functionland/fula-ota
 ```
+# Running the docker on end device
 
 Install NetworkManager and set it to start automatically on boot
 ```shell
@@ -45,17 +46,6 @@ cd fula && chmod +x *
 sudo ./fula.sh rebuild
 sudo ./fula.sh start
 ```
-## 📖 Script Commands Reference on rpi board
-
-Command | Description
----------------------- | ------------------------------------
-`install` | Start the installer.
-`start` | Start all containers.
-`restart`	| Restart all containers (same as start).
-`stop` | Stop all containers.
-`rebuild`	| Rebuild generated installation assets.
-`help` | List all commands.
-
 
 # Building Docker Images
 
@@ -66,3 +56,14 @@ go to ```docker``` folder and run following commands
 ```
 
 this command will push docker images into docker.io
+
+## 📖 Script Commands Reference on rpi board
+
+Command | Description
+---------------------- | ------------------------------------
+`install` | Start the installer.
+`start` | Start all containers.
+`restart`	| Restart all containers (same as start).
+`stop` | Stop all containers.
+`rebuild`	| Rebuild generated installation assets.
+`help` | List all commands.
