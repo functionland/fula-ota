@@ -14,7 +14,13 @@ RUN apk add --update --no-cache \
         gcc \
         libc-dev \
         python3-dev \
-        git
+        git \
+        linux-headers \
+        lldb \
+        llvm-dev \
+        clang-static \
+        libffi-dev \
+        ncurses-dev
 
 ENV  RUSTFLAGS=-Ctarget-feature=-crt-static
 
