@@ -22,7 +22,7 @@ RUN apk add --update --no-cache \
         libffi-dev \
         ncurses-dev
 
-ENV RUSTFLAGS="-Ctarget-feature=-crt-static -Clink-arg=-lc"
+ENV RUSTFLAGS="-Ctarget-feature=-crt-static -Clink-arg=-lc -Clink-arg=-ldl"
 
 # Set the LD_LIBRARY_PATH environment variable
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib
