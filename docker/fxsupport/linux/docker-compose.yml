@@ -23,6 +23,8 @@ services:
   go-fula:
     image: $GO_FULA
     container_name: fula_go
+    devices:
+       - /dev/fuse:/dev/fuse:rwm
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus

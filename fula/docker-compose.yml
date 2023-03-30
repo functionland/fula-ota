@@ -29,6 +29,8 @@ services:
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
     network_mode: "host"
+    devices:
+       - /dev/fuse:/dev/fuse:rwm 
     cap_add:
       - ALL
     privileged: true
