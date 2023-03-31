@@ -26,7 +26,7 @@ unionfs_fuse_mount_drives() {
  done 
  #log $MOUNT_ARG 
  #on alpine version se this
- unionfs -o cow,statfs_omit_ro,allow_other,suid,dev "$MOUNT_ARG" "$MOUNT_PATH" 
+ mergerfs -o allow_other "$MOUNT_ARG" "$MOUNT_PATH" 
  #on ubuntu use this one
  #unionfs-fuse -o cow,statfs_omit_ro,allow_other,use_ino,suid,dev "$MOUNT_ARG" "$MOUNT_PATH"  
 }

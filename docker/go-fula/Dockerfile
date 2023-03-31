@@ -12,7 +12,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /wap ./wap/cmd
 
 FROM alpine:3.17
 
-RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkmanager-cli dhcp iptables  unionfs-fuse  inotify-tools --no-cache
+RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkmanager-cli dhcp iptables  inotify-tools --no-cache
+RUN apk add mergerfs --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing --no-cache
+
 WORKDIR /
 COPY --from=BuildStage /app /app
 COPY --from=BuildStage /wap /wap
