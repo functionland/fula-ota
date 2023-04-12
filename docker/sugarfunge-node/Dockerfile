@@ -19,16 +19,14 @@ COPY ./sugarfunge-api /sugarfunge-api
 RUN cargo fetch
 RUN cargo build --locked --release
 
-RUN ls /sugarfunge-api/
-
-FROM alpine:3.17
+FROM gcr.io/distroless/cc-debian11
 
 COPY --from=builder /sugarfunge/target/release/sugarfunge-node /sugarfunge-node
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api
 
 COPY ./run_node.sh /run_node.sh
 
+RUN chmod +x /run_node.sh
 CMD /run_node.sh
 
-#ENTRYPOINT ["/sugarfunge-node"]ta
-#CMD ["--dev", "--pruning", "archive", "--tmp"]
+
