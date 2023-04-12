@@ -75,9 +75,7 @@ function install() {
 }
 
 function dockerComposeUp() {
-  if check_internet; then
-    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
-  fi
+  update()
   docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
 }
 
@@ -136,6 +134,15 @@ function rebuild() {
   install 
 }
 
+function update() {
+  if check_internet; then
+    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  else
+    echo "You are not connected to internet!"
+    echo "Please check your connection"
+  fi
+}
+
 
 
 
@@ -158,5 +165,8 @@ case $1 in
 "removeall")
   docker rm -f $(docker ps -a -q)
   remove
+   ;;
+"update")
+  update
    ;;
 esac

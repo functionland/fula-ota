@@ -8,7 +8,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
-    command: --interval 30  --cleanup --label-enable
     environment:
       - WATCHTOWER_DEBUG=true
       - WATCHTOWER_CLEANUP=true
@@ -17,19 +16,21 @@ services:
       - WATCHTOWER_INCLUDE_STOPPED=true
       - WATCHTOWER_NO_PULL=false
       - WATCHTOWER_MONITOR_ONLY=false
+      - WATCHTOWER_POLL_INTERVAL=36000
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
   go-fula:
     image: $GO_FULA
+    restart: always
     container_name: fula_go
-    devices:
-       - /dev/fuse:/dev/fuse:rwm
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
     network_mode: "host"
+    devices:
+       - /dev/fuse:/dev/fuse:rwm 
     cap_add:
       - ALL
     privileged: true
@@ -40,6 +41,7 @@ services:
       
   sugarfunge-node:
     image: $SUGARFUNGE_NODE
+    restart: always
     container_name: fula_node
     depends_on:
       - fxsupport
@@ -48,6 +50,7 @@ services:
 
   fxsupport:
     image: $FX_SUPPROT
+    restart: always
     container_name: fula_fxsupport
     command: tail -F /dev/null
     volumes:

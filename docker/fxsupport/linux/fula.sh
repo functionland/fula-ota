@@ -71,13 +71,11 @@ function install() {
   systemctl daemon-reload
   systemctl enable fula.service
   systemctl start fula.service
-   echo "Installing Fula Finished"
+  echo "Installing Fula Finished"
 }
 
 function dockerComposeUp() {
-  if check_internet; then
-    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
-  fi
+  update()
   docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
 }
 
@@ -136,6 +134,15 @@ function rebuild() {
   install 
 }
 
+function update() {
+  if check_internet; then
+    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  else
+    echo "You are not connected to internet!"
+    echo "Please check your connection"
+  fi
+}
+
 
 
 
@@ -147,6 +154,7 @@ case $1 in
 "start" | "restart")
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
+  sync
   ;;
 "stop")
   dockerComposeDown
@@ -157,5 +165,8 @@ case $1 in
 "removeall")
   docker rm -f $(docker ps -a -q)
   remove
+   ;;
+"update")
+  update
    ;;
 esac
