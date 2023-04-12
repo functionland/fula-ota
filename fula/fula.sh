@@ -71,7 +71,7 @@ function install() {
   systemctl daemon-reload
   systemctl enable fula.service
   systemctl start fula.service
-   echo "Installing Fula Finished"
+  echo "Installing Fula Finished"
 }
 
 function dockerComposeUp() {
@@ -147,6 +147,7 @@ case $1 in
 "start" | "restart")
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
+  sync
   ;;
 "stop")
   dockerComposeDown
