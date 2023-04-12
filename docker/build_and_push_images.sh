@@ -4,7 +4,7 @@
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo login to $DOCKER_REPO
-docker login -u $DOCKER_REPO
+docker login 
 docker buildx create --name multiarch --driver docker-container --use
 
 #build fxsupport

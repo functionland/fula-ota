@@ -70,13 +70,21 @@ function install() {
   
   systemctl daemon-reload
   systemctl enable fula.service
-  systemctl start fula.service
   echo "Installing Fula Finished"
 }
 
+function update() {
+  if check_internet; then
+    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
+  else
+    echo "You are not connected to internet!"
+    echo "Please check your connection"
+  fi
+}
+
 function dockerComposeUp() {
-  update()
-  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
+  update
+  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
 }
 
 function dockerComposeDown() {
@@ -133,18 +141,6 @@ function rebuild() {
   remove
   install 
 }
-
-function update() {
-  if check_internet; then
-    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
-  else
-    echo "You are not connected to internet!"
-    echo "Please check your connection"
-  fi
-}
-
-
-
 
 # Commands
 case $1 in

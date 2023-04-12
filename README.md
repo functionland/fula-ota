@@ -52,6 +52,10 @@ sudo ./fula.sh start
 go to ```docker``` folder and run following commands
 
 ```shell
+#for testing
+#source env_test.sh
+#for releasing
+source env_release.sh
 ./build_and_push_images.sh
 ```
 
@@ -63,7 +67,8 @@ Command | Description
 ---------------------- | ------------------------------------
 `install` | Start the installer.
 `start` | Start all containers.
-`restart`	| Restart all containers (same as start).
+`restart`| Restart all containers (same as start).
 `stop` | Stop all containers.
-`rebuild`	| Rebuild generated installation assets.
+`rebuild`| Rebuild generated installation assets.
+`update`| pull latest docker images.
 `help` | List all commands.
