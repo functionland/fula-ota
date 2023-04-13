@@ -4,25 +4,33 @@ services:
   watchtower:
     image: containrrr/watchtower
     restart: always
+    container_name: fula_updater
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
-    command: --interval 30  --cleanup --label-enable
     environment:
+      - WATCHTOWER_DEBUG=true
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_NO_PULL=false
+      - WATCHTOWER_MONITOR_ONLY=false
+      - WATCHTOWER_POLL_INTERVAL=36000
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
   go-fula:
-    build: ./go-fula
-    #image: functionland/go-fula:$GO_FULA_TAG
+    image: $GO_FULA
+    restart: always
+    container_name: fula_go
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
     network_mode: "host"
+    devices:
+       - /dev/fuse:/dev/fuse:rwm 
     cap_add:
       - ALL
     privileged: true
@@ -32,17 +40,22 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       
   sugarfunge-node:
-    build: ./sugarfunge-node
-    #image: functionland/go-fula:$GO_FULA_TAG
+    image: $SUGARFUNGE_NODE
+    restart: always
+    container_name: fula_node
     depends_on:
       - fxsupport
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"	
+      - "com.centurylinklabs.watchtower.enable=true"
 
   fxsupport:
-    build: ./fxsupport
-    #image: functionland/fxsupport:$FX_SUPPROT_TAG
+    image: $FX_SUPPROT
+    restart: always
+    container_name: fula_fxsupport
+    command: tail -F /dev/null
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+    depends_on:
+      - watchtower

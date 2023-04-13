@@ -83,11 +83,15 @@ function dockerPull() {
     echo "Start polling images..."
     if [ -z "$1" ]; then
       echo "Full Image Updating..."
-      docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
+       if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull; then
+          echo "Can not pull all images"
+       fi
     else
       . $ENV_FILE
       echo "Updating fxsupport ($FX_SUPPROT)..."
-      docker pull $FX_SUPPROT
+       if ! docker pull $FX_SUPPROT ; then
+           echo "can not download fxsupport"
+       fi
     fi
   else
     echo "You are not connected to internet!"
