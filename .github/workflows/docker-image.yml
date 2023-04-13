@@ -19,6 +19,6 @@ jobs:
       - name: Build the Docker images
         run: docker buildx create --name multiarch --driver docker-container --use
       - name: Build fxsupport
-        run: cd ./docker && source env_release.sh && ./fxsupport/ && ./build.sh
+        run: cd ./docker && source env_release.sh && cd ./fxsupport && ./build.sh
         
       
