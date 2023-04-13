@@ -19,11 +19,9 @@ jobs:
       - name: Build Container image
         uses: docker/build-push-action@v3
         with:
-          context: ./fxsupport
+          context: ./docker/fxsupport
           push: false
           platforms: linux/arm64
-      - name: Build the Docker image
+      - name: Build the Docker image  fxsupport
         run: docker buildx create --name multiarch --driver docker-container --use
-      - name: Build Fxsupport
-        run: cd ./fxsupport/ && ./build.sh
       
