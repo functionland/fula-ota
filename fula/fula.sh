@@ -80,6 +80,7 @@ function install() {
 
 function dockerPull() {
   if check_internet; then
+    echo "Start polling images..."
     if [ -z "$1" ]; then
       echo "Full Image Updating..."
       docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
@@ -96,6 +97,7 @@ function dockerPull() {
 
 function dockerComposeUp() {
   dockerPull fxsupport
+  echo "compsing up images..."
   docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
 }
 
