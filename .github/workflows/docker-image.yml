@@ -22,6 +22,7 @@ jobs:
           context: ./docker/fxsupport
           push: true
           platforms: linux/arm64
+          tag: release
       - name: Build the Docker image fxsupport
         run: docker buildx create --name multiarch --driver docker-container --use
       
