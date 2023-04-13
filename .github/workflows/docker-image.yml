@@ -23,6 +23,7 @@ jobs:
           push: true
           platforms: linux/arm64
           tags: release
-      - name: Build the Docker image fxsupport
+      - name: Build the Docker images
         run: docker buildx create --name multiarch --driver docker-container --use
+        
       
