@@ -19,7 +19,7 @@ jobs:
       - name: Build Container image
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./fxsupport
           push: false
           platforms: linux/arm64
       - name: Build the Docker image
