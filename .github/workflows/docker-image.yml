@@ -18,9 +18,7 @@ jobs:
         uses: docker/setup-buildx-action@v2
       - name: Build the Docker images
         run: docker buildx create --name multiarch --driver docker-container --use
-      - name: Preparing environment
-        run: cd ./docker && source env_release.sh
       - name: Build fxsupport
-        run: cd ./docker/fxsupport/ && ./build.sh
+        run: cd ./docker && source env_release.sh && ./fxsupport/ && ./build.sh
         
       
