@@ -20,8 +20,8 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: ./docker/fxsupport
-          push: false
+          push: true
           platforms: linux/arm64
-      - name: Build the Docker image  fxsupport
+      - name: Build the Docker image fxsupport
         run: docker buildx create --name multiarch --driver docker-container --use
       
