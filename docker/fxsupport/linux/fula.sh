@@ -95,6 +95,7 @@ function dockerPull() {
 }
 
 function dockerComposeUp() {
+  dockerPull fxsupport
   docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
 }
 
@@ -171,6 +172,6 @@ case $1 in
   remove
   ;;
 "update")
-  dockerPull "$@"
+  dockerPull "${@:2}"
   ;;
 esac
