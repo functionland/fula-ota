@@ -25,5 +25,7 @@ jobs:
         run: docker buildx create --name multiarch --driver docker-container --use
       - name: Build fxsupport
         run: cd ./docker && source env_release.sh && cd ./fxsupport && ./build.sh
+      - name: Build sugarfunge-node
+        run: cd ./docker && source env_release.sh && cd ./sugarfunge-node && ./build.sh
         
       
