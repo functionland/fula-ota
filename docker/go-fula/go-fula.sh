@@ -13,6 +13,8 @@ check_internet() {
 wap_pid=0
 run_wap_once=true
 
+sh /union-drive.sh &
+
 while true; do
   if check_internet; then
     echo "Internet connected. Running /app."

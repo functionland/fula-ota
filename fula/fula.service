@@ -4,11 +4,13 @@ PartOf=docker.service
 After=docker.service
 
 [Service]
-Type=oneshot
+Type=simple
 RemainAfterExit=true
 WorkingDirectory=/usr/bin/fula/
-ExecStart=/usr/bin/fula/fula.sh start
+ExecStart=/bin/sh -c '. ./docker.env && if ! [ -s ./fula.sh ] || ! ./fula.sh start; then  echo "failed";  docker run --name fula_fxsupport --rm $FX_SUPPROT sleep 20 & sleep 2 && docker cp fula_fxsupport:/linux/. /usr/bin/fula/;  sync ;exit 1;  fi'
 ExecStop=/usr/bin/fula/fula.sh stop
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

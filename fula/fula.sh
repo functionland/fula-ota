@@ -13,7 +13,6 @@ set -e
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-
 FULA_PATH=/usr/bin/fula
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
@@ -46,39 +45,64 @@ check_internet() {
 }
 
 service_exists() {
-    local n=$1
-    if [[ $(systemctl list-units --all -t service --full --no-legend "$n.service" | sed 's/^\s*//g' | cut -f1 -d' ') == $n.service ]]; then
-        return 0
-    else
-        return 1
-    fi
+  local n=$1
+  if [[ $(systemctl list-units --all -t service --full --no-legend "$n.service" | sed 's/^\s*//g' | cut -f1 -d' ') == $n.service ]]; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 # Functions
 function install() {
-  dockerComposeBuild
   echo "Installing Fula ..."
+  echo "Pulling Images..."
+  dockerPull
+  echo "Building Images..."
+  dockerComposeBuild
+
+  echo "Copying Files..."
   mkdir -p $FULA_PATH/
   cp fula.sh $FULA_PATH/
   cp docker.env $FULA_PATH/
-  cp docker-compose.yml $FULA_PATH/  
+  cp docker-compose.yml $FULA_PATH/
   cp fula.service $SYSTEMD_PATH/
-  
+
   cp hw_test.py $FULA_PATH/
   cp resize.sh $FULA_PATH/
   chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
-  
+
+  echo "Installing Services..."
   systemctl daemon-reload
   systemctl enable fula.service
-  systemctl start fula.service
-   echo "Installing Fula Finished"
+  echo "Installing Fula Finished"
+}
+
+function dockerPull() {
+  if check_internet; then
+    echo "Start polling images..."
+    if [ -z "$1" ]; then
+      echo "Full Image Updating..."
+       if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull; then
+          echo "Can not pull all images"
+       fi
+    else
+      . $ENV_FILE
+      echo "Updating fxsupport ($FX_SUPPROT)..."
+       if ! docker pull $FX_SUPPROT ; then
+           echo "can not download fxsupport"
+       fi
+    fi
+  else
+    echo "You are not connected to internet!"
+    echo "Please check your connection"
+  fi
 }
 
 function dockerComposeUp() {
-  if check_internet; then
-    docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE pull
-  fi
-  docker-compose -f $DOCKER_DIR/docker-compose.yml  --env-file $ENV_FILE up -d --force-recreate
+  dockerPull fxsupport
+  echo "compsing up images..."
+  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
 }
 
 function dockerComposeDown() {
@@ -89,10 +113,8 @@ function dockerComposeDown() {
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
   docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache
 }
-
 
 function createDir() {
   if [ ! -d "${DATA_DIR}/$1" ]; then
@@ -107,24 +129,23 @@ function dockerPrune() {
 
 function restart() {
   if [ -f "$HW_CHECK_SC" ]; then
-     python $HW_CHECK_SC
+    python $HW_CHECK_SC
   fi
   if [ -f "$RESIZE_SC" ]; then
-     sh $RESIZE_SC
+    sh $RESIZE_SC
   fi
   dockerComposeDown
   dockerComposeUp
 }
 
-function remove()
-{
-  
+function remove() {
+
   echo "Removing Fula ..."
   if service_exists fula.service; then
-  	systemctl stop fula.service -q
-  	systemctl disable fula.service -q
+    systemctl stop fula.service -q
+    systemctl disable fula.service -q
   fi
-  rm -f $SYSTEMD_PATH/fula.service 
+  rm -f $SYSTEMD_PATH/fula.service
   rm -rf $FULA_PATH/
   systemctl daemon-reload
   dockerPrune
@@ -133,11 +154,8 @@ function remove()
 
 function rebuild() {
   remove
-  install 
+  install
 }
-
-
-
 
 # Commands
 case $1 in
@@ -147,6 +165,7 @@ case $1 in
 "start" | "restart")
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
+  sync
   ;;
 "stop")
   dockerComposeDown
@@ -157,5 +176,8 @@ case $1 in
 "removeall")
   docker rm -f $(docker ps -a -q)
   remove
-   ;;
+  ;;
+"update")
+  dockerPull "${@:2}"
+  ;;
 esac
