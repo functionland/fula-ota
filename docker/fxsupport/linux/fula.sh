@@ -171,6 +171,6 @@ case $1 in
   remove
   ;;
 "update")
-  dockerPull
+  dockerPull "$@"
   ;;
 esac
