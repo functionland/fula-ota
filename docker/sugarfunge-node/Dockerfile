@@ -19,7 +19,7 @@ COPY ./sugarfunge-api /sugarfunge-api
 RUN cargo fetch
 RUN cargo build --locked --release
 
-FROM gcr.io/distroless/cc-debian11
+FROM ubuntu:latest
 
 COPY --from=builder /sugarfunge/target/release/sugarfunge-node /sugarfunge-node
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api
