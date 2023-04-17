@@ -57,3 +57,5 @@ services:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+    depends_on:
+      - watchtower

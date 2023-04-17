@@ -58,27 +58,22 @@ function install() {
 
   dockerComposeVolumes
 
-  #docker build --no-cache -t bloxota-build --build-arg HOSTNAME=$DOMAIN --build-arg COMPOSER_VERSION \
-  #  --build-arg PHP_VERSION -f $DOCKER_DIR/fxsupport/Dockerfile $PORTAL_DIR
-
-  #docker run --rm --name setup -v $DATA_DIR:/iotportaldata --env-file $ENV_DIR/uid.env bloxota-build
-
   dockerComposeBuild
 }
 
 function dockerComposeUp() {
-  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/uid.env up -d --force-recreate
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/docker.env up -d --force-recreate
 }
 
 function dockerComposeDown() {
-  if [ $(docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" ps | wc -l) -gt 2 ]; then
+  if [ $(docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/docker.env" ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
-    docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/uid.env" down
+    docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/docker.env" down
   fi
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/uid.env build --no-cache
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/docker.env build --no-cache
 }
 
 function dockerComposeVolumes() {

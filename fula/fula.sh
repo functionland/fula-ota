@@ -83,15 +83,13 @@ function dockerPull() {
     echo "Start polling images..."
     if [ -z "$1" ]; then
       echo "Full Image Updating..."
-       if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull; then
-          echo "Can not pull all images"
-       fi
+      docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
     else
       . $ENV_FILE
       echo "Updating fxsupport ($FX_SUPPROT)..."
-       if ! docker pull $FX_SUPPROT ; then
-           echo "can not download fxsupport"
-       fi
+      if ! docker pull $FX_SUPPROT; then
+        echo "failed to pull fx_support"
+      fi
     fi
   else
     echo "You are not connected to internet!"
@@ -102,10 +100,15 @@ function dockerPull() {
 function dockerComposeUp() {
   dockerPull fxsupport
   echo "compsing up images..."
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --force-recreate
+  if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
+    echo "failed to start some images"
+    pullFailedServices &
+    echo "pull pid is" $!
+  fi
 }
 
 function dockerComposeDown() {
+  killPullImage
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down
@@ -128,6 +131,7 @@ function dockerPrune() {
 }
 
 function restart() {
+
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC
   fi
@@ -139,8 +143,8 @@ function restart() {
 }
 
 function remove() {
-
   echo "Removing Fula ..."
+  killPullImage
   if service_exists fula.service; then
     systemctl stop fula.service -q
     systemctl disable fula.service -q
@@ -155,6 +159,47 @@ function remove() {
 function rebuild() {
   remove
   install
+}
+
+# Define the default interval between checks (in seconds)
+DEFAULT_INTERVAL=360
+# Define the default maximum number of attempts
+DEFAULT_MAX_ATTEMPTS=10
+
+function pullFailedServices() {
+  SERVICES=$(docker-compose --env-file "$ENV_FILE" config --services)
+  while :; do
+    for service in $SERVICES; do
+      # # Check if the service is running
+      if ! status=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service | xargs docker inspect --format='{{.State.Status}}' 2>/dev/null) || [[ $status != "running" ]]; then
+
+        # Pull the latest image
+        if check_internet; then
+          echo "Start polling $service images..."
+          if [ -s "$1" ]; then
+            echo "Pulling $service"
+            docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service
+          fi
+        fi
+      fi
+    done
+
+    attempts=$(($attempts + 1))
+    if [ $attempts -ge $DEFAULT_MAX_ATTEMPTS ]; then
+      echo "Maximum number of attempts reached for service $service. Exiting..."
+      break 1
+    fi
+    # Wait before checking again
+    echo "Next Time Will be " $DEFAULT_INTERVAL " Seconds Later..."
+    sleep $DEFAULT_INTERVAL
+  done
+}
+
+function killPullImage() {
+  if [ pid=$(pgrep -f "fula.sh start") ]; then
+    echo "killing Pull Thread $pid ..."
+    kill $pid >/dev/null 2>&1
+  fi
 }
 
 # Commands
@@ -179,5 +224,8 @@ case $1 in
   ;;
 "update")
   dockerPull "${@:2}"
+  ;;
+"pull-failed")
+  pullFailedServices
   ;;
 esac
