@@ -22,7 +22,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Build the Docker images
-        run: docker buildx create --name multiarch --node multiarch --driver docker-container --use
+        run: docker buildx create --name multiarch --driver docker-container --use --append
       - name: Build fxsupport
         run: cd ./docker && source env_release.sh && cd ./fxsupport && ./build.sh
       - name: Build sugarfunge-node
