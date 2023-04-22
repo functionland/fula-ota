@@ -4,6 +4,7 @@ MOUNT_USB_PATH=/storage
 MOUNT_LINKS=/storagelinks
 MOUNT_PATH=/uniondrive
 
+MAX_DRIVES=20
 
 log()
 {
@@ -11,24 +12,20 @@ log()
 }
 
 unionfs_fuse_mount_drives() {
- log "mount drives" 
+ #log "mount drives" 
  #unionfs-fuse -o cow /root/dir1=RW:/root/dir2=RW  /home/mohsen/mount-fuse
  MOUNT_ARG=""
  FIRST=""
 
-#create 500 empty directory for mapping drivers
+#create MAX_DRIVES empty directory for mapping drivers
 #all of them will be deleted after
- for d in `seq 0 500` ; do
+ for d in `seq 0 $MAX_DRIVES` ; do
    DISK_PATH=${MOUNT_LINKS}/disk-${d}
    mkdir $DISK_PATH;
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
- #log $MOUNT_ARG 
- #on alpine version se this
  mergerfs -o allow_other "$MOUNT_ARG" "$MOUNT_PATH" 
- #on ubuntu use this one
- #unionfs-fuse -o cow,statfs_omit_ro,allow_other,use_ino,suid,dev "$MOUNT_ARG" "$MOUNT_PATH"  
 }
 
 mount_drives(){
@@ -36,8 +33,7 @@ unionfs_fuse_mount_drives
 }
 
 umount_drives() {
- log "drive removed" 
- #fusermount
+ #log "drive removed" 
  umount  $MOUNT_PATH  
 }
 
@@ -55,11 +51,12 @@ hget() {
 DISK_INDEX=0
 
 create_disk_link(){
+   #log "create_disk_link start for $1" 
    DISK_INDEX=$((DISK_INDEX+1))
    LINK_NAME="disk-$DISK_INDEX"
    ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
    hput "$1" "$LINK_NAME"
-   log "create_disk_link for $1 in $MOUNT_LINKS/$LINK_NAME" 
+   #log "create_disk_link end for $1 in $MOUNT_LINKS/$LINK_NAME" 
 }
 
 umount_drives
@@ -81,30 +78,18 @@ rm -r $MOUNT_LINKS/*
 for d in $MOUNT_USB_PATH/* ; do
    create_disk_link "$d"
 done 
-log $hash_map
+#log $hash_map
 
-# wait for drive mount events
-inotifywait -m -e moved_to -e create,delete "$MOUNT_USB_PATH"  | while read path action file 
-do
-   DRIVE_PATH=$path$file   
-  
-   case "$action" in
-   "DELETE,ISDIR") 
-      log "Drive Delted $DRIVE_PATH"    
-      value=`hget "$DRIVE_PATH"`
-      log "removing $MOUNT_LINKS/$value ..."
-      #rm $MOUNT_LINKS/$value
-   ;;
-   "CREATE,ISDIR")  
-      log "Drive Created $DRIVE_PATH" 
-      value=`hget "$DRIVE_PATH"`
-      if [ -z $value ]; then
-         create_disk_link "$DRIVE_PATH"
-      else
-        log "drive exist $DRIVE_PATH"
-        #ln -s "$DRIVE_PATH" "$MOUNT_LINKS/$value"
-      fi
-   ;;
-esac
-#log "hash map:"$hash_map
+while true; do
+   cat /proc/mounts | grep "$MOUNT_USB_PATH" |
+    while IFS= read -r line; do
+        if [ ! -s "$line" ]; then
+		value=$(echo $line | cut -d ' ' -f 2)
+		if [ -z $value ]; then
+			 create_disk_link "$value"
+		fi
+        fi
+    done 
+    sleep 2
 done
+
