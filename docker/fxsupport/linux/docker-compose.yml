@@ -28,6 +28,7 @@ services:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
+      - shared-volume:/internal
     network_mode: "host"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
@@ -37,8 +38,7 @@ services:
     depends_on:
       - fxsupport
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      
+      - "com.centurylinklabs.watchtower.enable=true"     
   sugarfunge-node:
     image: $SUGARFUNGE_NODE
     restart: always
@@ -47,6 +47,8 @@ services:
       - fxsupport
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+    volumes:
+      - shared-volume:/internal
 
   fxsupport:
     image: $FX_SUPPROT
@@ -55,7 +57,10 @@ services:
     command: tail -F /dev/null
     volumes:
       - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - shared-volume:/internal 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
-      - watchtower
+      - watchtower      
+volumes:
+ shared-volume:

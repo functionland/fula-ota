@@ -196,9 +196,11 @@ function pullFailedServices() {
 }
 
 function killPullImage() {
-  if [ pid=$(pgrep -f "fula.sh start") ]; then
-    echo "killing Pull Thread $pid ..."
-    kill $pid >/dev/null 2>&1
+  if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
+     echo "Process already running."
+     kill -9 `cat /var/run/fula.pid`
+     rm -f /var/run/fula.pid
+     echo `pidof $$` > /var/run/fula.pid
   fi
 }
 
