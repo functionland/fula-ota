@@ -1,7 +1,7 @@
 #,linux/arm/v7 linux/arm64 linux/amd64
 export ARCH_SUPPORT="linux/arm64"
 
-export DOCKER_REPO="smzahraee"
+export DOCKER_REPO="functionland"
 export DEFAULT_TAG="test"
 
 #build fxsupport
