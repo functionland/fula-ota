@@ -2,22 +2,24 @@
 export ARCH_SUPPORT="linux/arm64"
 
 export DOCKER_REPO="functionland"
-export DEFAULT_TAG="test"
+export DEFAULT_FX_TAG="test"
+export DEFAULT_FULA_TAG="test"
+export DEFAULT_NODE_TAG="release"
 
 #build fxsupport
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
-export FX_SUPPORT_DOCKER_TAG="$DEFAULT_TAG"
+export FX_SUPPORT_DOCKER_TAG="$DEFAULT_FX_TAG"
 
 #build go-fula
 export GO_FULA_BRANCH="blockchain-package"
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
-export GO_FULA_DOCKER_TAG="$DEFAULT_TAG"
+export GO_FULA_DOCKER_TAG="$DEFAULT_FULA_TAG"
 
 #build node and node-api
 export SUGARFUNGE_NODE_BRANCH="main"
 export SUGARFUNGE_API_BRANCH="main"
 export SUGARFUNGE_NODE_IMAGE="$DOCKER_REPO/node"
-export GSUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_TAG"
+export GSUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_NODE_TAG"
 
 
 #create docker.env in fxsupport/linux/docker.env
