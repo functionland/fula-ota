@@ -140,6 +140,9 @@ function restart() {
   fi
   dockerComposeDown
   dockerComposeUp
+  #remove dangling images
+  if [ $(docker image prune --filter="dangling=true" -f) ];then
+  fi
 }
 
 function remove() {
@@ -178,7 +181,11 @@ function pullFailedServices() {
           echo "Start polling $service images..."
           if [ -s "$1" ]; then
             echo "Pulling $service"
-            docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service
+            if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service) ]; then
+                echo "pulling $service"
+            else
+                echo "failed to get $service"
+            fi
           fi
         fi
       fi
@@ -213,6 +220,7 @@ case $1 in
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
+  
   ;;
 "stop")
   dockerComposeDown
