@@ -141,9 +141,9 @@ function restart() {
   dockerComposeDown
   dockerComposeUp
   #remove dangling images
-  if [ $(docker image prune --filter="dangling=true" -f) ]; then
-    echo "pruning ununsed dockers..."
-  fi
+  if docker image prune --filter="dangling=true" -f; then
+    echo "pruning unused dockers..."
+fi
 }
 
 function remove() {
