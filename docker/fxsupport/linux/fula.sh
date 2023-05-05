@@ -142,11 +142,6 @@ function restart() {
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC || { echo "Resize failed"; exit 1; }
   fi
-  if [ -f "$WIFI_SC" ]; then
-    if ! check_internet; then
-      sh $WIFI_SC || { echo "Wifi setup failed"; exit 1; }
-    fi
-  fi
 
   dockerComposeDown
   dockerComposeUp
