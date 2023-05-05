@@ -17,6 +17,7 @@ FULA_PATH=/usr/bin/fula
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
+WIFI_SC=$FULA_PATH/wifi.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -70,7 +71,8 @@ function install() {
 
   cp hw_test.py $FULA_PATH/
   cp resize.sh $FULA_PATH/
-  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  cp wifi.sh $FULA_PATH/
+  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh $FULA_PATH/wifi.sh
 
   echo "Installing Services..."
   systemctl daemon-reload
@@ -137,6 +139,9 @@ function restart() {
   fi
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC
+  fi
+  if [ -f "$WIFI_SC" ]; then
+    sh $WIFI_SC
   fi
   dockerComposeDown
   dockerComposeUp
