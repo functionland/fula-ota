@@ -107,7 +107,7 @@ function dockerComposeUp() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
     if ! check_internet; then
-      sh $WIFI_SC || { echo "Wifi setup failed"; exit 1; }
+      sh $WIFI_SC || { echo "Wifi setup failed"; }
     fi
   fi
 }
@@ -137,10 +137,10 @@ function dockerPrune() {
 
 function restart() {
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC || { echo "Hardware check failed"; exit 1; }
+    python $HW_CHECK_SC || { echo "Hardware check failed"; }
   fi
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC || { echo "Resize failed"; exit 1; }
+    sh $RESIZE_SC || { echo "Resize failed"; }
   fi
 
   dockerComposeDown
