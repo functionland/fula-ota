@@ -237,7 +237,12 @@ case $1 in
   rebuild
   ;;
 "removeall")
-  docker rm -f $(docker ps -a -q)
+  containers=$(docker ps -a -q)
+  if [ -n "$containers" ]; then
+      docker rm -f $containers
+  else
+      echo "No containers to remove"
+  fi
   remove
   ;;
 "update")
