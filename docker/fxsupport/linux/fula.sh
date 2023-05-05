@@ -72,7 +72,8 @@ function install() {
   cp hw_test.py $FULA_PATH/
   cp resize.sh $FULA_PATH/
   cp wifi.sh $FULA_PATH/
-  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh $FULA_PATH/wifi.sh
+  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  chmod +x $FULA_PATH/wifi.sh
 
   echo "Installing Services..."
   systemctl daemon-reload
@@ -113,7 +114,7 @@ function dockerComposeDown() {
   killPullImage
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
-    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down
+    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans
   fi
 }
 
@@ -141,7 +142,9 @@ function restart() {
     sh $RESIZE_SC
   fi
   if [ -f "$WIFI_SC" ]; then
-    sh $WIFI_SC
+    if !check_internet; then
+      sh $WIFI_SC
+    fi
   fi
   dockerComposeDown
   dockerComposeUp
