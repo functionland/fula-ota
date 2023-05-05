@@ -1,6 +1,19 @@
 #!/bin/bash
 
-#v2@2023-05-05
+#v3@2023-05-05
+
+# Check if NetworkManager is active. If it's not, start it.
+if ! systemctl is-active --quiet NetworkManager; then
+    echo "NetworkManager is not active. Starting it..."
+    sudo systemctl start NetworkManager
+fi
+
+# Force a rescan
+echo "Forcing a rescan of Wi-Fi networks..."
+sudo nmcli device wifi rescan
+
+# Wait for a few seconds to let the rescan complete
+sleep 5
 
 # Get the list of saved connections
 connections=$(nmcli --terse --fields TYPE,NAME con show)
