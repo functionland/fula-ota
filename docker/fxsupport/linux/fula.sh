@@ -142,7 +142,7 @@ function restart() {
     sh $RESIZE_SC
   fi
   if [ -f "$WIFI_SC" ]; then
-    if !check_internet; then
+    if ! check_internet; then
       sh $WIFI_SC
     fi
   fi
