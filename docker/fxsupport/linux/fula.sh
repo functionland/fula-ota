@@ -35,14 +35,9 @@ export MOUNT_PATH=/media/$CURRENT_USER
 # Determine default host machine IP address
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
-check_internet() {
+function check_internet() {
   wget -q --spider --timeout=10 https://www.google.com
-
-  if [ $? -eq 0 ]; then
-    return 0
-  else
-    return 1
-  fi
+  return $?   # Return the status directly, no need for if/else.
 }
 
 service_exists() {
@@ -108,6 +103,13 @@ function dockerComposeUp() {
     pullFailedServices &
     echo "pull pid is" $!
   fi
+
+  # Check internet connection and setup WiFi if needed
+  if [ -f "$WIFI_SC" ]; then
+    if ! check_internet; then
+      sh $WIFI_SC || { echo "Wifi setup failed"; exit 1; }
+    fi
+  fi
 }
 
 function dockerComposeDown() {
@@ -134,24 +136,25 @@ function dockerPrune() {
 }
 
 function restart() {
-
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC
+    python $HW_CHECK_SC || { echo "Hardware check failed"; exit 1; }
   fi
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC
+    sh $RESIZE_SC || { echo "Resize failed"; exit 1; }
   fi
   if [ -f "$WIFI_SC" ]; then
     if ! check_internet; then
-      sh $WIFI_SC
+      sh $WIFI_SC || { echo "Wifi setup failed"; exit 1; }
     fi
   fi
+
   dockerComposeDown
   dockerComposeUp
-  #remove dangling images
+
+  # Remove dangling images
   if docker image prune --filter="dangling=true" -f; then
     echo "pruning unused dockers..."
-fi
+  fi
 }
 
 function remove() {
