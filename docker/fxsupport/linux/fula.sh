@@ -141,8 +141,9 @@ function restart() {
   dockerComposeDown
   dockerComposeUp
   #remove dangling images
-  if [ $(docker image prune --filter="dangling=true" -f) ];then
-  fi
+  if docker image prune --filter="dangling=true" -f; then
+    echo "pruning unused dockers..."
+fi
 }
 
 function remove() {
@@ -220,7 +221,6 @@ case $1 in
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
-  
   ;;
 "stop")
   dockerComposeDown
