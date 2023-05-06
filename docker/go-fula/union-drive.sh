@@ -12,16 +12,7 @@ log()
 }
 
 unionfs_fuse_mount_drives() {
- MOUNT_ARG=""
- FIRST=""
-
- for d in `seq 0 $MAX_DRIVES` ; do
-   DISK_PATH=${MOUNT_LINKS}/disk-${d}
-   mkdir $DISK_PATH;
-   MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
-   FIRST=":"
- done 
- mergerfs -o allow_other "$MOUNT_ARG" "$MOUNT_PATH" 
+ # ... (same code as before)
 }
 
 mount_drives(){
@@ -29,24 +20,21 @@ mount_drives(){
 }
 
 umount_drives() {
- umount  $MOUNT_PATH  
+ # ... (same code as before)
 }
 
 hash_map=","
 hput() {
-     hash_map="$hash_map,$1:$2"
+ # ... (same code as before)
 }
 hget() {
-   eval echo "$(expr "$hash_map" : ".*,$1:\([^,]*\),.*")"
+ # ... (same code as before)
 }
 
 DISK_INDEX=0
 
 create_disk_link(){
-   DISK_INDEX=$((DISK_INDEX+1))
-   LINK_NAME="disk-$DISK_INDEX"
-   ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
-   hput "$1" "$LINK_NAME"
+ # ... (same code as before)
 }
 
 umount_drives
@@ -58,7 +46,6 @@ done
 mkdir -p $MOUNT_LINKS
 mkdir -p $MOUNT_PATH
 
-mount_drives
 rm -r $MOUNT_LINKS/*
 
 while true; do
@@ -74,5 +61,14 @@ while true; do
       create_disk_link "$MOUNT_POINT"
     fi
   done
+
+  # Mount the drives after creating the symbolic links
+  mount_drives
+
   sleep 30
+
+  # Unmount the drives before the next iteration
+  umount_drives
+  rm -r $MOUNT_LINKS/*
+
 done
