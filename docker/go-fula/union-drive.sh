@@ -83,13 +83,10 @@ done
 while true; do
    cat /proc/mounts | grep "$MOUNT_USB_PATH" |
     while IFS= read -r line; do
-        if [ ! -s "$line" ]; then
-		value=$(echo $line | cut -d ' ' -f 2)
-		if [ -z $value ]; then
-			 create_disk_link "$value"
-		fi
+        value=$(echo $line | cut -d ' ' -f 2)
+        if [ ! -z $value ]; then
+            create_disk_link "$value"
         fi
     done 
     sleep 2
 done
-
