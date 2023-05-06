@@ -61,25 +61,18 @@ mkdir -p $MOUNT_PATH
 mount_drives
 rm -r $MOUNT_LINKS/*
 
-# Get the list of mounted external storage devices
-EXTERNAL_DRIVES=$(lsblk -o NAME,TRAN | grep 'usb' | awk '{print "/dev/"$1}')
-
-for drive in $EXTERNAL_DRIVES; do
-  # Get the mount point for the current drive
-  MOUNT_POINT=$(grep "$drive" /proc/mounts | awk '{print $2}')
-  
-  # Check if the mount point is under the MOUNT_USB_PATH
-  if [ ! -z "$MOUNT_POINT" ] && [[ "$MOUNT_POINT" == "$MOUNT_USB_PATH"* ]]; then
-    create_disk_link "$MOUNT_POINT"
-  fi
-done
-
 while true; do
+  # Get the list of mounted external storage devices
+  EXTERNAL_DRIVES=$(lsblk -o NAME,TRAN | grep 'usb' | awk '{print "/dev/"$1}')
+  
   for drive in $EXTERNAL_DRIVES; do
+    # Get the mount point for the current drive
     MOUNT_POINT=$(grep "$drive" /proc/mounts | awk '{print $2}')
+    
+    # Check if the mount point is under the MOUNT_USB_PATH
     if [ ! -z "$MOUNT_POINT" ] && [[ "$MOUNT_POINT" == "$MOUNT_USB_PATH"* ]]; then
       create_disk_link "$MOUNT_POINT"
     fi
   done
-  sleep 2
+  sleep 30
 done
