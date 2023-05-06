@@ -17,6 +17,7 @@ FULA_PATH=/usr/bin/fula
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
+WIFI_SC=$FULA_PATH/wifi.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -34,14 +35,9 @@ export MOUNT_PATH=/media/$CURRENT_USER
 # Determine default host machine IP address
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
-check_internet() {
+function check_internet() {
   wget -q --spider --timeout=10 https://www.google.com
-
-  if [ $? -eq 0 ]; then
-    return 0
-  else
-    return 1
-  fi
+  return $?   # Return the status directly, no need for if/else.
 }
 
 service_exists() {
@@ -70,7 +66,9 @@ function install() {
 
   cp hw_test.py $FULA_PATH/
   cp resize.sh $FULA_PATH/
+  cp wifi.sh $FULA_PATH/
   chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  chmod +x $FULA_PATH/wifi.sh
 
   echo "Installing Services..."
   systemctl daemon-reload
@@ -97,6 +95,17 @@ function dockerPull() {
   fi
 }
 
+function connectwifi() {
+  # Check internet connection and setup WiFi if needed
+  if [ -f "$WIFI_SC" ]; then
+    if ! check_internet; then
+      echo "Waiting for Wi-Fi adapter to be ready..."
+      sleep 140
+      sh $WIFI_SC || { echo "Wifi setup failed"; }
+    fi
+  fi
+}
+
 function dockerComposeUp() {
   dockerPull fxsupport
   echo "compsing up images..."
@@ -111,7 +120,7 @@ function dockerComposeDown() {
   killPullImage
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
-    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down
+    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans
   fi
 }
 
@@ -131,19 +140,20 @@ function dockerPrune() {
 }
 
 function restart() {
-
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC
+    python $HW_CHECK_SC || { echo "Hardware check failed"; }
   fi
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC
+    sh $RESIZE_SC || { echo "Resize failed"; }
   fi
+
   dockerComposeDown
   dockerComposeUp
-  #remove dangling images
+
+  # Remove dangling images
   if docker image prune --filter="dangling=true" -f; then
     echo "pruning unused dockers..."
-fi
+  fi
 }
 
 function remove() {
@@ -221,6 +231,7 @@ case $1 in
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
+  connectwifi
   ;;
 "stop")
   dockerComposeDown
@@ -229,7 +240,12 @@ case $1 in
   rebuild
   ;;
 "removeall")
-  docker rm -f $(docker ps -a -q)
+  containers=$(docker ps -a -q)
+  if [ -n "$containers" ]; then
+      docker rm -f $containers
+  else
+      echo "No containers to remove"
+  fi
   remove
   ;;
 "update")

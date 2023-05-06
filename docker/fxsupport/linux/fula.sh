@@ -95,6 +95,17 @@ function dockerPull() {
   fi
 }
 
+function connectwifi() {
+  # Check internet connection and setup WiFi if needed
+  if [ -f "$WIFI_SC" ]; then
+    if ! check_internet; then
+      echo "Waiting for Wi-Fi adapter to be ready..."
+      sleep 140
+      sh $WIFI_SC || { echo "Wifi setup failed"; }
+    fi
+  fi
+}
+
 function dockerComposeUp() {
   dockerPull fxsupport
   echo "compsing up images..."
@@ -102,13 +113,6 @@ function dockerComposeUp() {
     echo "failed to start some images"
     pullFailedServices &
     echo "pull pid is" $!
-  fi
-
-  # Check internet connection and setup WiFi if needed
-  if [ -f "$WIFI_SC" ]; then
-    if ! check_internet; then
-      sh $WIFI_SC || { echo "Wifi setup failed"; }
-    fi
   fi
 }
 
@@ -227,6 +231,7 @@ case $1 in
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
+  connectwifi
   ;;
 "stop")
   dockerComposeDown
