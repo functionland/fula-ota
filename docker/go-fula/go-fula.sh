@@ -24,7 +24,7 @@ while true; do
       kill $wap_pid
     fi
 
-    /app
+    /app --config /internal/config.yaml
     break
   else
     if [ "$run_wap_once" = true ]; then
