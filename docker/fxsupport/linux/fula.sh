@@ -98,10 +98,10 @@ function dockerPull() {
 function connectwifi() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
-    sleep 160
+    #sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..."
-      sh $WIFI_SC || { echo "Wifi setup failed"; }
+      #sh $WIFI_SC || { echo "Wifi setup failed"; }
     fi
   fi
 }
