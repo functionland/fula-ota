@@ -17,7 +17,7 @@ unionfs_fuse_mount_drives() {
 
  for d in `seq 0 $MAX_DRIVES` ; do
    DISK_PATH=${MOUNT_LINKS}/disk-${d}
-   mkdir $DISK_PATH;
+   mkdir -p $DISK_PATH;
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
@@ -55,6 +55,7 @@ for d in $MOUNT_LINKS/* ; do
    rm $d
 done 
 
+# Create the necessary directories
 mkdir -p $MOUNT_USB_PATH
 mkdir -p $MOUNT_LINKS
 mkdir -p $MOUNT_PATH
