@@ -29,6 +29,7 @@ services:
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
+      - /var/run/docker.sock:/var/run/docker.sock
     network_mode: "host"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
