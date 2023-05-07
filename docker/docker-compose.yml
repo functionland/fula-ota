@@ -25,10 +25,9 @@ services:
     restart: always
     container_name: fula_go
     volumes:
-      - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
-      - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - shared-volume:/internal
     network_mode: "host"
     devices:
@@ -39,8 +38,7 @@ services:
     depends_on:
       - fxsupport
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      
+      - "com.centurylinklabs.watchtower.enable=true"     
   node:
     image: $SUGARFUNGE_NODE
     restart: always
@@ -58,12 +56,11 @@ services:
     container_name: fula_fxsupport
     command: tail -F /dev/null
     volumes:
-      - /media/${CURRENT_USER}/:/storage:rw,rshared
-      - shared-volume:/internal
+      - /media/pi/:/storage:rw,rshared
+      - shared-volume:/internal 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
-      - watchtower
-      
+      - watchtower      
 volumes:
  shared-volume:
