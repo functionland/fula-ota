@@ -25,7 +25,7 @@ services:
     restart: always
     container_name: fula_go
     volumes:
-      - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
@@ -56,7 +56,7 @@ services:
     container_name: fula_fxsupport
     command: tail -F /dev/null
     volumes:
-      - /media/${CURRENT_USER}/:/storage:rw,rshared
+      - /media/pi/:/storage:rw,rshared
       - shared-volume:/internal 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
