@@ -55,6 +55,7 @@ for d in $MOUNT_LINKS/* ; do
    rm $d
 done 
 
+mkdir -p $MOUNT_USB_PATH
 mkdir -p $MOUNT_LINKS
 mkdir -p $MOUNT_PATH
 
