@@ -12,12 +12,16 @@ log()
 }
 
 unionfs_fuse_mount_drives() {
+ #log "mount drives" 
+ #unionfs-fuse -o cow /root/dir1=RW:/root/dir2=RW  /home/mohsen/mount-fuse
  MOUNT_ARG=""
  FIRST=""
 
+#create MAX_DRIVES empty directory for mapping drivers
+#all of them will be deleted after
  for d in `seq 0 $MAX_DRIVES` ; do
    DISK_PATH=${MOUNT_LINKS}/disk-${d}
-   mkdir -p $DISK_PATH;
+   mkdir $DISK_PATH;
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
@@ -25,61 +29,66 @@ unionfs_fuse_mount_drives() {
 }
 
 mount_drives(){
-  unionfs_fuse_mount_drives
+unionfs_fuse_mount_drives
 }
 
 umount_drives() {
+ #log "drive removed" 
  umount  $MOUNT_PATH  
 }
 
 hash_map=","
+# map(map_name,key,value) table for storing links
 hput() {
      hash_map="$hash_map,$1:$2"
 }
+# return map(map_name,key)  to $value
 hget() {
    eval echo "$(expr "$hash_map" : ".*,$1:\([^,]*\),.*")"
 }
 
+
 DISK_INDEX=0
 
 create_disk_link(){
+   #log "create_disk_link start for $1" 
    DISK_INDEX=$((DISK_INDEX+1))
    LINK_NAME="disk-$DISK_INDEX"
    ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
    hput "$1" "$LINK_NAME"
+   #log "create_disk_link end for $1 in $MOUNT_LINKS/$LINK_NAME" 
 }
 
 umount_drives
 
+
+#delete previous symbolic files
 for d in $MOUNT_LINKS/* ; do
    rm $d
 done 
 
-# Create the necessary directories
-mkdir -p $MOUNT_USB_PATH
 mkdir -p $MOUNT_LINKS
 mkdir -p $MOUNT_PATH
 
 mount_drives
+#remove to create new one
 rm -r $MOUNT_LINKS/*
 
+#mount current drives
+for d in $MOUNT_USB_PATH/* ; do
+   create_disk_link "$d"
+done 
+#log $hash_map
+
 while true; do
-  # Get the list of mounted external storage devices
-  EXTERNAL_DRIVES=$(lsblk -o NAME,TRAN | grep 'usb' | awk '{print "/dev/"$1}')
-  
-  for drive in $EXTERNAL_DRIVES; do
-    # Get the mount point for the current drive
-    MOUNT_POINT=$(grep "$drive" /proc/mounts | awk '{print $2}')
-    
-    # Check if the mount point is under the MOUNT_USB_PATH
-    if [ ! -z "$MOUNT_POINT" ] && [[ "$MOUNT_POINT" == "$MOUNT_USB_PATH"* ]]; then
-      create_disk_link "$MOUNT_POINT"
-    fi
-  done
-
-  # Remount drives with updated links
-  umount_drives
-  mount_drives
-
-  sleep 30
+   cat /proc/mounts | grep "$MOUNT_USB_PATH" |
+    while IFS= read -r line; do
+        if [ ! -s "$line" ]; then
+		value=$(echo $line | cut -d ' ' -f 2)
+		if [ -z $value ]; then
+			 create_disk_link "$value"
+		fi
+        fi
+    done 
+    sleep 20
 done
