@@ -30,6 +30,7 @@ services:
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
       - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
     network_mode: "host"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
