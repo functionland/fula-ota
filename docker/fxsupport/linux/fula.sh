@@ -110,6 +110,10 @@ function dockerComposeUp() {
   dockerPull fxsupport
   echo "compsing up images..."
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
+    docker stop $(docker ps -a -q) && docker rm -f $(docker ps -a -q)
+  fi
+  
+  if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     echo "failed to start some images"
     pullFailedServices &
     echo "pull pid is" $!
