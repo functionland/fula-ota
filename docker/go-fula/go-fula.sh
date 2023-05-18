@@ -6,7 +6,7 @@ check_internet() {
 }
 
 check_files_exist() {
-  [ -f "/internal/setupInitiated.info" ] && [ -f "/internal/config.yaml" ]
+  [ -f "/internal/config.yaml" ]
   return $?
 }
 
