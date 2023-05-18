@@ -1,43 +1,44 @@
 #!/bin/sh
 
 check_internet() {
-  wget -q --spider --timeout=10 https://www.google.com
+  ip addr show wlan0 | grep -q "inet " && ! (iwgetid -r | grep -q "FxBlox")
+  return $?
+}
 
-  if [ $? -eq 0 ]; then
-    return 0
-  else
-    return 1
-  fi
+check_files_exist() {
+  [ -f "/internal/setupInitiated.info" ] && [ -f "/internal/config.yaml" ]
+  return $?
 }
 
 wap_pid=0
-run_wap_once=true
 
 sh /union-drive.sh &
 
+# Check files at the beginning
+if ! check_files_exist; then
+  echo "Necessary files missing. Running /wap."
+  /wap &
+  wap_pid=$!
+fi
+
 while true; do
-  if check_internet; then
-    echo "Internet connected. Running /app."
+  if check_internet && check_files_exist; then
+    echo "Internet connected and necessary files exist. Running /app."
 
     # Kill the /wap process if it's running
     if [ $wap_pid -ne 0 ]; then
-      kill $wap_pid
+      kill $wap_pid && wap_pid=0
     fi
 
     /app --config /internal/config.yaml
     break
-  else
-    if [ "$run_wap_once" = true ]; then
-      echo "Internet not connected. Running /wap."
+  elif [ $wap_pid -eq 0 ]; then
+    echo "Either Internet not connected or necessary files missing. Running /wap."
 
-      # Run /wap in the background and store its PID
-      /wap &
-      wap_pid=$!
-
-      # Set the flag to false so /wap won't run again
-      run_wap_once=false
-    fi
-
-    sleep 20
+    # Run /wap in the background and store its PID
+    /wap &
+    wap_pid=$!
   fi
+
+  sleep 20
 done
