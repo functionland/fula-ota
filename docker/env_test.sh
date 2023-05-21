@@ -11,7 +11,7 @@ export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
 export FX_SUPPORT_DOCKER_TAG="$DEFAULT_FX_TAG"
 
 #build go-fula
-export GO_FULA_BRANCH="blockchain-package"
+export GO_FULA_BRANCH="blockchain-package-broadcast"
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_DOCKER_TAG="$DEFAULT_FULA_TAG"
 
