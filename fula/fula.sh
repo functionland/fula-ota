@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-#
+# v1.0.0
 
 set -e
 
@@ -18,6 +18,8 @@ SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
+BLUETOOTH_SC=$FULA_PATH/bluetooth.sh
+BLUETOOTH_PY_SC=$FULA_PATH/bluetooth.py
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -98,10 +100,10 @@ function dockerPull() {
 function connectwifi() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
+    #sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..."
-      sleep 140
-      sh $WIFI_SC || { echo "Wifi setup failed"; }
+      #sh $WIFI_SC || { echo "Wifi setup failed"; }
     fi
   fi
 }
@@ -112,6 +114,7 @@ function dockerComposeUp() {
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     docker stop $(docker ps -a -q) && docker rm -f $(docker ps -a -q)
   fi
+  
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     echo "failed to start some images"
     pullFailedServices &
@@ -143,11 +146,21 @@ function dockerPrune() {
 }
 
 function restart() {
+
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC || { echo "Hardware check failed"; }
   fi
+  
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC || { echo "Resize failed"; }
+  fi
+  
+  if [ -f "$BLUETOOTH_SC" ]; then
+    sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
+  fi
+  
+  if [ -f "$BLUETOOTH_PY_SC" ]; then
+    python $BLUETOOTH_PY_SC || { echo "Bluetooth python failed"; }
   fi
 
   dockerComposeDown

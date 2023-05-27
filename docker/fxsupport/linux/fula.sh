@@ -18,6 +18,8 @@ SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
+BLUETOOTH_SC=$FULA_PATH/bluetooth.sh
+BLUETOOTH_PY_SC=$FULA_PATH/bluetooth.py
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -144,11 +146,21 @@ function dockerPrune() {
 }
 
 function restart() {
+
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC || { echo "Hardware check failed"; }
   fi
+  
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC || { echo "Resize failed"; }
+  fi
+  
+  if [ -f "$BLUETOOTH_PY_SC" ]; then
+    python $BLUETOOTH_PY_SC || { echo "Bluetooth python failed"; }
+  fi
+  
+  if [ -f "$BLUETOOTH_SC" ]; then
+    sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
   fi
 
   dockerComposeDown
