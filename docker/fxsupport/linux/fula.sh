@@ -150,12 +150,7 @@ function dockerPull() {
 
 function connectwifi() {
   # Check internet connection and setup WiFi if needed
-  if [ -f "$WIFI_SC" ]; then 
-    # Check if WIFI_SC is executable 
-    if [ ! -x "$WIFI_SC" ]; then 
-      echo "$WIFI_SC is not executable, changing permissions..." 
-      sudo chmod +x $WIFI_SC 
-    fi 
+  if [ -f "$WIFI_SC" ]; then
     sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..."
@@ -262,12 +257,7 @@ function restart() {
     sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid"; }
   fi
 
-  if [ -f "$BLUETOOTH_SC" ]; then 
-    # Check if BLUETOOTH_SC is executable 
-    if [ ! -x "$BLUETOOTH_SC" ]; then 
-      echo "$BLUETOOTH_SC is not executable, changing permissions..." 
-      sudo chmod +x $BLUETOOTH_SC 
-    fi 
+  if [ -f "$BLUETOOTH_SC" ]; then
     sudo $BLUETOOTH_SC &> ~/bluetooth.log &
     sudo echo $! > ~/bluetooth.pid
     echo "Ran $BLUETOOTH_SC"
