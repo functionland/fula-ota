@@ -80,6 +80,7 @@ sudo rfcomm release /dev/rfcomm0 1
 while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
     echo "Waiting for connection..."
     sleep 1
+    current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
 	if [ $script_elapsed_time -ge 120 ]
 	then
@@ -102,6 +103,7 @@ echo -e "trust $MAC_ADDRESS" | bluetoothctl
 while [ ! -c "/dev/rfcomm0" ]; do
     echo "Waiting for /dev/rfcomm0..."
     sleep 1
+    current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
 	if [ $script_elapsed_time -ge 120 ]
 	then

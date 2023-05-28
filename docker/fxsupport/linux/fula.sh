@@ -42,6 +42,22 @@ function check_internet() {
   return $?   # Return the status directly, no need for if/else.
 }
 
+function modify_bluetooth() {
+  # Backup the original file
+  cp /etc/systemd/system/dbus-org.bluez.service /etc/systemd/system/dbus-org.bluez.service.bak
+
+  # Modify ExecStart and ExecStartPost
+  sed -i 's|^ExecStart=/usr/libexec/bluetooth/bluetoothd$|ExecStart=/usr/libexec/bluetooth/bluetoothd  --compat --noplugin=sap -C|' /etc/systemd/system/dbus-org.bluez.service
+  sed -i '/ExecStart=/a ExecStartPost=/usr/bin/sdptool add SP' /etc/systemd/system/dbus-org.bluez.service
+
+  # Reload the systemd manager configuration
+  systemctl daemon-reload
+
+  # Restart the bluetooth service
+  sudo systemctl restart bluetooth
+}
+
+
 service_exists() {
   local n=$1
   if [[ $(systemctl list-units --all -t service --full --no-legend "$n.service" | sed 's/^\s*//g' | cut -f1 -d' ') == $n.service ]]; then
@@ -53,6 +69,23 @@ service_exists() {
 
 # Functions
 function install() {
+
+  echo "Installing dependencies..."
+  # Check if pip is installed
+  command -v pip >/dev/null 2>&1 || {
+    echo >&2 "pip not found, installing..."
+    sudo apt-get install python3-pip -y
+  }
+
+  # Check if pexpect is installed
+  python -c "import pexpect" 2>/dev/null || {
+    echo "pexpect not found, installing..."
+    pip install pexpect
+  }
+
+  # Call modify_bluetooth, but don't stop the script if it fails
+  modify_bluetooth || echo "modify_bluetooth failed, but continuing installation..."
+
   echo "Installing Fula ..."
   echo "Pulling Images..."
   dockerPull
@@ -69,7 +102,10 @@ function install() {
   cp hw_test.py $FULA_PATH/
   cp resize.sh $FULA_PATH/
   cp wifi.sh $FULA_PATH/
+  cp bluetooth.sh $FULA_PATH/
+  cp bluetooth.py $FULA_PATH/
   chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
+  chmod +x $FULA_PATH/bluetooth.sh
   chmod +x $FULA_PATH/wifi.sh
 
   echo "Installing Services..."
@@ -112,10 +148,10 @@ function dockerPull() {
 function connectwifi() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
-    #sleep 160
+    sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..."
-      #sh $WIFI_SC || { echo "Wifi setup failed"; }
+      sh $WIFI_SC || { echo "Wifi setup failed"; }
     fi
   fi
 }
@@ -184,12 +220,6 @@ function restart() {
   # Set the cleanup function to run when the script exits
   trap cleanup EXIT
 
-  # Check if pexpect is installed
-  python -c "import pexpect" 2>/dev/null || {
-    echo "pexpect not found, installing..."
-    pip install pexpect
-  }
-
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC || { echo "Hardware check failed"; }
   fi
@@ -203,11 +233,6 @@ function restart() {
   fi
   
   if [ -f "$BLUETOOTH_SC" ]; then
-    # Check if BLUETOOTH_SC is executable
-    if [ ! -x "$BLUETOOTH_SC" ]; then
-      echo "$BLUETOOTH_SC is not executable, changing permissions..."
-      sudo chmod +x $BLUETOOTH_SC
-    fi
     sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
   fi
 }
