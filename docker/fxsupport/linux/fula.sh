@@ -218,16 +218,6 @@ function restart() {
     if docker image prune --filter="dangling=true" -f; then
       echo "pruning unused dockers..."
     fi
-
-    #stop the background scripts if they are running
-    if [ -f ~/bluetooth_py.pid ]; then
-      kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
-      sudo rm ~/bluetooth_py.pid || { echo "Error removing bluetooth_py.pid"; }
-    fi
-    if [ -f ~/bluetooth.pid ]; then
-      kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
-      sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid"; }
-    fi
   }
 
   # Set the cleanup function to run when the script exits
