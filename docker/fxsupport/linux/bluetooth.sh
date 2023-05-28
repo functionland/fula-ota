@@ -74,6 +74,13 @@ function remove_wifi_connections() {
     done
 }
 
+# Check if ~/V3.info exists
+if [ ! -f ~/V3.info ]; then
+    touch ~/V3.info || { echo "Error creating version file"; }
+    remove_wifi_connections || { echo "Error removing wifi connectins"; }
+    sudo reboot
+fi
+
 sudo rfcomm release /dev/rfcomm0 1
 
 # Wait for connection
@@ -123,7 +130,7 @@ start_time=0
 function process_commands() {
     while read -r command
     do
-        echo "Received command: $command"
+        echo "Received command: $command" > ~/bluetooth_commands.txt
         if [[ "$command" == "connect "* ]]; then
             IFS=' ' read -ra ADDR <<< "$command"
             SSID=${ADDR[1]}
@@ -171,5 +178,5 @@ function process_commands() {
 
 # Call the function with error handling
 process_commands || {
-    echo "An error occurred while processing commands. But the script will continue."
+    echo "An error occurred while processing commands. But the script will continue." > ~/bluetooth_commands.txt
 }
