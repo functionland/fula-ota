@@ -62,15 +62,12 @@ function create_and_connect_wifi() {
 
 function remove_wifi_connections() {
     # Get a list of all connection names
-    local connections=$(nmcli --fields NAME con show | tail -n +2)
+    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
 
     # Iterate over each connection
-    for conn in $connections; do
-        # If the connection is a Wi-Fi connection, delete it
-        if [[ $(nmcli --fields TYPE con show "$conn") == *"wifi"* ]]; then
-            echo "Removing Wi-Fi connection: $conn"
-            sudo nmcli con delete "$conn"
-        fi
+    for conn in $wifi_connections; do
+        echo "Removing Wi-Fi connection: $conn"
+        sudo nmcli con delete "$conn"
     done
 }
 
