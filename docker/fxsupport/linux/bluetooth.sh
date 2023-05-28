@@ -99,6 +99,9 @@ echo "Device connected, MAC Address: $MAC_ADDRESS"
 # Trust the device
 echo -e "trust $MAC_ADDRESS" | bluetoothctl
 
+# Bind the RFCOMM channel
+sudo rfcomm listen /dev/rfcomm0 1 &
+
 # Wait until /dev/rfcomm0 exists and bind the RFCOMM channel
 while [ ! -c "/dev/rfcomm0" ]; do
     echo "Waiting for /dev/rfcomm0..."
@@ -114,10 +117,6 @@ while [ ! -c "/dev/rfcomm0" ]; do
         break
     fi
 done
-
-
-# Bind the RFCOMM channel
-#sudo rfcomm listen /dev/rfcomm0 1
 
 # Listen for commands
 start_time=0
