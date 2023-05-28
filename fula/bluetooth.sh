@@ -80,6 +80,7 @@ sudo rfcomm release /dev/rfcomm0 1
 while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
     echo "Waiting for connection..."
     sleep 1
+    current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
 	if [ $script_elapsed_time -ge 120 ]
 	then
@@ -98,10 +99,14 @@ echo "Device connected, MAC Address: $MAC_ADDRESS"
 # Trust the device
 echo -e "trust $MAC_ADDRESS" | bluetoothctl
 
+# Bind the RFCOMM channel
+sudo rfcomm listen /dev/rfcomm0 1 &
+
 # Wait until /dev/rfcomm0 exists and bind the RFCOMM channel
 while [ ! -c "/dev/rfcomm0" ]; do
     echo "Waiting for /dev/rfcomm0..."
     sleep 1
+    current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
 	if [ $script_elapsed_time -ge 120 ]
 	then
@@ -112,10 +117,6 @@ while [ ! -c "/dev/rfcomm0" ]; do
         break
     fi
 done
-
-
-# Bind the RFCOMM channel
-#sudo rfcomm listen /dev/rfcomm0 1
 
 # Listen for commands
 start_time=0

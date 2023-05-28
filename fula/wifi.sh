@@ -8,6 +8,12 @@ if ! systemctl is-active --quiet NetworkManager; then
     sudo systemctl start NetworkManager
 fi
 
+# Check if we're already connected to a network
+if nmcli device status | grep -q "wifi connected"; then
+    echo "Already connected to a network. Exiting..."
+    exit 0
+fi
+
 # Force a rescan
 echo "Forcing a rescan of Wi-Fi networks..."
 sudo nmcli device wifi rescan
