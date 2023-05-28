@@ -17,7 +17,7 @@ start_time = time.time()
 
 while True:
     try:
-        child.expect('\[agent\] Confirm passkey', timeout=None)
+        child.expect('\[agent\] Confirm passkey', timeout=120)
         child.sendline('yes')
     except pexpect.TIMEOUT:
         pass

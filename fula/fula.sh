@@ -81,14 +81,26 @@ function install() {
 function dockerPull() {
   if check_internet; then
     echo "Start polling images..."
+    
     if [ -z "$1" ]; then
       echo "Full Image Updating..."
-      docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull
+      
+      # Iterate over services and pull images only if they do not exist locally
+      for service in $(docker-compose config --services); do
+        image=$(docker-compose config | awk '$1 == "image:" { print $2 }' | grep "$service")
+        
+        # Attempt to pull the image, if it fails use the local version
+        if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull $service; then
+          echo "$service image pull failed, using local version"
+        fi
+      done
     else
       . $ENV_FILE
       echo "Updating fxsupport ($FX_SUPPROT)..."
+      
+      # Attempt to pull the image, if it fails use the local version
       if ! docker pull $FX_SUPPROT; then
-        echo "failed to pull fx_support"
+        echo "fx_support image pull failed, using local version"
       fi
     fi
   else
@@ -109,18 +121,30 @@ function connectwifi() {
 }
 
 function dockerComposeUp() {
-  dockerPull fxsupport
-  echo "compsing up images..."
-  if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
-    docker stop $(docker ps -a -q) && docker rm -f $(docker ps -a -q)
+  # Attempt to pull the fxsupport image, if it fails use the local version
+  if ! dockerPull fxsupport; then
+    echo "fxsupport image pull failed, using local version"
   fi
-  
+
+  echo "compsing up images..."
+
+  # Try running docker-compose up the first time
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
-    echo "failed to start some images"
-    pullFailedServices &
-    echo "pull pid is" $!
+    # If the compose up fails, stop all containers, remove them, and try again
+    docker stop $(docker ps -a -q)
+    docker rm -f $(docker ps -a -q)
+
+    # Try running docker-compose up the second time
+    if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
+      echo "failed to start some images"
+      pullFailedServices &
+      echo "pull pid is" $!
+    fi
+  else
+    echo "Images successfully composed up"
   fi
 }
+
 
 function dockerComposeDown() {
   killPullImage
@@ -146,6 +170,25 @@ function dockerPrune() {
 }
 
 function restart() {
+  # This function will run when the script exits
+  cleanup() {
+    dockerComposeDown
+    dockerComposeUp
+
+    # Remove dangling images
+    if docker image prune --filter="dangling=true" -f; then
+      echo "pruning unused dockers..."
+    fi
+  }
+
+  # Set the cleanup function to run when the script exits
+  trap cleanup EXIT
+
+  # Check if pexpect is installed
+  python -c "import pexpect" 2>/dev/null || {
+    echo "pexpect not found, installing..."
+    pip install pexpect
+  }
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC || { echo "Hardware check failed"; }
@@ -155,22 +198,20 @@ function restart() {
     sh $RESIZE_SC || { echo "Resize failed"; }
   fi
   
-  if [ -f "$BLUETOOTH_SC" ]; then
-    sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
-  fi
-  
   if [ -f "$BLUETOOTH_PY_SC" ]; then
     python $BLUETOOTH_PY_SC || { echo "Bluetooth python failed"; }
   fi
-
-  dockerComposeDown
-  dockerComposeUp
-
-  # Remove dangling images
-  if docker image prune --filter="dangling=true" -f; then
-    echo "pruning unused dockers..."
+  
+  if [ -f "$BLUETOOTH_SC" ]; then
+    # Check if BLUETOOTH_SC is executable
+    if [ ! -x "$BLUETOOTH_SC" ]; then
+      echo "$BLUETOOTH_SC is not executable, changing permissions..."
+      sudo chmod +x $BLUETOOTH_SC
+    fi
+    sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
   fi
 }
+
 
 function remove() {
   echo "Removing Fula ..."
