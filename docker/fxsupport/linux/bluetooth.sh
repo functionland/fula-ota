@@ -86,7 +86,7 @@ while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
 	then
 		echo "120 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop
+            control_blue stop || { echo "control_blue stop failed"; }
         fi
         break
     fi
@@ -112,7 +112,7 @@ while [ ! -c "/dev/rfcomm0" ]; do
 	then
 		echo "120 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop
+            control_blue stop || { echo "control_blue stop failed"; }
         fi
         break
     fi
@@ -134,14 +134,14 @@ function process_commands() {
         then
             echo "Creating ~/reset.txt"
             sudo touch ~/reset.txt
-            control_blue start
+            control_blue start || { echo "control_blue start failed"; }
             start_time=$(date +%s)
         elif [ "$command" == "cancel" ]
         then
             if [ -f ~/reset.txt ]; then
                 echo "Removing ~/reset.txt"
                 sudo rm ~/reset.txt
-                control_blue stop
+                control_blue stop || { echo "control_blue stop failed"; }
                 start_time=0
             fi
         fi
@@ -156,7 +156,7 @@ function process_commands() {
                 echo "Resetting the device..."
                 remove_wifi_connections
                 sudo rm ~/reset.txt
-                control_blue stop
+                control_blue stop || { echo "control_blue stop failed"; }
                 sudo reboot
             fi
         fi
