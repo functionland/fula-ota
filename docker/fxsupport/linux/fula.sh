@@ -94,16 +94,17 @@ function install() {
 
   echo "Copying Files..."
   mkdir -p $FULA_PATH/ || { echo "Error making directory $FULA_PATH"; }
-  cp fula.sh $FULA_PATH/ || { echo "Error copying file fula.sh"; }
-  cp .env $FULA_PATH/ || { echo "Error copying file .env"; }
-  cp docker-compose.yml $FULA_PATH/ || { echo "Error copying file docker-compose.yml"; }
-  cp fula.service $SYSTEMD_PATH/ || { echo "Error copying fula.service"; }
+  
+  cp fula.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file fula.sh"; } || true
+  cp .env $FULA_PATH/ 2>/dev/null || { echo "Error copying file .env"; } || true
+  cp docker-compose.yml $FULA_PATH/ 2>/dev/null || { echo "Error copying file docker-compose.yml"; } || true
+  cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service"; } || true
 
-  cp hw_test.py $FULA_PATH/ || { echo "Error copying file hw_test.py"; }
-  cp resize.sh $FULA_PATH/ || { echo "Error copying file resize.sh"; }
-  cp wifi.sh $FULA_PATH/ || { echo "Error copying file wifi.sh"; }
-  cp bluetooth.sh $FULA_PATH/ || { echo "Error copying file bluetooth.sh"; }
-  cp bluetooth.py $FULA_PATH/ || { echo "Error copying file bluetooth.py"; }
+  cp hw_test.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file hw_test.py"; } || true
+  cp resize.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file resize.sh"; } || true
+  cp wifi.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file wifi.sh"; } || true
+  cp bluetooth.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.sh"; } || true
+  cp bluetooth.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.py"; } || true
 
   echo "Setting chmod..."
   if [ -f "$FULA_PATH/fula.sh" ]; then 

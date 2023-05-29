@@ -14,6 +14,7 @@ control_blue() {
     # Try
     {
         if [ "$action" = "start" ]; then
+            keep_flashing = 1
             # Export GPIO pin
             echo $led_b_pin > /sys/class/gpio/export
 
@@ -35,6 +36,10 @@ control_blue() {
             # Turn off blue LED and stop flashing
             keep_flashing=0
             echo 1 > /sys/class/gpio/gpio$led_b_pin/value
+            if [ -f ~/control_blue.pid ]; then
+                kill $(cat ~/control_blue.pid) || { echo "Error Killing control_blue Process"; } || true
+                sudo rm ~/control_blue.pid || { echo "Error removing control_blue.pid"; }
+            fi
         else
             echo "Invalid action. Use either 'start' or 'stop'."
         fi
@@ -117,6 +122,51 @@ done
 
 # Listen for commands
 start_time=0
+
+# check elapsed time in a separate function
+function reset() {
+    while :
+    do
+        current_time=$(date +%s)
+        # check elapsed time since start_time...
+        elapsed_time=$(($current_time - $start_time))
+
+        if [ $elapsed_time -ge 20 ] && [ -f ~/reset.txt ]
+        then
+            echo "Resetting the device..."
+            remove_wifi_connections
+            sudo rm ~/reset.txt
+            control_blue stop || { echo "control_blue stop failed"; }
+            sudo reboot
+        fi
+        # check elapsed time since script_start_time...
+        sleep 1
+    done
+}
+
+function stop() {
+    while :
+    do
+        current_time=$(date +%s)
+        # check elapsed time since start_time...
+        script_elapsed_time=$(($current_time - $script_start_time))
+		if [ $script_elapsed_time -ge 120 ] && [ "$keep_flashing" -eq 0 ]
+		then
+			echo "120 seconds have passed and LED isn't flashing. Stopping the script..."
+            if [ -f ~/stop_bluetooth.txt ]; then
+                echo "Removing ~/stop_bluetooth.txt"
+                sudo rm ~/stop_bluetooth.txt
+                control_blue stop || { echo "control_blue stop failed"; }
+                start_time=0
+                script_start_time=0
+            fi
+            echo "blue flashing stopped keep_flashing=$keep_flashing"
+			break
+		fi
+        # check elapsed time since script_start_time...
+        sleep 1
+    done
+}
 function process_commands() {
     while read -r command
     do
@@ -131,7 +181,12 @@ function process_commands() {
         then
             echo "Creating ~/reset.txt"
             sudo touch ~/reset.txt
-            control_blue start || { echo "control_blue start failed"; }
+            if [ -f ~/control_blue.pid ]; then
+                kill $(cat ~/control_blue.pid) || { echo "Error Killing control_blue Process"; } || true
+                sudo rm ~/control_blue.pid || { echo "Error removing control_blue.pid"; }
+            fi
+            control_blue start &> ~/control_blue.log &
+            echo $! > ~/control_blue.pid
             start_time=$(date +%s)
         elif [ "$command" == "cancel" ]
         then
@@ -139,6 +194,7 @@ function process_commands() {
                 echo "Removing ~/reset.txt"
                 sudo rm ~/reset.txt
                 control_blue stop || { echo "control_blue stop failed"; }
+                echo "blue flashing stopped keep_flashing=$keep_flashing"
                 start_time=0
             fi
         fi
@@ -146,23 +202,11 @@ function process_commands() {
         # Check if 20 seconds have passed since the creation of the reset.txt file
         current_time=$(date +%s)
         if [ $start_time -ne 0 ]; then
-            elapsed_time=$(($current_time - $start_time))
-
-            if [ $elapsed_time -ge 20 ] && [ -f ~/reset.txt ]
-            then
-                echo "Resetting the device..."
-                remove_wifi_connections
-                sudo rm ~/reset.txt
-                control_blue stop || { echo "control_blue stop failed"; }
-                sudo reboot
-            fi
+            reset &> ~/reset.log &
+            echo $! > ~/reset.pid
         fi
-		script_elapsed_time=$(($current_time - $script_start_time))
-		if [ $script_elapsed_time -ge 120 ] && [ "$keep_flashing" -eq 0 ]
-		then
-			echo "120 seconds have passed and LED isn't flashing. Stopping the script..."
-			break
-		fi
+		stop &> ~/stop_bluetooth.log &
+        echo $! > ~/stop_bluetooth.pid
     done < /dev/rfcomm0
 }
 
