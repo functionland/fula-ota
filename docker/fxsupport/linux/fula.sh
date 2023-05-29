@@ -225,7 +225,7 @@ function connectwifi() {
     sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
-      sh $WIFI_SC || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
+      bash $WIFI_SC || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
     fi
   fi
 }
@@ -316,7 +316,7 @@ function restart() {
   fi
 
   if [ -f "$BLUETOOTH_SC" ]; then
-    sudo $BLUETOOTH_SC &> ~/bluetooth.log &
+    sudo bash $BLUETOOTH_SC &> ~/bluetooth.log &
     sudo echo $! > ~/bluetooth.pid
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
