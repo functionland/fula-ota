@@ -57,7 +57,7 @@ function check_and_delete_log() {
 
   # If the dates don't match, delete the file and create a log file
   if [[ $file_date != $current_date ]]; then
-    rm $filepath
+    sudo rm $filepath
     echo "File $filepath was deleted."
 
     # Create another file
@@ -68,7 +68,6 @@ function check_and_delete_log() {
     echo "File $filepath was not modified today."
   fi
 }
-check_and_delete_log $FULA_LOG_PATH
 
 function check_internet() {
   wget -q --spider --timeout=10 https://hub.docker.com
@@ -102,7 +101,6 @@ service_exists() {
 
 # Functions
 function install() {
-  check_and_delete_log $FULA_LOG_PATH
   echo "Installing dependencies..." >> $FULA_LOG_PATH
   # Check if pip is installed
   command -v pip >/dev/null 2>&1 || {
@@ -118,7 +116,7 @@ function install() {
   }
 
   # Call modify_bluetooth, but don't stop the script if it fails
-  modify_bluetooth || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH }
+  modify_bluetooth || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH; }
 
   echo "Installing Fula ..." >> $FULA_LOG_PATH
   echo "Pulling Images..." >> $FULA_LOG_PATH
@@ -284,22 +282,6 @@ function dockerPrune() {
 }
 
 function restart() {
-  # This function will run when the script exits
-  cleanup() {
-    echo "dockerComposeDown" >> $FULA_LOG_PATH
-    dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; }
-    echo "dockerComposeUp"
-    dockerComposeUp || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
-
-    # Remove dangling images
-    if docker image prune --filter="dangling=true" -f; then
-      echo "pruning unused dockers..." >> $FULA_LOG_PATH
-    fi
-  }
-  check_and_delete_log $FULA_LOG_PATH
-
-  # Set the cleanup function to run when the script exits
-  trap cleanup EXIT
 
   # Check if ~/V3.info exists
   if [ ! -f ~/V3.info ]; then
@@ -337,6 +319,16 @@ function restart() {
     sudo $BLUETOOTH_SC &> ~/bluetooth.log &
     sudo echo $! > ~/bluetooth.pid
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
+  fi
+
+  echo "dockerComposeDown" >> $FULA_LOG_PATH
+  dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
+  echo "dockerComposeUp"
+  dockerComposeUp || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
+
+  # Remove dangling images
+  if docker image prune --filter="dangling=true" -f; then
+    echo "pruning unused dockers..." >> $FULA_LOG_PATH
   fi
 }
 
@@ -410,20 +402,33 @@ function killPullImage() {
 # Commands
 case $1 in
 "install")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran install at: $(date)" >> $FULA_LOG_PATH
   install
   ;;
 "start" | "restart")
+  echo "ran start at: $(date)" >> $FULA_LOG_PATH
+  check_and_delete_log $FULA_LOG_PATH
+  echo "check_and_delete_log status=> $?" >> $FULA_LOG_PATH; 
   if [ -f connectwifi.pid ]; then
     kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    echo "kill connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
     sudo rm connectwifi.pid
+    echo "rm connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
   fi
+  echo "if [ -f connectwifi.pid ]; then;...;fi status=> $?" >> $FULA_LOG_PATH; 
   connectwifi &> connectwifi.log &
   echo $! > connectwifi.pid
   restart
+  echo "restart status=> $?" >> $FULA_LOG_PATH; 
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
+  echo "docker cp status=> $?" >> $FULA_LOG_PATH; 
   sync
+  cho "sync status=> $?" >> $FULA_LOG_PATH; 
   ;;
 "stop")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
   if [ -f connectwifi.pid ]; then
     kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
@@ -439,9 +444,13 @@ case $1 in
   fi
   ;;
 "rebuild")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran rebuild at: $(date)" >> $FULA_LOG_PATH
   rebuild
   ;;
 "removeall")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran removeall at: $(date)" >> $FULA_LOG_PATH
   containers=$(docker ps -a -q)
   if [ -n "$containers" ]; then
       docker rm -f $containers
@@ -451,9 +460,13 @@ case $1 in
   remove
   ;;
 "update")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran update at: $(date)" >> $FULA_LOG_PATH
   dockerPull "${@:2}"
   ;;
 "pull-failed")
+  check_and_delete_log $FULA_LOG_PATH
+  echo "ran pull-failed at: $(date)" >> $FULA_LOG_PATH
   pullFailedServices
   ;;
 esac
