@@ -62,17 +62,21 @@ function create_and_connect_wifi() {
 
 function remove_wifi_connections() {
     # Get a list of all connection names
-    local connections=$(nmcli --fields NAME con show | tail -n +2)
+    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
 
     # Iterate over each connection
-    for conn in $connections; do
-        # If the connection is a Wi-Fi connection, delete it
-        if [[ $(nmcli --fields TYPE con show "$conn") == *"wifi"* ]]; then
-            echo "Removing Wi-Fi connection: $conn"
-            sudo nmcli con delete "$conn"
-        fi
+    for conn in $wifi_connections; do
+        echo "Removing Wi-Fi connection: $conn"
+        sudo nmcli con delete "$conn"
     done
 }
+
+# Check if ~/V3.info exists
+if [ ! -f ~/V3.info ]; then
+    touch ~/V3.info || { echo "Error creating version file"; }
+    remove_wifi_connections || { echo "Error removing wifi connectins"; }
+    sudo reboot
+fi
 
 sudo rfcomm release /dev/rfcomm0 1
 
@@ -86,7 +90,7 @@ while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
 	then
 		echo "120 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop
+            control_blue stop || { echo "control_blue stop failed"; }
         fi
         break
     fi
@@ -112,7 +116,7 @@ while [ ! -c "/dev/rfcomm0" ]; do
 	then
 		echo "120 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop
+            control_blue stop || { echo "control_blue stop failed"; }
         fi
         break
     fi
@@ -123,7 +127,7 @@ start_time=0
 function process_commands() {
     while read -r command
     do
-        echo "Received command: $command"
+        echo "Received command: $command" > ~/bluetooth_commands.txt
         if [[ "$command" == "connect "* ]]; then
             IFS=' ' read -ra ADDR <<< "$command"
             SSID=${ADDR[1]}
@@ -134,14 +138,14 @@ function process_commands() {
         then
             echo "Creating ~/reset.txt"
             sudo touch ~/reset.txt
-            control_blue start
+            control_blue start || { echo "control_blue start failed"; }
             start_time=$(date +%s)
         elif [ "$command" == "cancel" ]
         then
             if [ -f ~/reset.txt ]; then
                 echo "Removing ~/reset.txt"
                 sudo rm ~/reset.txt
-                control_blue stop
+                control_blue stop || { echo "control_blue stop failed"; }
                 start_time=0
             fi
         fi
@@ -156,7 +160,7 @@ function process_commands() {
                 echo "Resetting the device..."
                 remove_wifi_connections
                 sudo rm ~/reset.txt
-                control_blue stop
+                control_blue stop || { echo "control_blue stop failed"; }
                 sudo reboot
             fi
         fi
@@ -171,5 +175,5 @@ function process_commands() {
 
 # Call the function with error handling
 process_commands || {
-    echo "An error occurred while processing commands. But the script will continue."
+    echo "An error occurred while processing commands. But the script will continue." > ~/bluetooth_commands.txt
 }

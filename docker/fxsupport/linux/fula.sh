@@ -28,7 +28,7 @@ if [ $# -gt 1 ]; then
   DATA_DIR=$2
 fi
 
-ENV_FILE="$DIR/docker.env"
+ENV_FILE="$DIR/.env"
 DOCKER_DIR=$DIR
 
 export CURRENT_USER=$(whoami)
@@ -38,7 +38,7 @@ export MOUNT_PATH=/media/$CURRENT_USER
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
 function check_internet() {
-  wget -q --spider --timeout=10 https://www.google.com
+  wget -q --spider --timeout=10 https://hub.docker.com
   return $?   # Return the status directly, no need for if/else.
 }
 
@@ -95,7 +95,7 @@ function install() {
   echo "Copying Files..."
   mkdir -p $FULA_PATH/ || { echo "Error making directory $FULA_PATH"; }
   cp fula.sh $FULA_PATH/ || { echo "Error copying file fula.sh"; }
-  cp docker.env $FULA_PATH/ || { echo "Error copying file docker.env"; }
+  cp .env $FULA_PATH/ || { echo "Error copying file .env"; }
   cp docker-compose.yml $FULA_PATH/ || { echo "Error copying file docker-compose.yml"; }
   cp fula.service $SYSTEMD_PATH/ || { echo "Error copying fula.service"; }
 
@@ -232,7 +232,7 @@ function restart() {
   fi
 
   if [ -f ~/bluetooth_py.pid ]; then
-    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
     sudo rm ~/bluetooth_py.pid || { echo "Error removing bluetooth_py.pid"; }
   fi
   
@@ -243,7 +243,7 @@ function restart() {
   fi
 
   if [ -f ~/bluetooth.pid ]; then
-    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
     sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid"; }
   fi
 
@@ -315,7 +315,7 @@ function pullFailedServices() {
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
      echo "Process already running."
-     kill -9 `cat /var/run/fula.pid`
+     -kill -9 `cat /var/run/fula.pid`
      rm -f /var/run/fula.pid
      echo `pidof $$` > /var/run/fula.pid
   fi
@@ -328,7 +328,7 @@ case $1 in
   ;;
 "start" | "restart")
   if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
     sudo rm connectwifi.pid
   fi
   restart
@@ -340,15 +340,15 @@ case $1 in
 "stop")
   dockerComposeDown
   if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
     sudo rm connectwifi.pid
   fi
   if [ -f ~/bluetooth_py.pid ]; then
-    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
     sudo rm ~/bluetooth_py.pid
   fi
   if [ -f ~/bluetooth.pid ]; then
-    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
     sudo rm ~/bluetooth.pid
   fi
   ;;

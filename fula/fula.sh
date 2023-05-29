@@ -28,7 +28,7 @@ if [ $# -gt 1 ]; then
   DATA_DIR=$2
 fi
 
-ENV_FILE="$DIR/docker.env"
+ENV_FILE="$DIR/.env"
 DOCKER_DIR=$DIR
 
 export CURRENT_USER=$(whoami)
@@ -38,7 +38,7 @@ export MOUNT_PATH=/media/$CURRENT_USER
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
 function check_internet() {
-  wget -q --spider --timeout=10 https://www.google.com
+  wget -q --spider --timeout=10 https://hub.docker.com
   return $?   # Return the status directly, no need for if/else.
 }
 
@@ -74,13 +74,13 @@ function install() {
   # Check if pip is installed
   command -v pip >/dev/null 2>&1 || {
     echo >&2 "pip not found, installing..."
-    sudo apt-get install python3-pip -y
+    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip"; }
   }
 
   # Check if pexpect is installed
   python -c "import pexpect" 2>/dev/null || {
     echo "pexpect not found, installing..."
-    pip install pexpect
+    pip install pexpect || { echo "Could not pip install pexpect"; }
   }
 
   # Call modify_bluetooth, but don't stop the script if it fails
@@ -88,29 +88,32 @@ function install() {
 
   echo "Installing Fula ..."
   echo "Pulling Images..."
-  dockerPull
+  dockerPull || { echo "Error while dockerPull"; }
   echo "Building Images..."
-  dockerComposeBuild
+  dockerComposeBuild || { echo "Error while dockerComposeBuild"; }
 
   echo "Copying Files..."
-  mkdir -p $FULA_PATH/
-  cp fula.sh $FULA_PATH/
-  cp docker.env $FULA_PATH/
-  cp docker-compose.yml $FULA_PATH/
-  cp fula.service $SYSTEMD_PATH/
+  mkdir -p $FULA_PATH/ || { echo "Error making directory $FULA_PATH"; }
+  cp fula.sh $FULA_PATH/ || { echo "Error copying file fula.sh"; }
+  cp .env $FULA_PATH/ || { echo "Error copying file .env"; }
+  cp docker-compose.yml $FULA_PATH/ || { echo "Error copying file docker-compose.yml"; }
+  cp fula.service $SYSTEMD_PATH/ || { echo "Error copying fula.service"; }
 
-  cp hw_test.py $FULA_PATH/
-  cp resize.sh $FULA_PATH/
-  cp wifi.sh $FULA_PATH/
-  cp bluetooth.sh $FULA_PATH/
-  cp bluetooth.py $FULA_PATH/
-  chmod +x $FULA_PATH/fula.sh $FULA_PATH/hw_test.py $FULA_PATH/resize.sh
-  chmod +x $FULA_PATH/bluetooth.sh
-  chmod +x $FULA_PATH/wifi.sh
+  cp hw_test.py $FULA_PATH/ || { echo "Error copying file hw_test.py"; }
+  cp resize.sh $FULA_PATH/ || { echo "Error copying file resize.sh"; }
+  cp wifi.sh $FULA_PATH/ || { echo "Error copying file wifi.sh"; }
+  cp bluetooth.sh $FULA_PATH/ || { echo "Error copying file bluetooth.sh"; }
+  cp bluetooth.py $FULA_PATH/ || { echo "Error copying file bluetooth.py"; }
+
+  echo "Setting chmod..."
+  sudo chmod +x $FULA_PATH/fula.sh || { echo "Error chmod file fula.sh"; }
+  sudo chmod +x $FULA_PATH/resize.sh || { echo "Error chmod file resize.sh"; }
+  sudo chmod +x $FULA_PATH/bluetooth.sh || { echo "Error chmod file bluetooth.sh"; }
+  sudo chmod +x $FULA_PATH/wifi.sh || { echo "Error chmod file wifi.sh"; }
 
   echo "Installing Services..."
-  systemctl daemon-reload
-  systemctl enable fula.service
+  systemctl daemon-reload || { echo "Error daemon reload"; }
+  systemctl enable fula.service || { echo "Error enableing fula.service"; }
   echo "Installing Fula Finished"
 }
 
@@ -208,8 +211,8 @@ function dockerPrune() {
 function restart() {
   # This function will run when the script exits
   cleanup() {
-    dockerComposeDown
-    dockerComposeUp
+    dockerComposeDown || { echo "dockerComposeDown failed"; }
+    dockerComposeUp || { echo "dockerComposeUp failed"; }
 
     # Remove dangling images
     if docker image prune --filter="dangling=true" -f; then
@@ -227,13 +230,27 @@ function restart() {
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC || { echo "Resize failed"; }
   fi
-  
-  if [ -f "$BLUETOOTH_PY_SC" ]; then
-    python $BLUETOOTH_PY_SC || { echo "Bluetooth python failed"; }
+
+  if [ -f ~/bluetooth_py.pid ]; then
+    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    sudo rm ~/bluetooth_py.pid || { echo "Error removing bluetooth_py.pid"; }
   fi
   
+  if [ -f "$BLUETOOTH_PY_SC" ]; then
+    python $BLUETOOTH_PY_SC &> ~/bluetooth_py.log &
+    echo $! > ~/bluetooth_py.pid
+    echo "Ran $BLUETOOTH_PY_SC"
+  fi
+
+  if [ -f ~/bluetooth.pid ]; then
+    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid"; }
+  fi
+
   if [ -f "$BLUETOOTH_SC" ]; then
-    sh $BLUETOOTH_SC || { echo "Bluetooth script failed"; }
+    sudo $BLUETOOTH_SC &> ~/bluetooth.log &
+    sudo echo $! > ~/bluetooth.pid
+    echo "Ran $BLUETOOTH_SC"
   fi
 }
 
@@ -298,7 +315,7 @@ function pullFailedServices() {
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
      echo "Process already running."
-     kill -9 `cat /var/run/fula.pid`
+     -kill -9 `cat /var/run/fula.pid`
      rm -f /var/run/fula.pid
      echo `pidof $$` > /var/run/fula.pid
   fi
@@ -310,13 +327,30 @@ case $1 in
   install
   ;;
 "start" | "restart")
+  if [ -f connectwifi.pid ]; then
+    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    sudo rm connectwifi.pid
+  fi
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
-  connectwifi
+  connectwifi &> connectwifi.log &
+  echo $! > connectwifi.pid
   ;;
 "stop")
   dockerComposeDown
+  if [ -f connectwifi.pid ]; then
+    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    sudo rm connectwifi.pid
+  fi
+  if [ -f ~/bluetooth_py.pid ]; then
+    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    sudo rm ~/bluetooth_py.pid
+  fi
+  if [ -f ~/bluetooth.pid ]; then
+    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    sudo rm ~/bluetooth.pid
+  fi
   ;;
 "rebuild")
   rebuild
