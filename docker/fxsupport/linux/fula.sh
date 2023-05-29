@@ -106,15 +106,53 @@ function install() {
   cp bluetooth.py $FULA_PATH/ || { echo "Error copying file bluetooth.py"; }
 
   echo "Setting chmod..."
-  sudo chmod +x $FULA_PATH/fula.sh || { echo "Error chmod file fula.sh"; }
-  sudo chmod +x $FULA_PATH/resize.sh || { echo "Error chmod file resize.sh"; }
-  sudo chmod +x $FULA_PATH/bluetooth.sh || { echo "Error chmod file bluetooth.sh"; }
-  sudo chmod +x $FULA_PATH/wifi.sh || { echo "Error chmod file wifi.sh"; }
+  if [ -f "$FULA_PATH/fula.sh" ]; then 
+    # Check if fula.sh is executable 
+    if [ ! -x "$FULA_PATH/fula.sh" ]; then 
+      echo "$FULA_PATH/fula.sh is not executable, changing permissions..." 
+      sudo chmod +x $FULA_PATH/fula.sh || { echo "Error chmod file fula.sh"; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/resize.sh" ]; then 
+    # Check if resize.sh is executable 
+    if [ ! -x "$FULA_PATH/resize.sh" ]; then 
+      echo "$FULA_PATH/resize.sh is not executable, changing permissions..." 
+      sudo chmod +x $FULA_PATH/resize.sh || { echo "Error chmod file resize.sh"; }
+    fi 
+  fi
+  
+  if [ -f "$FULA_PATH/bluetooth.sh" ]; then 
+    # Check if bluetooth.sh is executable 
+    if [ ! -x "$FULA_PATH/bluetooth.sh" ]; then 
+      echo "$FULA_PATH/bluetooth.sh is not executable, changing permissions..." 
+      sudo chmod +x $FULA_PATH/bluetooth.sh || { echo "Error chmod file bluetooth.sh"; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/wifi.sh" ]; then 
+    # Check if wifi.sh is executable 
+    if [ ! -x "$FULA_PATH/wifi.sh" ]; then 
+      echo "$FULA_PATH/wifi.sh is not executable, changing permissions..." 
+      sudo chmod +x $FULA_PATH/wifi.sh || { echo "Error chmod file wifi.sh"; }
+    fi 
+  fi
 
   echo "Installing Services..."
   systemctl daemon-reload || { echo "Error daemon reload"; }
   systemctl enable fula.service || { echo "Error enableing fula.service"; }
   echo "Installing Fula Finished"
+}
+
+function remove_wifi_connections() {
+    # Get a list of all connection names
+    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+
+    # Iterate over each connection
+    for conn in $wifi_connections; do
+        echo "Removing Wi-Fi connection: $conn"
+        sudo nmcli con delete "$conn"
+    done
 }
 
 function dockerPull() {
@@ -186,7 +224,9 @@ function dockerComposeUp() {
 
 
 function dockerComposeDown() {
+  echo "dockerComposeDown: killPullImage"
   killPullImage
+  echo "dockerComposeDown: killing done"
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans
@@ -209,9 +249,18 @@ function dockerPrune() {
 }
 
 function restart() {
+  # Check if ~/V3.info exists
+  if [ ! -f ~/V3.info ]; then
+      touch ~/V3.info || { echo "Error creating version file"; }
+      install || { echo "Error install"; }
+      remove_wifi_connections || { echo "Error removing wifi connectins"; }
+      sudo reboot
+  fi
   # This function will run when the script exits
   cleanup() {
+    echo "dockerComposeDown"
     dockerComposeDown || { echo "dockerComposeDown failed"; }
+    echo "dockerComposeUp"
     dockerComposeUp || { echo "dockerComposeUp failed"; }
 
     # Remove dangling images
@@ -232,7 +281,7 @@ function restart() {
   fi
 
   if [ -f ~/bluetooth_py.pid ]; then
-    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; } || true
     sudo rm ~/bluetooth_py.pid || { echo "Error removing bluetooth_py.pid"; }
   fi
   
@@ -243,7 +292,7 @@ function restart() {
   fi
 
   if [ -f ~/bluetooth.pid ]; then
-    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; } || true
     sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid"; }
   fi
 
@@ -315,7 +364,7 @@ function pullFailedServices() {
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
      echo "Process already running."
-     -kill -9 `cat /var/run/fula.pid`
+     kill -9 `cat /var/run/fula.pid`
      rm -f /var/run/fula.pid
      echo `pidof $$` > /var/run/fula.pid
   fi
@@ -328,27 +377,27 @@ case $1 in
   ;;
 "start" | "restart")
   if [ -f connectwifi.pid ]; then
-    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    kill $(cat connectwifi.pid) || { echo "Error Killing Process"; } || true
     sudo rm connectwifi.pid
   fi
+  connectwifi &> connectwifi.log &
+  echo $! > connectwifi.pid
   restart
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
   sync
-  connectwifi &> connectwifi.log &
-  echo $! > connectwifi.pid
   ;;
 "stop")
   dockerComposeDown
   if [ -f connectwifi.pid ]; then
-    -kill $(cat connectwifi.pid) || { echo "Error Killing Process"; }
+    kill $(cat connectwifi.pid) || { echo "Error Killing Process"; } || true
     sudo rm connectwifi.pid
   fi
   if [ -f ~/bluetooth_py.pid ]; then
-    -kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; }
+    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process"; } || true
     sudo rm ~/bluetooth_py.pid
   fi
   if [ -f ~/bluetooth.pid ]; then
-    -kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; }
+    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process"; } || true
     sudo rm ~/bluetooth.pid
   fi
   ;;

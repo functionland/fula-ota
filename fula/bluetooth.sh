@@ -71,13 +71,6 @@ function remove_wifi_connections() {
     done
 }
 
-# Check if ~/V3.info exists
-if [ ! -f ~/V3.info ]; then
-    touch ~/V3.info || { echo "Error creating version file"; }
-    remove_wifi_connections || { echo "Error removing wifi connectins"; }
-    sudo reboot
-fi
-
 sudo rfcomm release /dev/rfcomm0 1
 
 # Wait for connection
