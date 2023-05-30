@@ -84,9 +84,9 @@ while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
     sleep 1
     current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
-	if [ $script_elapsed_time -ge 120 ]
+	if [ $script_elapsed_time -ge 240 ]
 	then
-		echo "120 seconds have passed. Stopping the script..."
+		echo "240 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
             control_blue stop || { echo "control_blue stop failed"; }
         fi
@@ -110,9 +110,9 @@ while [ ! -c "/dev/rfcomm0" ]; do
     sleep 1
     current_time=$(date +%s)
 	script_elapsed_time=$(($current_time - $script_start_time))
-	if [ $script_elapsed_time -ge 120 ]
+	if [ $script_elapsed_time -ge 240 ]
 	then
-		echo "120 seconds have passed. Stopping the script..."
+		echo "240 seconds have passed. Stopping the script..."
         if [ "$keep_flashing" -eq 1 ]; then
             control_blue stop || { echo "control_blue stop failed"; }
         fi
@@ -150,9 +150,9 @@ function stop() {
         current_time=$(date +%s)
         # check elapsed time since start_time...
         script_elapsed_time=$(($current_time - $script_start_time))
-		if [ $script_elapsed_time -ge 120 ] && [ "$keep_flashing" -eq 0 ]
+		if [ $script_elapsed_time -ge 240 ] && [ "$keep_flashing" -eq 0 ]
 		then
-			echo "120 seconds have passed and LED isn't flashing. Stopping the script..."
+			echo "240 seconds have passed and LED isn't flashing. Stopping the script..."
             if [ -f ~/stop_bluetooth.txt ]; then
                 echo "Removing ~/stop_bluetooth.txt"
                 sudo rm ~/stop_bluetooth.txt

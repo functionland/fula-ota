@@ -17,18 +17,18 @@ start_time = time.time()
 
 while True:
     try:
-        child.expect('\[agent\] Confirm passkey', timeout=120)
+        child.expect('\[agent\] Confirm passkey', timeout=240)
         child.sendline('yes')
     except pexpect.TIMEOUT:
         pass
     except pexpect.EOF:
         break
 
-    # Check if 120 seconds have passed since the script started
+    # Check if 240 seconds have passed since the script started
     current_time = time.time()
     elapsed_time = current_time - start_time
 
-    if elapsed_time >= 120:
-        print("120 seconds have passed. Turning off Bluetooth and stopping the script...")
+    if elapsed_time >= 240:
+        print("240 seconds have passed. Turning off Bluetooth and stopping the script...")
         child.sendline('power off')
         break
