@@ -130,7 +130,7 @@ function install() {
   cp fula.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
   cp .env $FULA_PATH/ 2>/dev/null || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
   cp docker-compose.yml $FULA_PATH/ 2>/dev/null || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
-  cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service" >> $FULA_LOG_PATH; } || true
+  sudo cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service" >> $FULA_LOG_PATH; } || true
 
   cp hw_test.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
   cp resize.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
@@ -262,7 +262,7 @@ function dockerComposeDown() {
   echo "dockerComposeDown: killing done" >> $FULA_LOG_PATH
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment' >> $FULA_LOG_PATH
-    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans
+    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans || true
   fi
 }
 
@@ -323,7 +323,7 @@ function restart() {
 
   echo "dockerComposeDown" >> $FULA_LOG_PATH
   dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
-  echo "dockerComposeUp"
+  echo "dockerComposeUp" >> $FULA_LOG_PATH
   dockerComposeUp || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
 
   # Remove dangling images

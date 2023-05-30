@@ -14,7 +14,7 @@ control_blue() {
     # Try
     {
         if [ "$action" = "start" ]; then
-            keep_flashing = 1
+            keep_flashing=1
             # Export GPIO pin
             echo $led_b_pin > /sys/class/gpio/export
 
@@ -51,7 +51,7 @@ control_blue() {
     # Always
     {
         # Unexport GPIO pin after use
-        echo $led_b_pin > /sys/class/gpio/unexport
+        echo $led_b_pin > /sys/class/gpio/unexport || echo "Error in Unexport GPIO pin after use" || true
     }
 }
 
