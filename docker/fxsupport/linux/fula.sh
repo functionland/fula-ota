@@ -52,7 +52,7 @@ function check_and_delete_log() {
 
   # Get the last modified date of the file
   local file_date
-  file_date=$(stat -c %y "$filepath" | cut -d' ' -f1)
+  file_date=$(sudo stat -c %y "$filepath" | cut -d' ' -f1)
 
   # Get the current date
   local current_date
