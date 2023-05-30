@@ -33,7 +33,8 @@ fi
 ENV_FILE="$DIR/.env"
 DOCKER_DIR=$DIR
 
-export CURRENT_USER=$(whoami)
+declare -x CURRENT_USER
+CURRENT_USER=$(whoami)
 export MOUNT_PATH=/media/$CURRENT_USER
 
 # Determine default host machine IP address
@@ -44,30 +45,34 @@ function check_and_delete_log() {
   local filepath=$1
 
   # Check if the file exists
-  if [[ ! -e $filepath ]]; then
+  if [[ ! -e "$filepath" ]]; then
     echo "File $filepath does not exist."
     return
   fi
 
-  # Get the last modified date of the file in YYYY-MM-DD format
-  local file_date=$(stat -c %y $filepath | cut -d' ' -f1)
+  # Get the last modified date of the file
+  local file_date
+  file_date=$(stat -c %y "$filepath" | cut -d' ' -f1)
 
-  # Get the current date in YYYY-MM-DD format
-  local current_date=$(date +%F)
+  # Get the current date
+  local current_date
+  current_date=$(date +%F)
 
   # If the dates don't match, delete the file and create a log file
-  if [[ $file_date != $current_date ]]; then
-    sudo rm $filepath
+  if [[ "$file_date" != "$current_date" ]]; then
+    sudo rm "$filepath"
     echo "File $filepath was deleted."
 
     # Create another file
-    local creation_time=$(date)
+    local creation_time
+    creation_time=$(date)
 
-    echo "File $filepath was created on $creation_time" >> $filepath
+    echo "File $filepath was created on $creation_time" >> "$filepath"
   else
-    echo "File $filepath was not modified today."
+    echo "File $filepath was not modified today." >> "$filepath"
   fi
 }
+
 
 function check_internet() {
   wget -q --spider --timeout=10 https://hub.docker.com
@@ -179,7 +184,9 @@ function install() {
 
 function remove_wifi_connections() {
     # Get a list of all connection names
-    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+    local wifi_connections
+    wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+
 
     # Iterate over each connection
     for conn in $wifi_connections; do
@@ -205,7 +212,7 @@ function dockerPull() {
         fi
       done
     else
-      . $ENV_FILE
+      . "$ENV_FILE"
       echo "Updating fxsupport ($FX_SUPPROT)..." >> $FULA_LOG_PATH
       
       # Attempt to pull the image, if it fails use the local version
@@ -241,7 +248,9 @@ function dockerComposeUp() {
   # Try running docker-compose up the first time
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     # If the compose up fails, stop all containers, remove them, and try again
+    # shellcheck disable=SC2046
     docker stop $(docker ps -a -q)
+    # shellcheck disable=SC2046
     docker rm -f $(docker ps -a -q)
 
     # Try running docker-compose up the second time
@@ -341,7 +350,7 @@ function remove() {
     systemctl disable fula.service -q
   fi
   rm -f $SYSTEMD_PATH/fula.service
-  rm -rf $FULA_PATH/
+  rm -rf "${FULA_PATH:?}/" || { echo "could not remove FULA_PATH"; } || true
   systemctl daemon-reload
   dockerPrune
   echo "Removing Fula Finished" >> $FULA_LOG_PATH
@@ -367,7 +376,7 @@ function pullFailedServices() {
         # Pull the latest image
         if check_internet; then
           echo "Start polling $service images..." >> $FULA_LOG_PATH
-          if [ -s "$1" ]; then
+          if [ -s "${DOCKER_DIR}/docker-compose.yml" ]; then
             echo "Pulling $service" >> $FULA_LOG_PATH
             if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service) ]; then
                 echo "pulling $service" >> $FULA_LOG_PATH
@@ -392,12 +401,13 @@ function pullFailedServices() {
 
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
-     echo "Process already running." >> $FULA_LOG_PATH
-     kill -9 `cat /var/run/fula.pid`
+     echo "Process already running." >> "$FULA_LOG_PATH"
+     kill -9 $(cat /var/run/fula.pid)
      rm -f /var/run/fula.pid
-     echo `pidof $$` > /var/run/fula.pid
+     printf "%s" "$(pidof $$)" > /var/run/fula.pid
   fi
 }
+
 
 # Commands
 case $1 in

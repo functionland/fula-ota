@@ -67,7 +67,8 @@ function create_and_connect_wifi() {
 
 function remove_wifi_connections() {
     # Get a list of all connection names
-    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+    local wifi_connections
+    wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
 
     # Iterate over each connection
     for conn in $wifi_connections; do
