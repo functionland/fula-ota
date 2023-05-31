@@ -104,6 +104,19 @@ service_exists() {
   fi
 }
 
+function create_cron() {
+  local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
+
+  # Check if the cron job already exists
+  if ! crontab -l | grep -q "$cron_command"; then
+    # Add the cron job if it doesn't exist
+    (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
+    echo "Cron job created." >> $FULA_LOG_PATH
+  else
+    echo "Cron job already exists." >> $FULA_LOG_PATH
+  fi
+}
+
 # Functions
 function install() {
   echo "Installing dependencies..." >> $FULA_LOG_PATH
@@ -180,6 +193,9 @@ function install() {
   systemctl daemon-reload || { echo "Error daemon reload" >> $FULA_LOG_PATH; }
   systemctl enable fula.service || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; }
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
+  echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
+  create_cron || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
+  echo "installation done" >> $FULA_LOG_PATH
 }
 
 function remove_wifi_connections() {

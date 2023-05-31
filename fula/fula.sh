@@ -33,7 +33,8 @@ fi
 ENV_FILE="$DIR/.env"
 DOCKER_DIR=$DIR
 
-export CURRENT_USER=$(whoami)
+declare -x CURRENT_USER
+CURRENT_USER=$(whoami)
 export MOUNT_PATH=/media/$CURRENT_USER
 
 # Determine default host machine IP address
@@ -44,30 +45,34 @@ function check_and_delete_log() {
   local filepath=$1
 
   # Check if the file exists
-  if [[ ! -e $filepath ]]; then
+  if [[ ! -e "$filepath" ]]; then
     echo "File $filepath does not exist."
     return
   fi
 
-  # Get the last modified date of the file in YYYY-MM-DD format
-  local file_date=$(stat -c %y $filepath | cut -d' ' -f1)
+  # Get the last modified date of the file
+  local file_date
+  file_date=$(sudo stat -c %y "$filepath" | cut -d' ' -f1)
 
-  # Get the current date in YYYY-MM-DD format
-  local current_date=$(date +%F)
+  # Get the current date
+  local current_date
+  current_date=$(date +%F)
 
   # If the dates don't match, delete the file and create a log file
-  if [[ $file_date != $current_date ]]; then
-    sudo rm $filepath
+  if [[ "$file_date" != "$current_date" ]]; then
+    sudo rm "$filepath"
     echo "File $filepath was deleted."
 
     # Create another file
-    local creation_time=$(date)
+    local creation_time
+    creation_time=$(date)
 
-    echo "File $filepath was created on $creation_time" >> $filepath
+    echo "File $filepath was created on $creation_time" >> "$filepath"
   else
-    echo "File $filepath was not modified today."
+    echo "File $filepath was not modified today." >> "$filepath"
   fi
 }
+
 
 function check_internet() {
   wget -q --spider --timeout=10 https://hub.docker.com
@@ -96,6 +101,19 @@ service_exists() {
     return 0
   else
     return 1
+  fi
+}
+
+function create_cron() {
+  local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
+
+  # Check if the cron job already exists
+  if ! crontab -l | grep -q "$cron_command"; then
+    # Add the cron job if it doesn't exist
+    (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
+    echo "Cron job created." >> $FULA_LOG_PATH
+  else
+    echo "Cron job already exists." >> $FULA_LOG_PATH
   fi
 }
 
@@ -130,7 +148,7 @@ function install() {
   cp fula.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
   cp .env $FULA_PATH/ 2>/dev/null || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
   cp docker-compose.yml $FULA_PATH/ 2>/dev/null || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
-  cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service" >> $FULA_LOG_PATH; } || true
+  sudo cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service" >> $FULA_LOG_PATH; } || true
 
   cp hw_test.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
   cp resize.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
@@ -175,11 +193,16 @@ function install() {
   systemctl daemon-reload || { echo "Error daemon reload" >> $FULA_LOG_PATH; }
   systemctl enable fula.service || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; }
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
+  echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
+  create_cron || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
+  echo "installation done" >> $FULA_LOG_PATH
 }
 
 function remove_wifi_connections() {
     # Get a list of all connection names
-    local wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+    local wifi_connections
+    wifi_connections=$(nmcli con show | grep wifi | awk '{print $1}')
+
 
     # Iterate over each connection
     for conn in $wifi_connections; do
@@ -205,7 +228,7 @@ function dockerPull() {
         fi
       done
     else
-      . $ENV_FILE
+      . "$ENV_FILE"
       echo "Updating fxsupport ($FX_SUPPROT)..." >> $FULA_LOG_PATH
       
       # Attempt to pull the image, if it fails use the local version
@@ -225,7 +248,7 @@ function connectwifi() {
     sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
-      sh $WIFI_SC || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
+      bash $WIFI_SC || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
     fi
   fi
 }
@@ -241,7 +264,9 @@ function dockerComposeUp() {
   # Try running docker-compose up the first time
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     # If the compose up fails, stop all containers, remove them, and try again
+    # shellcheck disable=SC2046
     docker stop $(docker ps -a -q)
+    # shellcheck disable=SC2046
     docker rm -f $(docker ps -a -q)
 
     # Try running docker-compose up the second time
@@ -262,7 +287,7 @@ function dockerComposeDown() {
   echo "dockerComposeDown: killing done" >> $FULA_LOG_PATH
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment' >> $FULA_LOG_PATH
-    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans
+    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans || true
   fi
 }
 
@@ -316,14 +341,14 @@ function restart() {
   fi
 
   if [ -f "$BLUETOOTH_SC" ]; then
-    sudo $BLUETOOTH_SC &> ~/bluetooth.log &
+    sudo bash $BLUETOOTH_SC &> ~/bluetooth.log &
     sudo echo $! > ~/bluetooth.pid
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
 
   echo "dockerComposeDown" >> $FULA_LOG_PATH
   dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
-  echo "dockerComposeUp"
+  echo "dockerComposeUp" >> $FULA_LOG_PATH
   dockerComposeUp || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
 
   # Remove dangling images
@@ -341,7 +366,7 @@ function remove() {
     systemctl disable fula.service -q
   fi
   rm -f $SYSTEMD_PATH/fula.service
-  rm -rf $FULA_PATH/
+  rm -rf "${FULA_PATH:?}/" || { echo "could not remove FULA_PATH"; } || true
   systemctl daemon-reload
   dockerPrune
   echo "Removing Fula Finished" >> $FULA_LOG_PATH
@@ -367,7 +392,7 @@ function pullFailedServices() {
         # Pull the latest image
         if check_internet; then
           echo "Start polling $service images..." >> $FULA_LOG_PATH
-          if [ -s "$1" ]; then
+          if [ -s "${DOCKER_DIR}/docker-compose.yml" ]; then
             echo "Pulling $service" >> $FULA_LOG_PATH
             if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service) ]; then
                 echo "pulling $service" >> $FULA_LOG_PATH
@@ -392,12 +417,13 @@ function pullFailedServices() {
 
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
-     echo "Process already running." >> $FULA_LOG_PATH
-     kill -9 `cat /var/run/fula.pid`
+     echo "Process already running." >> "$FULA_LOG_PATH"
+     kill -9 $(cat /var/run/fula.pid)
      rm -f /var/run/fula.pid
-     echo `pidof $$` > /var/run/fula.pid
+     printf "%s" "$(pidof $$)" > /var/run/fula.pid
   fi
 }
+
 
 # Commands
 case $1 in
@@ -410,15 +436,6 @@ case $1 in
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
   check_and_delete_log $FULA_LOG_PATH
   echo "check_and_delete_log status=> $?" >> $FULA_LOG_PATH; 
-  if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    echo "kill connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
-    sudo rm connectwifi.pid
-    echo "rm connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
-  fi
-  echo "if [ -f connectwifi.pid ]; then;...;fi status=> $?" >> $FULA_LOG_PATH; 
-  connectwifi &> connectwifi.log &
-  echo $! > connectwifi.pid
   restart
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
@@ -430,10 +447,6 @@ case $1 in
   check_and_delete_log $FULA_LOG_PATH
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
-  if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm connectwifi.pid
-  fi
   if [ -f ~/bluetooth_py.pid ]; then
     kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm ~/bluetooth_py.pid

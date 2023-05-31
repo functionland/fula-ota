@@ -1,5 +1,5 @@
 [Unit]
-Description=%i service with docker compose
+Description=%i Fula service with docker compose
 PartOf=docker.service
 After=docker.service
 
@@ -7,8 +7,8 @@ After=docker.service
 Type=simple
 RemainAfterExit=true
 WorkingDirectory=/usr/bin/fula/
-ExecStart=/bin/sh -c '. ./.env && if ! [ -s ./fula.sh ] || ! ./fula.sh start; then  echo "failed";  docker run --name fula_fxsupport --rm $FX_SUPPROT sleep 20 & sleep 2 && docker cp fula_fxsupport:/linux/. /usr/bin/fula/;  sync ;exit 1;  fi'
-ExecStop=/usr/bin/fula/fula.sh stop
+ExecStart=/bin/bash -c '. ./.env && chmod +x ./fula.sh && if ! [ -s ./fula.sh ] || ! bash ./fula.sh start; then  echo "failed";  docker run --name fula_fxsupport --rm $FX_SUPPROT sleep 20 & sleep 2 && docker cp fula_fxsupport:/linux/. /usr/bin/fula/;  sync ;exit 1;  fi'
+ExecStop=/bin/bash -c '/usr/bin/fula/fula.sh stop'
 Restart=always
 RestartSec=30
 
