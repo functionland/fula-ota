@@ -420,15 +420,6 @@ case $1 in
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
   check_and_delete_log $FULA_LOG_PATH
   echo "check_and_delete_log status=> $?" >> $FULA_LOG_PATH; 
-  if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    echo "kill connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
-    sudo rm connectwifi.pid
-    echo "rm connectwifi.pid status=> $?" >> $FULA_LOG_PATH; 
-  fi
-  echo "if [ -f connectwifi.pid ]; then;...;fi status=> $?" >> $FULA_LOG_PATH; 
-  connectwifi &> connectwifi.log &
-  echo $! > connectwifi.pid
   restart
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
@@ -440,10 +431,6 @@ case $1 in
   check_and_delete_log $FULA_LOG_PATH
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
-  if [ -f connectwifi.pid ]; then
-    kill $(cat connectwifi.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm connectwifi.pid
-  fi
   if [ -f ~/bluetooth_py.pid ]; then
     kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm ~/bluetooth_py.pid
