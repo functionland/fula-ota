@@ -204,6 +204,7 @@ function install() {
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
   create_cron || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
   echo "installation done" >> $FULA_LOG_PATH
+  touch ~/V3.info || { echo "Error creating version file" >> $FULA_LOG_PATH; }
 }
 
 function remove_wifi_connections() {
