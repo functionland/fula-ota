@@ -41,37 +41,34 @@ export MOUNT_PATH=/media/$CURRENT_USER
 # Determine default host machine IP address
 IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
-function check_and_delete_log() {
-  # The path to your file
-  local filepath=$1
+function setup_logrotate {
+    # Check if logrotate is installed
+    if ! command -v logrotate &> /dev/null
+    then
+        echo "logrotate could not be found. Installing..."
+        sudo apt-get update
+        sudo apt-get install logrotate -y
+    else
+        echo "logrotate is already installed."
+    fi
 
-  # Check if the file exists
-  if [[ ! -e "$filepath" ]]; then
-    echo "File $filepath does not exist."
-    return
-  fi
+    # Create logrotate configuration file
+    local logfile_path=$1
 
-  # Get the last modified date of the file
-  local file_date
-  file_date=$(sudo stat -c %y "$filepath" | cut -d' ' -f1)
+    cat << EOF | sudo tee /etc/logrotate.d/fula_logs
+${logfile_path} {
+    daily
+    rotate 6
+    compress
+    missingok
+    notifempty
+    create 0640 root root
+}
+EOF
+    echo "Logrotate configuration file for $logfile_path has been created."
 
-  # Get the current date
-  local current_date
-  current_date=$(date +%F)
-
-  # If the dates don't match, delete the file and create a log file
-  if [[ "$file_date" != "$current_date" ]]; then
-    sudo rm "$filepath"
-    echo "File $filepath was deleted."
-
-    # Create another file
-    local creation_time
-    creation_time=$(date)
-
-    echo "File $filepath was created on $creation_time" >> "$filepath"
-  else
-    echo "File $filepath was not modified today." >> "$filepath"
-  fi
+    # Force logrotate to read the new configuration
+    sudo logrotate -f /etc/logrotate.conf
 }
 
 
@@ -120,6 +117,7 @@ function create_cron() {
 
 # Functions
 function install() {
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH; } || true
   echo "Installing dependencies..." >> $FULA_LOG_PATH
   # Check if pip is installed
   command -v pip >/dev/null 2>&1 || {
@@ -449,14 +447,11 @@ function killPullImage() {
 # Commands
 case $1 in
 "install")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran install at: $(date)" >> $FULA_LOG_PATH
   install
   ;;
 "start" | "restart")
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
-  check_and_delete_log $FULA_LOG_PATH
-  echo "check_and_delete_log status=> $?" >> $FULA_LOG_PATH; 
   restart
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/
@@ -465,7 +460,6 @@ case $1 in
   cho "sync status=> $?" >> $FULA_LOG_PATH; 
   ;;
 "stop")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
   if [ -f ~/bluetooth_py.pid ]; then
@@ -483,12 +477,10 @@ case $1 in
   fi
   ;;
 "rebuild")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran rebuild at: $(date)" >> $FULA_LOG_PATH
   rebuild
   ;;
 "removeall")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran removeall at: $(date)" >> $FULA_LOG_PATH
   containers=$(docker ps -a -q)
   if [ -n "$containers" ]; then
@@ -499,12 +491,10 @@ case $1 in
   remove
   ;;
 "update")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran update at: $(date)" >> $FULA_LOG_PATH
   dockerPull "${@:2}"
   ;;
 "pull-failed")
-  check_and_delete_log $FULA_LOG_PATH
   echo "ran pull-failed at: $(date)" >> $FULA_LOG_PATH
   pullFailedServices
   ;;
