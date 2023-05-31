@@ -22,6 +22,7 @@ RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 BLUETOOTH_SC=$FULA_PATH/bluetooth.sh
 BLUETOOTH_PY_SC=$FULA_PATH/bluetooth.py
+UPDATE_SC=$FULA_PATH/update.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -155,6 +156,7 @@ function install() {
   cp wifi.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
   cp bluetooth.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.sh" >> $FULA_LOG_PATH; } || true
   cp bluetooth.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
+  cp update.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
 
   echo "Setting chmod..." >> $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
@@ -178,6 +180,14 @@ function install() {
     if [ ! -x "$FULA_PATH/bluetooth.sh" ]; then 
       echo "$FULA_PATH/bluetooth.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
       sudo chmod +x $FULA_PATH/bluetooth.sh || { echo "Error chmod file bluetooth.sh" >> $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/update.sh" ]; then 
+    # Check if update.sh is executable 
+    if [ ! -x "$FULA_PATH/update.sh" ]; then 
+      echo "$FULA_PATH/update.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
+      sudo chmod +x $FULA_PATH/update.sh || { echo "Error chmod file update.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
 
@@ -346,6 +356,17 @@ function restart() {
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
 
+  if [ -f ~/update.pid ]; then
+    kill $(cat ~/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
+    sudo rm ~/update.pid || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
+  fi
+
+  if [ -f "$UPDATE_SC" ]; then
+    sudo bash $UPDATE_SC &> ~/update.log &
+    sudo echo $! > ~/update.pid
+    echo "Ran $UPDATE_SC" >> $FULA_LOG_PATH
+  fi
+
   echo "dockerComposeDown" >> $FULA_LOG_PATH
   dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
   echo "dockerComposeUp" >> $FULA_LOG_PATH
@@ -454,6 +475,11 @@ case $1 in
   if [ -f ~/bluetooth.pid ]; then
     kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm ~/bluetooth.pid
+  fi
+
+  if [ -f ~/update.pid ]; then
+    kill $(cat ~/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
+    sudo rm ~/update.pid
   fi
   ;;
 "rebuild")
