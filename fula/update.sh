@@ -1,5 +1,7 @@
 #!/bin/bash
 
+FULA_LOG_PATH=/home/pi/fula.sh.log
+
 # Get a list of USB devices
 mapfile -t devices < <(for id in /dev/disk/by-id/*; do
     if echo "$id" | grep -Eq 'usb.*-part.*'; then
@@ -17,6 +19,8 @@ for device in "${devices[@]}"; do
 
     # Check if the update file exists on this device
     if [ -f "$mountpoint/fula_update/update.yaml" ]; then
+        python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
+        python control_led.py blue 0 > $FULA_LOG_PATH 2>&1 &
         sudo systemctl stop fula
         sudo cp -r "$mountpoint/fula_update/fula"/* /usr/bin/fula
         sudo cp -r "$mountpoint/fula_update/fula"/* /home/pi/fula
@@ -27,6 +31,7 @@ for device in "${devices[@]}"; do
         mv "$mountpoint/fula_update/update.yaml" "$mountpoint/fula_update/update.completed.yaml"
         sudo bash ./fula.sh install
         sudo umount "$mountpoint"
+        python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         sudo reboot
     fi
 

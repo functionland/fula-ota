@@ -1,59 +1,14 @@
 #!/bin/bash
 
+FULA_LOG_PATH=/home/pi/fula.sh.log
+
 script_start_time=$(date +%s)
 
 # Define GPIO pin for blue LED
 led_b_pin=16
 
 # Global variable to control the loop
-keep_flashing=1
-
-control_blue() {
-    action=$1  # Get the first argument to the function
-
-    # Try
-    {
-        if [ "$action" = "start" ]; then
-            keep_flashing=1
-            # Export GPIO pin
-            echo $led_b_pin > /sys/class/gpio/export
-
-            # Set GPIO pin direction
-            echo out > /sys/class/gpio/gpio$led_b_pin/direction
-
-            # Start flashing blue LED for 5 seconds
-            for i in {1..20}
-            do
-                if [ "$keep_flashing" -eq 1 ]; then
-                    echo 0 > /sys/class/gpio/gpio$led_b_pin/value
-                    sleep 1
-                    echo 1 > /sys/class/gpio/gpio$led_b_pin/value
-                else
-                    break
-                fi
-            done
-        elif [ "$action" = "stop" ]; then
-            # Turn off blue LED and stop flashing
-            keep_flashing=0
-            echo 1 > /sys/class/gpio/gpio$led_b_pin/value
-            if [ -f ~/control_blue.pid ]; then
-                kill $(cat ~/control_blue.pid) || { echo "Error Killing control_blue Process"; } || true
-                sudo rm ~/control_blue.pid || { echo "Error removing control_blue.pid"; }
-            fi
-        else
-            echo "Invalid action. Use either 'start' or 'stop'."
-        fi
-    } || {
-        # Catch
-        echo "An error occurred while controlling the blue LED. But the script will continue."
-    }
-
-    # Always
-    {
-        # Unexport GPIO pin after use
-        echo $led_b_pin > /sys/class/gpio/unexport || echo "Error in Unexport GPIO pin after use" || true
-    }
-}
+keep_flashing=0
 
 
 function create_and_connect_wifi() {
@@ -88,9 +43,7 @@ while [ "$(hcitool con | grep -c 'ACL')" == "0" ]; do
 	if [ $script_elapsed_time -ge 240 ]
 	then
 		echo "240 seconds have passed. Stopping the script..."
-        if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop || { echo "control_blue stop failed"; }
-        fi
+        python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         break
     fi
 done
@@ -114,9 +67,7 @@ while [ ! -c "/dev/rfcomm0" ]; do
 	if [ $script_elapsed_time -ge 240 ]
 	then
 		echo "240 seconds have passed. Stopping the script..."
-        if [ "$keep_flashing" -eq 1 ]; then
-            control_blue stop || { echo "control_blue stop failed"; }
-        fi
+        python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         break
     fi
 done
@@ -137,7 +88,7 @@ function reset() {
             echo "Resetting the device..."
             remove_wifi_connections
             sudo rm ~/reset.txt
-            control_blue stop || { echo "control_blue stop failed"; }
+            python control_led.py red -1 > $FULA_LOG_PATH 2>&1 &
             sudo reboot
         fi
         # check elapsed time since script_start_time...
@@ -157,7 +108,7 @@ function stop() {
             if [ -f ~/stop_bluetooth.txt ]; then
                 echo "Removing ~/stop_bluetooth.txt"
                 sudo rm ~/stop_bluetooth.txt
-                control_blue stop || { echo "control_blue stop failed"; }
+                python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
                 start_time=0
                 script_start_time=0
             fi
@@ -182,20 +133,17 @@ function process_commands() {
         then
             echo "Creating ~/reset.txt"
             sudo touch ~/reset.txt
-            if [ -f ~/control_blue.pid ]; then
-                kill $(cat ~/control_blue.pid) || { echo "Error Killing control_blue Process"; } || true
-                sudo rm ~/control_blue.pid || { echo "Error removing control_blue.pid"; }
-            fi
-            control_blue start &> ~/control_blue.log &
-            echo $! > ~/control_blue.pid
+            python control_led.py red 20 > $FULA_LOG_PATH 2>&1 &
+            keep_flashing=1
             start_time=$(date +%s)
         elif [ "$command" == "cancel" ]
         then
             if [ -f ~/reset.txt ]; then
                 echo "Removing ~/reset.txt"
                 sudo rm ~/reset.txt
-                control_blue stop || { echo "control_blue stop failed"; }
-                echo "blue flashing stopped keep_flashing=$keep_flashing"
+                python control_led.py red -1 > $FULA_LOG_PATH 2>&1 &
+                keep_flashing=0
+                echo "red flashing stopped keep_flashing=$keep_flashing"
                 start_time=0
             fi
         fi
@@ -215,3 +163,4 @@ function process_commands() {
 process_commands || {
     echo "An error occurred while processing commands. But the script will continue." > ~/bluetooth_commands.txt
 }
+python control_led.py blue 240 > $FULA_LOG_PATH 2>&1 &

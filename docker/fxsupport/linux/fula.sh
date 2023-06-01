@@ -108,15 +108,15 @@ service_exists() {
 function create_cron() {
   local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
 
-  # Check if the cron job already exists
-  if ! crontab -l | grep -q "$cron_command"; then
-    # Add the cron job if it doesn't exist
-    (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
-    echo "Cron job created." >> $FULA_LOG_PATH 2>&1
-  else
-    echo "Cron job already exists." >> $FULA_LOG_PATH 2>&1
-  fi
+  # Remove all existing instances of the job
+  crontab -l | grep -v "$cron_command" | crontab -
+
+  # Add the cron job back in
+  (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
+
+  echo "Cron job created/updated." >> $FULA_LOG_PATH 2>&1
 }
+
 
 # Functions
 function install() {
