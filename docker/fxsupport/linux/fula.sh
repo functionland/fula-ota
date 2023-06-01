@@ -15,9 +15,10 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 FULA_PATH=/usr/bin/fula
-FULA_LOG_PATH=~/fula.sh.log
+FULA_LOG_PATH=/home/pi/fula.sh.log
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
+CONTROL_LED_PY_SC=$FULA_PATH/control_led.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 BLUETOOTH_SC=$FULA_PATH/bluetooth.sh
@@ -126,6 +127,12 @@ function install() {
     sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; }
   }
 
+  # Check if RPi.GPIO is installed
+  python -c "import RPi.GPIO" 2>/dev/null || {
+    echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
+    pip install RPi.GPIO || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; }
+  }
+
   # Check if pexpect is installed
   python -c "import pexpect" 2>/dev/null || {
     echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
@@ -152,9 +159,12 @@ function install() {
   cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
   cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
   cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
+  cp control_led.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file control_led.sh" >> $FULA_LOG_PATH; } || true
   cp bluetooth.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.sh" >> $FULA_LOG_PATH; } || true
   cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
   cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
+
+  sudo rm /usr/bin/fula/docker.env
 
   echo "Setting chmod..." >> $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
