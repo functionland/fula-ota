@@ -65,6 +65,7 @@ ${logfile_path} {
     missingok
     notifempty
     create 0640 root root
+    copytruncate
 }
 EOF
     echo "Logrotate configuration file for $logfile_path has been created."
