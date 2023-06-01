@@ -332,7 +332,6 @@ function restart() {
 
   # Check if /home/pi/V3.info exists
   if [ ! -f $HOME_DIR/V3.info ]; then
-      touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
       remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
       sudo reboot
