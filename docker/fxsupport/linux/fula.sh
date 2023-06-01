@@ -471,7 +471,7 @@ case $1 in
   docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "docker cp status=> $?" >> $FULA_LOG_PATH; 
   sync
-  cho "sync status=> $?" >> $FULA_LOG_PATH; 
+  echo "sync status=> $?" >> $FULA_LOG_PATH; 
   ;;
 "stop")
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
