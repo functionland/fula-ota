@@ -109,59 +109,59 @@ function create_cron() {
   if ! crontab -l | grep -q "$cron_command"; then
     # Add the cron job if it doesn't exist
     (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
-    echo "Cron job created." >> $FULA_LOG_PATH
+    echo "Cron job created." >> $FULA_LOG_PATH 2>&1
   else
-    echo "Cron job already exists." >> $FULA_LOG_PATH
+    echo "Cron job already exists." >> $FULA_LOG_PATH 2>&1
   fi
 }
 
 # Functions
 function install() {
-  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH; } || true
-  echo "Installing dependencies..." >> $FULA_LOG_PATH
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; } || true
+  echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
   # Check if pip is installed
   command -v pip >/dev/null 2>&1 || {
     echo >&2 "pip not found, installing..."
-    echo "pip not found, installing..." >> $FULA_LOG_PATH
-    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH; }
+    echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
+    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; }
   }
 
   # Check if pexpect is installed
   python -c "import pexpect" 2>/dev/null || {
-    echo "pexpect not found, installing..." >> $FULA_LOG_PATH
-    pip install pexpect || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH; }
+    echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
+    pip install pexpect || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; }
   }
 
   # Call modify_bluetooth, but don't stop the script if it fails
-  modify_bluetooth || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH; }
+  modify_bluetooth || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; }
 
-  echo "Installing Fula ..." >> $FULA_LOG_PATH
-  echo "Pulling Images..." >> $FULA_LOG_PATH
-  dockerPull || { echo "Error while dockerPull" >> $FULA_LOG_PATH; }
+  echo "Installing Fula ..." >> $FULA_LOG_PATH 2>&1
+  echo "Pulling Images..." >> $FULA_LOG_PATH 2>&1
+  dockerPull >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; }
   echo "Building Images..." >> $FULA_LOG_PATH
-  dockerComposeBuild || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; }
+  dockerComposeBuild >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; }
 
   echo "Copying Files..." >> $FULA_LOG_PATH
-  mkdir -p $FULA_PATH/ || { echo "Error making directory $FULA_PATH" >> $FULA_LOG_PATH; }
+  mkdir -p $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error making directory $FULA_PATH" >> $FULA_LOG_PATH; }
   
-  cp fula.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
-  cp .env $FULA_PATH/ 2>/dev/null || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
-  cp docker-compose.yml $FULA_PATH/ 2>/dev/null || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
-  sudo cp fula.service $SYSTEMD_PATH/ 2>/dev/null || { echo "Error copying fula.service" >> $FULA_LOG_PATH; } || true
+  cp fula.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
+  cp .env $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
+  cp docker-compose.yml $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
+  sudo cp fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
-  cp hw_test.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
-  cp resize.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
-  cp wifi.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
-  cp bluetooth.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.sh" >> $FULA_LOG_PATH; } || true
-  cp bluetooth.py $FULA_PATH/ 2>/dev/null || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
-  cp update.sh $FULA_PATH/ 2>/dev/null || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
+  cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
+  cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
+  cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
+  cp bluetooth.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.sh" >> $FULA_LOG_PATH; } || true
+  cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
+  cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
 
   echo "Setting chmod..." >> $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
     # Check if fula.sh is executable 
     if [ ! -x "$FULA_PATH/fula.sh" ]; then 
       echo "$FULA_PATH/fula.sh is not executable, changing permissions..." >> $FULA_LOG_PATH
-      sudo chmod +x $FULA_PATH/fula.sh || { echo "Error chmod file fula.sh" >> $FULA_LOG_PATH; }
+      sudo chmod +x $FULA_PATH/fula.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file fula.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
 
@@ -169,7 +169,7 @@ function install() {
     # Check if resize.sh is executable 
     if [ ! -x "$FULA_PATH/resize.sh" ]; then 
       echo "$FULA_PATH/resize.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/resize.sh || { echo "Error chmod file resize.sh" >> $FULA_LOG_PATH; }
+      sudo chmod +x $FULA_PATH/resize.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file resize.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
   
@@ -177,7 +177,7 @@ function install() {
     # Check if bluetooth.sh is executable 
     if [ ! -x "$FULA_PATH/bluetooth.sh" ]; then 
       echo "$FULA_PATH/bluetooth.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/bluetooth.sh || { echo "Error chmod file bluetooth.sh" >> $FULA_LOG_PATH; }
+      sudo chmod +x $FULA_PATH/bluetooth.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file bluetooth.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
 
@@ -185,7 +185,7 @@ function install() {
     # Check if update.sh is executable 
     if [ ! -x "$FULA_PATH/update.sh" ]; then 
       echo "$FULA_PATH/update.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/update.sh || { echo "Error chmod file update.sh" >> $FULA_LOG_PATH; }
+      sudo chmod +x $FULA_PATH/update.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file update.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
 
@@ -193,18 +193,18 @@ function install() {
     # Check if wifi.sh is executable 
     if [ ! -x "$FULA_PATH/wifi.sh" ]; then 
       echo "$FULA_PATH/wifi.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/wifi.sh || { echo "Error chmod file wifi.sh" >> $FULA_LOG_PATH; }
+      sudo chmod +x $FULA_PATH/wifi.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file wifi.sh" >> $FULA_LOG_PATH; }
     fi 
   fi
 
   echo "Installing Services..." >> $FULA_LOG_PATH
-  systemctl daemon-reload || { echo "Error daemon reload" >> $FULA_LOG_PATH; }
-  systemctl enable fula.service || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; }
+  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; }
+  systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; }
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
-  create_cron || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
+  create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
   echo "installation done" >> $FULA_LOG_PATH
-  touch ~/V3.info || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+  touch ~/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
 }
 
 function remove_wifi_connections() {
@@ -216,7 +216,7 @@ function remove_wifi_connections() {
     # Iterate over each connection
     for conn in $wifi_connections; do
         echo "Removing Wi-Fi connection: $conn" >> $FULA_LOG_PATH
-        sudo nmcli con delete "$conn"
+        sudo nmcli con delete "$conn" 2>&1 | sudo tee -a $FULA_LOG_PATH
     done
 }
 
@@ -257,7 +257,7 @@ function connectwifi() {
     sleep 160
     if ! check_internet; then
       echo "Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
-      bash $WIFI_SC || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
+      bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
     fi
   fi
 }
@@ -274,9 +274,9 @@ function dockerComposeUp() {
   if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
     # If the compose up fails, stop all containers, remove them, and try again
     # shellcheck disable=SC2046
-    docker stop $(docker ps -a -q)
+    docker stop $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
     # shellcheck disable=SC2046
-    docker rm -f $(docker ps -a -q)
+    docker rm -f $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
 
     # Try running docker-compose up the second time
     if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
@@ -292,7 +292,7 @@ function dockerComposeUp() {
 
 function dockerComposeDown() {
   echo "dockerComposeDown: killPullImage" >> $FULA_LOG_PATH
-  killPullImage
+  killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "dockerComposeDown: killing done" >> $FULA_LOG_PATH
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment' >> $FULA_LOG_PATH
@@ -301,41 +301,41 @@ function dockerComposeDown() {
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache
+  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
 function createDir() {
   if [ ! -d "${DATA_DIR}/$1" ]; then
     echo "Creating directory for docker volume $DATA_DIR/$1" >> $FULA_LOG_PATH
-    mkdir -p $DATA_DIR/$1
+    mkdir -p $DATA_DIR/$1 2>&1 | sudo tee -a $FULA_LOG_PATH
   fi
 }
 
 function dockerPrune() {
-  docker image prune --all --force
+  docker image prune --all --force 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
 function restart() {
 
   # Check if ~/V3.info exists
   if [ ! -f ~/V3.info ]; then
-      touch ~/V3.info || { echo "Error creating version file" >> $FULA_LOG_PATH; }
-      install || { echo "Error install" >> $FULA_LOG_PATH; }
-      remove_wifi_connections || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
+      touch ~/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+      install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
+      remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
       sudo reboot
   fi
 
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
+    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
   fi
   
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC || { echo "Resize failed" >> $FULA_LOG_PATH; }
+    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f ~/bluetooth_py.pid ]; then
-    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/bluetooth_py.pid || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
+    kill $(cat ~/bluetooth_py.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    sudo rm ~/bluetooth_py.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
   fi
   
   if [ -f "$BLUETOOTH_PY_SC" ]; then
@@ -345,7 +345,7 @@ function restart() {
   fi
 
   if [ -f ~/bluetooth.pid ]; then
-    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    kill $(cat ~/bluetooth.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid" >> $FULA_LOG_PATH; }
   fi
 
@@ -356,8 +356,8 @@ function restart() {
   fi
 
   if [ -f ~/update.pid ]; then
-    kill $(cat ~/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/update.pid || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
+    kill $(cat ~/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
+    sudo rm ~/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$UPDATE_SC" ]; then
@@ -367,9 +367,9 @@ function restart() {
   fi
 
   echo "dockerComposeDown" >> $FULA_LOG_PATH
-  dockerComposeDown || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
+  dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
   echo "dockerComposeUp" >> $FULA_LOG_PATH
-  dockerComposeUp || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
+  dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
 
   # Remove dangling images
   if docker image prune --filter="dangling=true" -f; then
@@ -380,7 +380,7 @@ function restart() {
 
 function remove() {
   echo "Removing Fula ..." >> $FULA_LOG_PATH
-  killPullImage
+  killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
   if service_exists fula.service; then
     systemctl stop fula.service -q
     systemctl disable fula.service -q
@@ -449,13 +449,13 @@ function killPullImage() {
 case $1 in
 "install")
   echo "ran install at: $(date)" >> $FULA_LOG_PATH
-  install
+  install 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
-  restart
+  restart 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
-  docker cp fula_fxsupport:/linux/. /usr/bin/fula/
+  docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "docker cp status=> $?" >> $FULA_LOG_PATH; 
   sync
   cho "sync status=> $?" >> $FULA_LOG_PATH; 
