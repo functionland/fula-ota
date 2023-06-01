@@ -14,8 +14,9 @@ set -e
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+HOME_DIR=/home/pi
 FULA_PATH=/usr/bin/fula
-FULA_LOG_PATH=/home/pi/fula.sh.log
+FULA_LOG_PATH=$HOME_DIR/fula.sh.log
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 CONTROL_LED_PY_SC=$FULA_PATH/control_led.py
@@ -118,6 +119,7 @@ function create_cron() {
 
 # Functions
 function install() {
+  if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; } || true
   echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
   # Check if pip is installed
@@ -130,21 +132,21 @@ function install() {
   # Check if RPi.GPIO is installed
   python -c "import RPi.GPIO" 2>/dev/null || {
     echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install RPi.GPIO || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; }
+    pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; } || true
   }
 
   # Check if pexpect is installed
   python -c "import pexpect" 2>/dev/null || {
     echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install pexpect || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; }
+    pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; } || true
   }
 
-  # Call modify_bluetooth, but don't stop the script if it fails
-  modify_bluetooth || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; }
+  echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
+  modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; } || true
 
   echo "Installing Fula ..." >> $FULA_LOG_PATH 2>&1
   echo "Pulling Images..." >> $FULA_LOG_PATH 2>&1
-  dockerPull >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; }
+  dockerPull || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; }
   echo "Building Images..." >> $FULA_LOG_PATH
   dockerComposeBuild >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; }
 
@@ -164,7 +166,7 @@ function install() {
   cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
   cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
 
-  sudo rm /usr/bin/fula/docker.env
+  sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" >> $FULA_LOG_PATH; } || true
 
   echo "Setting chmod..." >> $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
@@ -214,7 +216,7 @@ function install() {
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
   echo "installation done" >> $FULA_LOG_PATH
-  touch ~/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+  touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
 }
 
 function remove_wifi_connections() {
@@ -327,9 +329,9 @@ function dockerPrune() {
 
 function restart() {
 
-  # Check if ~/V3.info exists
-  if [ ! -f ~/V3.info ]; then
-      touch ~/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+  # Check if /home/pi/V3.info exists
+  if [ ! -f $HOME_DIR/V3.info ]; then
+      touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
       remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
       sudo reboot
@@ -343,36 +345,36 @@ function restart() {
     sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
   fi
 
-  if [ -f ~/bluetooth_py.pid ]; then
-    kill $(cat ~/bluetooth_py.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/bluetooth_py.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
+  if [ -f $HOME_DIR/bluetooth_py.pid ]; then
+    kill $(cat $HOME_DIR/bluetooth_py.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/bluetooth_py.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
   fi
   
   if [ -f "$BLUETOOTH_PY_SC" ]; then
-    python $BLUETOOTH_PY_SC &> ~/bluetooth_py.log &
-    echo $! > ~/bluetooth_py.pid
+    python $BLUETOOTH_PY_SC &> $HOME_DIR/bluetooth_py.log &
+    echo $! > $HOME_DIR/bluetooth_py.pid
     echo "Ran $BLUETOOTH_PY_SC" >> $FULA_LOG_PATH
   fi
 
-  if [ -f ~/bluetooth.pid ]; then
-    kill $(cat ~/bluetooth.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/bluetooth.pid || { echo "Error removing bluetooth.pid" >> $FULA_LOG_PATH; }
+  if [ -f $HOME_DIR/bluetooth.pid ]; then
+    kill $(cat $HOME_DIR/bluetooth.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/bluetooth.pid || { echo "Error removing bluetooth.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$BLUETOOTH_SC" ]; then
-    sudo bash $BLUETOOTH_SC &> ~/bluetooth.log &
-    sudo echo $! > ~/bluetooth.pid
+    sudo bash $BLUETOOTH_SC &> $HOME_DIR/bluetooth.log &
+    sudo echo $! > $HOME_DIR/bluetooth.pid
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
 
-  if [ -f ~/update.pid ]; then
-    kill $(cat ~/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
+  if [ -f $HOME_DIR/update.pid ]; then
+    kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$UPDATE_SC" ]; then
-    sudo bash $UPDATE_SC &> ~/update.log &
-    sudo echo $! > ~/update.pid
+    sudo bash $UPDATE_SC &> $HOME_DIR/update.log &
+    sudo echo $! > $HOME_DIR/update.pid
     echo "Ran $UPDATE_SC" >> $FULA_LOG_PATH
   fi
 
@@ -473,18 +475,18 @@ case $1 in
 "stop")
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
-  if [ -f ~/bluetooth_py.pid ]; then
-    kill $(cat ~/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/bluetooth_py.pid
+  if [ -f $HOME_DIR/bluetooth_py.pid ]; then
+    kill $(cat $HOME_DIR/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/bluetooth_py.pid
   fi
-  if [ -f ~/bluetooth.pid ]; then
-    kill $(cat ~/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/bluetooth.pid
+  if [ -f $HOME_DIR/bluetooth.pid ]; then
+    kill $(cat $HOME_DIR/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/bluetooth.pid
   fi
 
-  if [ -f ~/update.pid ]; then
-    kill $(cat ~/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm ~/update.pid
+  if [ -f $HOME_DIR/update.pid ]; then
+    kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/update.pid
   fi
   ;;
 "rebuild")
