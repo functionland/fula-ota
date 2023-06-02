@@ -56,8 +56,10 @@ function setup_logrotate {
 
     # Create logrotate configuration file
     local logfile_path=$1
+    local config_path="/etc/logrotate.d/fula_logs"
+    local temp_config_path="/tmp/fula_logs.tmp"
 
-    cat << EOF | sudo tee /etc/logrotate.d/fula_logs
+    cat << EOF > ${temp_config_path}
 ${logfile_path} {
     daily
     rotate 6
@@ -68,11 +70,23 @@ ${logfile_path} {
     copytruncate
 }
 EOF
-    echo "Logrotate configuration file for $logfile_path has been created."
 
-    # Force logrotate to read the new configuration
-    sudo logrotate -f /etc/logrotate.conf
+    # Check if the existing config file is different than the temp config
+    if [ ! -f ${config_path} ] || ! cmp -s ${config_path} ${temp_config_path}
+    then
+        # If they differ, replace the old config with the new one
+        sudo mv ${temp_config_path} ${config_path}
+        echo "Logrotate configuration file for $logfile_path has been updated."
+
+        # Force logrotate to read the new configuration
+        sudo logrotate -f /etc/logrotate.conf
+    else
+        echo "Logrotate configuration file for $logfile_path is already up to date."
+        # Remove the temporary config file
+        rm ${temp_config_path}
+    fi
 }
+
 
 
 function check_internet() {
