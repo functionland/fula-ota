@@ -134,36 +134,37 @@ function create_cron() {
 
 # Functions
 function install() {
+  all_success=true
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
-  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; } || true
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
   echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
   # Check if pip is installed
   command -v pip >/dev/null 2>&1 || {
     echo >&2 "pip not found, installing..."
     echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
-    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; }
+    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
   }
 
   # Check if RPi.GPIO is installed
   python -c "import RPi.GPIO" 2>/dev/null || {
     echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; } || true
+    pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
   }
 
   # Check if pexpect is installed
   python -c "import pexpect" 2>/dev/null || {
     echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; } || true
+    pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
   }
 
   echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
-  modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; } || true
+  modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
 
   echo "Installing Fula ..." >> $FULA_LOG_PATH 2>&1
   echo "Pulling Images..." >> $FULA_LOG_PATH 2>&1
-  dockerPull || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; }
+  dockerPull || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; all_success=false; }
   echo "Building Images..." >> $FULA_LOG_PATH
-  dockerComposeBuild >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; }
+  dockerComposeBuild >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; all_success=false; }
 
   echo "Copying Files..." >> $FULA_LOG_PATH
   mkdir -p $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error making directory $FULA_PATH" >> $FULA_LOG_PATH; }
@@ -225,13 +226,17 @@ function install() {
   fi
 
   echo "Installing Services..." >> $FULA_LOG_PATH
-  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; }
-  systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; }
+  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; all_success=false; }
+  systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; all_success=false; }
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
-  create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; } || true
+  create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done" >> $FULA_LOG_PATH
-  touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+  if $all_success; then
+    touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+  else
+    echo "Installation finished with errors, version file not created." >> $FULA_LOG_PATH
+  fi
 }
 
 function remove_wifi_connections() {
