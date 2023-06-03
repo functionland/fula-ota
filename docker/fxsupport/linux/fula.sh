@@ -259,7 +259,7 @@ function dockerPull() {
         image=$(docker-compose config | awk '$1 == "image:" { print $2 }' | grep "$service")
         
         # Attempt to pull the image, if it fails use the local version
-        if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE pull $service; then
+        if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
           echo "$service image pull failed, using local version" >> $FULA_LOG_PATH
         fi
       done
@@ -268,7 +268,7 @@ function dockerPull() {
       echo "Updating fxsupport ($FX_SUPPROT)..." >> $FULA_LOG_PATH
       
       # Attempt to pull the image, if it fails use the local version
-      if ! docker pull $FX_SUPPROT; then
+      if ! docker pull "$FX_SUPPROT"; then
         echo "fx_support image pull failed, using local version" >> $FULA_LOG_PATH
       fi
     fi
@@ -298,7 +298,7 @@ function dockerComposeUp() {
   echo "compsing up images..." >> $FULA_LOG_PATH
 
   # Try running docker-compose up the first time
-  if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
+  if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate; then
     # If the compose up fails, stop all containers, remove them, and try again
     # shellcheck disable=SC2046
     docker stop $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -306,7 +306,7 @@ function dockerComposeUp() {
     docker rm -f $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
 
     # Try running docker-compose up the second time
-    if ! docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE up -d --no-recreate; then
+    if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate; then
       echo "failed to start some images" >> $FULA_LOG_PATH
       pullFailedServices &
       echo "pull pid is" $! >> $FULA_LOG_PATH
@@ -321,14 +321,15 @@ function dockerComposeDown() {
   echo "dockerComposeDown: killPullImage" >> $FULA_LOG_PATH
   killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "dockerComposeDown: killing done" >> $FULA_LOG_PATH
+  # shellcheck disable=SC2046
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment' >> $FULA_LOG_PATH
-    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE down --remove-orphans || true
+    docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" down --remove-orphans || true
   fi
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $DOCKER_DIR/docker-compose.yml --env-file $ENV_FILE build --no-cache 2>&1 | sudo tee -a $FULA_LOG_PATH
+  docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" build --no-cache 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
 function createDir() {
@@ -360,6 +361,7 @@ function restart() {
   fi
 
   if [ -f $HOME_DIR/bluetooth_py.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/bluetooth_py.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/bluetooth_py.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
   fi
@@ -371,24 +373,26 @@ function restart() {
   fi
 
   if [ -f $HOME_DIR/bluetooth.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/bluetooth.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/bluetooth.pid || { echo "Error removing bluetooth.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$BLUETOOTH_SC" ]; then
-    sudo bash $BLUETOOTH_SC &> $HOME_DIR/bluetooth.log &
-    sudo echo $! > $HOME_DIR/bluetooth.pid
+    sudo bash $BLUETOOTH_SC 2>&1 | sudo tee $HOME_DIR/bluetooth.log > /dev/null &
+    echo $! | sudo tee $HOME_DIR/bluetooth.pid > /dev/null
     echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
 
   if [ -f $HOME_DIR/update.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$UPDATE_SC" ]; then
-    sudo bash $UPDATE_SC &> $HOME_DIR/update.log &
-    sudo echo $! > $HOME_DIR/update.pid
+    sudo bash $UPDATE_SC 2>&1 | sudo tee $HOME_DIR/update.log > /dev/null &
+    echo $! | sudo tee $HOME_DIR/update.pid > /dev/null
     echo "Ran $UPDATE_SC" >> $FULA_LOG_PATH
   fi
 
@@ -440,6 +444,7 @@ function pullFailedServices() {
           echo "Start polling $service images..." >> $FULA_LOG_PATH
           if [ -s "${DOCKER_DIR}/docker-compose.yml" ]; then
             echo "Pulling $service" >> $FULA_LOG_PATH
+            # shellcheck disable=SC2046
             if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service) ]; then
                 echo "pulling $service" >> $FULA_LOG_PATH
             else
@@ -450,7 +455,7 @@ function pullFailedServices() {
       fi
     done
 
-    attempts=$(($attempts + 1))
+    attempts=$((attempts + 1))
     if [ $attempts -ge $DEFAULT_MAX_ATTEMPTS ]; then
       echo "Maximum number of attempts reached for service $service. Exiting..." >> $FULA_LOG_PATH
       break 1
@@ -464,6 +469,7 @@ function pullFailedServices() {
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
      echo "Process already running." >> "$FULA_LOG_PATH"
+     # shellcheck disable=SC2046
      kill -9 $(cat /var/run/fula.pid)
      rm -f /var/run/fula.pid
      printf "%s" "$(pidof $$)" > /var/run/fula.pid
@@ -490,15 +496,18 @@ case $1 in
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
   if [ -f $HOME_DIR/bluetooth_py.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/bluetooth_py.pid
   fi
   if [ -f $HOME_DIR/bluetooth.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/bluetooth.pid
   fi
 
   if [ -f $HOME_DIR/update.pid ]; then
+    # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/update.pid
   fi
@@ -511,6 +520,7 @@ case $1 in
   echo "ran removeall at: $(date)" >> $FULA_LOG_PATH
   containers=$(docker ps -a -q)
   if [ -n "$containers" ]; then
+      # shellcheck disable=SC2086
       docker rm -f $containers
   else
       echo "No containers to remove" >> $FULA_LOG_PATH
