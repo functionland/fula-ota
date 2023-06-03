@@ -19,10 +19,8 @@ FULA_PATH=/usr/bin/fula
 FULA_LOG_PATH=$HOME_DIR/fula.sh.log
 SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
-CONTROL_LED_PY_SC=$FULA_PATH/control_led.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
-BLUETOOTH_SC=$FULA_PATH/bluetooth.sh
 BLUETOOTH_PY_SC=$FULA_PATH/bluetooth.py
 UPDATE_SC=$FULA_PATH/update.sh
 
@@ -142,7 +140,12 @@ function install() {
   command -v pip >/dev/null 2>&1 || {
     echo >&2 "pip not found, installing..."
     echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
-    sudo apt-get install python3-pip -y || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+    sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+  }
+
+  python -c "import dbus" 2>/dev/null || {
+    echo "python3-dbus not found, installing..." >> $FULA_LOG_PATH 2>&1
+    sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" >> $FULA_LOG_PATH 2>&1; all_success=false; }
   }
 
   # Check if RPi.GPIO is installed
@@ -178,7 +181,10 @@ function install() {
   cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
   cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
   cp control_led.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file control_led.sh" >> $FULA_LOG_PATH; } || true
-  cp bluetooth.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.sh" >> $FULA_LOG_PATH; } || true
+  cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
+  cp advertisement.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file advertisement.py" >> $FULA_LOG_PATH; } || true
+  cp bletools.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bletools.py" >> $FULA_LOG_PATH; } || true
+  cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
   cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
   cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
 
@@ -201,13 +207,6 @@ function install() {
     fi 
   fi
   
-  if [ -f "$FULA_PATH/bluetooth.sh" ]; then 
-    # Check if bluetooth.sh is executable 
-    if [ ! -x "$FULA_PATH/bluetooth.sh" ]; then 
-      echo "$FULA_PATH/bluetooth.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/bluetooth.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file bluetooth.sh" >> $FULA_LOG_PATH; }
-    fi 
-  fi
 
   if [ -f "$FULA_PATH/update.sh" ]; then 
     # Check if update.sh is executable 
@@ -375,18 +374,6 @@ function restart() {
     python $BLUETOOTH_PY_SC &> $HOME_DIR/bluetooth_py.log &
     echo $! > $HOME_DIR/bluetooth_py.pid
     echo "Ran $BLUETOOTH_PY_SC" >> $FULA_LOG_PATH
-  fi
-
-  if [ -f $HOME_DIR/bluetooth.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/bluetooth.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/bluetooth.pid || { echo "Error removing bluetooth.pid" >> $FULA_LOG_PATH; }
-  fi
-
-  if [ -f "$BLUETOOTH_SC" ]; then
-    sudo bash $BLUETOOTH_SC 2>&1 | sudo tee $HOME_DIR/bluetooth.log > /dev/null &
-    echo $! | sudo tee $HOME_DIR/bluetooth.pid > /dev/null
-    echo "Ran $BLUETOOTH_SC" >> $FULA_LOG_PATH
   fi
 
   if [ -f $HOME_DIR/update.pid ]; then
