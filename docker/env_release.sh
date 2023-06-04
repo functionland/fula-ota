@@ -20,10 +20,10 @@ export SUGARFUNGE_NODE_IMAGE="$DOCKER_REPO/node"
 export GSUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_TAG"
 
 
-#create docker.env in fxsupport/linux/docker.env
+#create .env in fxsupport/linux/.env
 echo "docker images will produce with following variables:"
 DOCKER_URI="index.docker.io"
-tee fxsupport/linux/docker.env << END
+tee fxsupport/linux/.env << END
 GO_FULA=$DOCKER_URI/$DOCKER_REPO/go-fula:$GO_FULA_DOCKER_TAG
 FX_SUPPROT=$DOCKER_URI/$DOCKER_REPO/fxsupport:$FX_SUPPORT_DOCKER_TAG
 SUGARFUNGE_NODE=$DOCKER_URI/$DOCKER_REPO/node:$GSUGARFUNGE_NODE_DOCKER_TAG

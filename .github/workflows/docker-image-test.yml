@@ -28,5 +28,3 @@ jobs:
         run: cd ./docker && source env_test.sh && cd ./fxsupport && bash ./build.sh
       - name: Build go-fula
         run: cd ./docker && source env_test.sh && cd ./go-fula && bash ./build.sh
-        
-      

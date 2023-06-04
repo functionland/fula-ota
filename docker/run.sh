@@ -62,18 +62,18 @@ function install() {
 }
 
 function dockerComposeUp() {
-  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/docker.env up -d --force-recreate
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/.env up -d --force-recreate
 }
 
 function dockerComposeDown() {
-  if [ $(docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/docker.env" ps | wc -l) -gt 2 ]; then
+  if [ $(docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/.env" ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment'
-    docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/docker.env" down
+    docker-compose -f "${PORTAL_DIR}/docker-compose.yml" --env-file "${ENV_DIR}/.env" down
   fi
 }
 
 function dockerComposeBuild() {
-  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/docker.env build --no-cache
+  docker-compose -f $PORTAL_DIR/docker-compose.yml --env-file $ENV_DIR/.env build --no-cache
 }
 
 function dockerComposeVolumes() {
