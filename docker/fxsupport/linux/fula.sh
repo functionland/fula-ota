@@ -119,15 +119,25 @@ service_exists() {
 
 function create_cron() {
   local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
+  
+  # Create a temporary file
+  local temp_file=$(mktemp)
 
-  # Remove all existing instances of the job
-  sudo crontab -l | grep -v "$cron_command" | sudo crontab -
-
+  # Remove all existing instances of the job and write the results to the temporary file
+  sudo crontab -l | grep -v "/usr/bin/fula/update.sh" > "$temp_file"
+  
   # Add the cron job back in
-  (sudo crontab -l 2>/dev/null; echo "$cron_command") | sudo crontab -
-
+  echo "$cron_command" >> "$temp_file"
+  
+  # Replace the current cron jobs with the contents of the temporary file
+  sudo crontab "$temp_file"
+  
+  # Remove the temporary file
+  rm "$temp_file"
+  
   echo "Cron job created/updated." >> $FULA_LOG_PATH 2>&1
 }
+
 
 
 # Functions
