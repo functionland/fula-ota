@@ -121,10 +121,10 @@ function create_cron() {
   local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
 
   # Remove all existing instances of the job
-  crontab -l | grep -v "$cron_command" | crontab -
+  sudo crontab -l | grep -v "$cron_command" | sudo crontab -
 
   # Add the cron job back in
-  (crontab -l 2>/dev/null; echo "$cron_command") | crontab -
+  (sudo crontab -l 2>/dev/null; echo "$cron_command") | sudo crontab -
 
   echo "Cron job created/updated." >> $FULA_LOG_PATH 2>&1
 }
