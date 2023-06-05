@@ -489,11 +489,19 @@ case $1 in
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
   restart 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
-  if ! find /home/pi -name stop_docker_copy.txt -mmin +1440 | grep -q 'stop_docker_copy.txt'; then
+
+  # Store the last modification time of the "stop_docker_copy.txt" file
+  last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
+
+  # Get the creation time of the Docker image "functionland/fxsupport:release"
+  last_pull_time_docker=$(docker inspect --format='{{.Created}}' functionland/fxsupport:release 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
+
+  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin +1440 | grep -q 'stop_docker_copy.txt'; then
     docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" >> $FULA_LOG_PATH;
   else
-    echo "File stop_docker_copy.txt has been modified in the last 24 hours, skipping docker cp command." >> $FULA_LOG_PATH;
+    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." >> $FULA_LOG_PATH;
   fi
   sync
   echo "sync status=> $?" >> $FULA_LOG_PATH; 
