@@ -494,7 +494,7 @@ case $1 in
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
   # Get the creation time of the Docker image "functionland/fxsupport:release"
-  last_pull_time_docker=$(docker inspect --format='{{.Created}}' functionland/fxsupport:release 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  last_pull_time_docker=$(docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
 
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin +1440 | grep -q 'stop_docker_copy.txt'; then

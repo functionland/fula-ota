@@ -2,7 +2,7 @@
 export ARCH_SUPPORT="linux/arm64"
 
 export DOCKER_REPO="functionland"
-export DEFAULT_FX_TAG="test83"
+export DEFAULT_FX_TAG="test84"
 export DEFAULT_FULA_TAG="test53"
 export DEFAULT_NODE_TAG="release"
 
