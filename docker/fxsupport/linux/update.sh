@@ -20,12 +20,14 @@ for device in "${devices[@]}"; do
     # Check if the update file exists on this device
     if [ -f "$mountpoint/fula_update/update.yaml" ]; then
         python control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
-        python control_led.py blue 0 > $FULA_LOG_PATH 2>&1 &
+        python control_led.py blue 1000 > $FULA_LOG_PATH 2>&1 &
         sudo systemctl stop fula
         sudo cp -r "$mountpoint/fula_update/fula"/* /usr/bin/fula
-        sudo cp -r "$mountpoint/fula_update/fula"/* /home/pi/fula
+        sudo cp -r "$mountpoint/fula_update/fula"/* /home/pi/fula-ota
+        sudo cp /home/pi/fula.sh.log "$mountpoint/fula_update/"
         sudo chmod +x /usr/bin/fula/*.sh
-        sudo chmod +x /home/pi/fula/*.sh
+        sudo chmod +x /home/pi/fula-ota/*.sh
+        date | sudo tee -a /home/pi/stop_docker_copy.txt > /dev/null
         cd /usr/bin/fula || exit
         
         mv "$mountpoint/fula_update/update.yaml" "$mountpoint/fula_update/update.completed.yaml"

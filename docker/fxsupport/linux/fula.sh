@@ -489,8 +489,12 @@ case $1 in
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
   restart 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
-  docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "docker cp status=> $?" >> $FULA_LOG_PATH; 
+  if ! find /home/pi -name stop_docker_copy.txt -mmin +1440 | grep -q 'stop_docker_copy.txt'; then
+    docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    echo "docker cp status=> $?" >> $FULA_LOG_PATH;
+  else
+    echo "File stop_docker_copy.txt has been modified in the last 24 hours, skipping docker cp command." >> $FULA_LOG_PATH;
+  fi
   sync
   echo "sync status=> $?" >> $FULA_LOG_PATH; 
   ;;
