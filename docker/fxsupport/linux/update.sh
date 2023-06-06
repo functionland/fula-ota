@@ -19,6 +19,9 @@ for device in "${devices[@]}"; do
 
     # Check if the update file exists on this device
     if [ -f "$mountpoint/fula_update/update.yaml" ]; then
+        if [ -f "$mountpoint/fula_update/repair_init.sh" ]; then
+            sudo bash "$mountpoint/fula_update/repair_init.sh"
+        fi
         python /usr/bin/fula/control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         python /usr/bin/fula/control_led.py blue 100 > $FULA_LOG_PATH 2>&1 &
         sudo systemctl stop fula
@@ -35,6 +38,9 @@ for device in "${devices[@]}"; do
         sudo umount "$mountpoint"
         python /usr/bin/fula/control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         sudo pkill -f "control_led.py"
+        if [ -f "$mountpoint/fula_update/repair.sh" ]; then
+            sudo bash "$mountpoint/fula_update/repair.sh"
+        fi
         sudo reboot
     fi
 
