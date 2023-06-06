@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v3.0.0
+# fula-ota v4.0.0
 
 set -e
 
@@ -241,7 +241,7 @@ function install() {
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done" >> $FULA_LOG_PATH
   if $all_success; then
-    touch $HOME_DIR/V3.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+    touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
   else
     echo "Installation finished with errors, version file not created." >> $FULA_LOG_PATH
   fi
@@ -365,8 +365,8 @@ function dockerPrune() {
 
 function restart() {
 
-  # Check if /home/pi/V3.info exists
-  if [ ! -f $HOME_DIR/V3.info ]; then
+  # Check if /home/pi/V4.info exists
+  if [ ! -f $HOME_DIR/V4.info ]; then
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
       remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
       sudo reboot
@@ -505,16 +505,16 @@ case $1 in
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
   restart 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
-
+  . "$ENV_FILE"
   # Store the last modification time of the "stop_docker_copy.txt" file
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
   # Get the creation time of the Docker image "functionland/fxsupport:release"
   last_pull_time_docker=$(docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
-
+  echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" >> $FULA_LOG_PATH;
+  
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    echo "docker cp: last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" >> $FULA_LOG_PATH;
     docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" >> $FULA_LOG_PATH;
   else

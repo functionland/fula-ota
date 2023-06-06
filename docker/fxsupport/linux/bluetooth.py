@@ -159,6 +159,13 @@ class CommandCharacteristic(Characteristic):
             # Cancel the reset timer if it's running
             if self.reset_timer is not None:
                 self.reset_timer.cancel()
+        elif val == "removedockercpblock":
+            print(f"removedockercpblock is received: {val}")
+            if os.path.exists('/home/pi/stop_docker_copy.txt'):
+                os.remove('/home/pi/stop_docker_copy.txt')
+        elif val == "stopleds":
+            print(f"stopleds is received: {val}")
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
         elif val.startswith("connect "):
             parts = val.split(" ")
             if len(parts) == 3:
