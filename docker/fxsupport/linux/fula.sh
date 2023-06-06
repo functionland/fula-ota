@@ -169,6 +169,12 @@ function install() {
     pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
   }
 
+  # Check if psutil is installed
+  python -c "import psutil" 2>/dev/null || {
+    echo "psutil not found, installing..." >> $FULA_LOG_PATH 2>&1
+    pip install psutil >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install psutil" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+  }
+
   echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
   modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
 

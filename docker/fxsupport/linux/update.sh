@@ -20,7 +20,7 @@ for device in "${devices[@]}"; do
     # Check if the update file exists on this device
     if [ -f "$mountpoint/fula_update/update.yaml" ]; then
         python /usr/bin/fula/control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
-        python /usr/bin/fula/control_led.py blue 1000 > $FULA_LOG_PATH 2>&1 &
+        python /usr/bin/fula/control_led.py blue 100 > $FULA_LOG_PATH 2>&1 &
         sudo systemctl stop fula
         sudo cp -r "$mountpoint/fula_update/fula"/* /usr/bin/fula
         sudo cp -r "$mountpoint/fula_update/fula"/* /home/pi/fula-ota
@@ -34,6 +34,7 @@ for device in "${devices[@]}"; do
         sudo bash ./fula.sh install
         sudo umount "$mountpoint"
         python /usr/bin/fula/control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
+        sudo pkill -f "control_led.py"
         sudo reboot
     fi
 
