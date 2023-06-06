@@ -122,11 +122,9 @@ function create_cron() {
   # Create a temporary file
   local temp_file=$(mktemp)
 
-  # Remove all existing instances of the update job and write the results to the temporary file
-  sudo crontab -l | grep -v "/usr/bin/fula/update.sh" > "$temp_file"
-
-  # Remove all existing instances of the bluetooth job and append the results to the temporary file
-  sudo crontab -l | grep -v "/usr/bin/fula/bluetooth.py" >> "$temp_file"
+  # Remove all existing instances of the update job and the bluetooth job
+  # Write the results to the temporary file
+  sudo crontab -l | grep -v -e "/usr/bin/fula/update.sh" -e "/usr/bin/fula/bluetooth.py" > "$temp_file"
 
   # Add the cron jobs back in
   echo "$cron_command_update" >> "$temp_file"
@@ -140,6 +138,7 @@ function create_cron() {
 
   echo "Cron jobs created/updated." >> $FULA_LOG_PATH 2>&1
 }
+
 
 
 
