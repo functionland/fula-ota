@@ -117,16 +117,14 @@ service_exists() {
 
 function create_cron() {
   local cron_command_update="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
-  local cron_command_bluetooth="@reboot python /usr/bin/fula/bluetooth.py"
+  local cron_command_bluetooth="@reboot sudo bash /usr/bin/fula/bluetooth.sh 2>&1 | tee -a /home/pi/fula.sh.log"
 
   # Create a temporary file
   local temp_file=$(mktemp)
 
-  # Remove all existing instances of the update job and write the results to the temporary file
-  sudo crontab -l | grep -v "/usr/bin/fula/update.sh" > "$temp_file"
-
-  # Remove all existing instances of the bluetooth job and append the results to the temporary file
-  sudo crontab -l | grep -v "/usr/bin/fula/bluetooth.py" >> "$temp_file"
+  # Remove all existing instances of the update job and the bluetooth job
+  # Write the results to the temporary file
+  sudo crontab -l | grep -v -e "/usr/bin/fula/update.sh" -e "/usr/bin/fula/bluetooth.sh" > "$temp_file"
 
   # Add the cron jobs back in
   echo "$cron_command_update" >> "$temp_file"
@@ -140,6 +138,7 @@ function create_cron() {
 
   echo "Cron jobs created/updated." >> $FULA_LOG_PATH 2>&1
 }
+
 
 
 
