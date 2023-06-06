@@ -147,7 +147,7 @@ class CommandCharacteristic(Characteristic):
             with open('/home/pi/reset.txt', 'w') as f:
                 # This file is being created so that the existence of it can be checked later.
                 pass
-            subprocess.call(['python', 'control_led.py', 'red', '20'])
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '20'])
             # Create a thread to handle reset after 20 seconds
             self.reset_timer = threading.Timer(20.0, self.reset_procedure)
             self.reset_timer.start()
@@ -155,10 +155,17 @@ class CommandCharacteristic(Characteristic):
             print(f"cancel is received: {val}")
             if os.path.exists('/home/pi/reset.txt'):
                 os.remove('/home/pi/reset.txt')
-            subprocess.call(['python', 'control_led.py', 'red', '-1'])
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
             # Cancel the reset timer if it's running
             if self.reset_timer is not None:
                 self.reset_timer.cancel()
+        elif val == "removedockercpblock":
+            print(f"removedockercpblock is received: {val}")
+            if os.path.exists('/home/pi/stop_docker_copy.txt'):
+                os.remove('/home/pi/stop_docker_copy.txt')
+        elif val == "stopleds":
+            print(f"stopleds is received: {val}")
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
         elif val.startswith("connect "):
             parts = val.split(" ")
             if len(parts) == 3:
@@ -174,7 +181,7 @@ class CommandCharacteristic(Characteristic):
         if os.path.exists('/home/pi/reset.txt'):
             os.remove('/home/pi/reset.txt')
             self.remove_wifi_connections()
-            subprocess.call(['python', 'control_led.py', 'red', '-1'])
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
             subprocess.call(['sudo', 'reboot'])
         # Indicate that the action has finished
         action_ongoing.clear()
