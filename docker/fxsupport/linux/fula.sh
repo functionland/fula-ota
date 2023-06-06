@@ -304,31 +304,38 @@ function connectwifi() {
 }
 
 function dockerComposeUp() {
-  # Attempt to pull the fxsupport image, if it fails use the local version
-  if ! dockerPull fxsupport; then
-    echo "fxsupport image pull failed, using local version" >> $FULA_LOG_PATH
-  fi
+  # Get list of services from the docker-compose.yml file
+  services=$(docker-compose --env-file "$ENV_FILE" config --services)
 
-  echo "compsing up images..." >> $FULA_LOG_PATH
+  # Attempt to start each service individually
+  for service in $services; do
+    echo "Starting $service..." >> $FULA_LOG_PATH
 
-  # Try running docker-compose up the first time
-  if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate; then
-    # If the compose up fails, stop all containers, remove them, and try again
-    # shellcheck disable=SC2046
-    docker stop $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
-    # shellcheck disable=SC2046
-    docker rm -f $(docker ps -a -q) 2>&1 | sudo tee -a $FULA_LOG_PATH
+    # Try to start the service
+    if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
+      echo "$service failed to start. Attempting to stop, remove and restart..." >> $FULA_LOG_PATH
 
-    # Try running docker-compose up the second time
-    if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate; then
-      echo "failed to start some images" >> $FULA_LOG_PATH
-      pullFailedServices &
-      echo "pull pid is" $! >> $FULA_LOG_PATH
+      # Get the container ID for the specific service
+      container_id=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service)
+
+      # Stop the failed service's container and remove it
+      docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+      docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+
+      # Try to start the service again
+      if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
+        echo "$service failed to start again. Trying to pull the image..." >> $FULA_LOG_PATH
+
+        # Pull the failed service's image and try to start the service again
+        pullFailedServices "$service" &
+        echo "Pull for $service initiated with PID: $!" >> $FULA_LOG_PATH
+      fi
+    else
+      echo "$service started successfully." >> $FULA_LOG_PATH
     fi
-  else
-    echo "Images successfully composed up" >> $FULA_LOG_PATH
-  fi
+  done
 }
+
 
 
 function dockerComposeDown() {
@@ -434,23 +441,32 @@ DEFAULT_INTERVAL=360
 # Define the default maximum number of attempts
 DEFAULT_MAX_ATTEMPTS=10
 
+# pullFailedServices: Optionally takes a single service name as an argument.
+# If no argument is given, operates on all services.
+# shellcheck disable=SC2120
 function pullFailedServices() {
-  SERVICES=$(docker-compose --env-file "$ENV_FILE" config --services)
+  # If a parameter is provided, consider it as a single service
+  if [ $# -gt 0 ]; then
+    SERVICES=$1
+  else
+    # Otherwise get all services from the docker-compose file
+    SERVICES=$(docker-compose --env-file "$ENV_FILE" config --services)
+  fi
+
   while :; do
     for service in $SERVICES; do
-      # # Check if the service is running
+      # Check if the service is running
       if ! status=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service | xargs docker inspect --format='{{.State.Status}}' 2>/dev/null) || [[ $status != "running" ]]; then
-
         # Pull the latest image
         if check_internet; then
           echo "Start polling $service images..." >> $FULA_LOG_PATH
           if [ -s "${DOCKER_DIR}/docker-compose.yml" ]; then
             echo "Pulling $service" >> $FULA_LOG_PATH
             # shellcheck disable=SC2046
-            if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service) ]; then
-                echo "pulling $service" >> $FULA_LOG_PATH
+            if docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service; then
+              echo "Successfully pulled $service" >> $FULA_LOG_PATH
             else
-                echo "failed to get $service" >> $FULA_LOG_PATH
+              echo "Failed to get $service" >> $FULA_LOG_PATH
             fi
           fi
         fi
@@ -467,6 +483,7 @@ function pullFailedServices() {
     sleep $DEFAULT_INTERVAL
   done
 }
+
 
 function killPullImage() {
   if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
@@ -497,7 +514,8 @@ case $1 in
   last_pull_time_docker=$(docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
 
-  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin +1440 | grep -q 'stop_docker_copy.txt'; then
+  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
+    echo "docker cp: last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" >> $FULA_LOG_PATH;
     docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" >> $FULA_LOG_PATH;
   else
