@@ -20,7 +20,6 @@ SYSTEMD_PATH=/etc/systemd/system
 HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
-BLUETOOTH_PY_SC=$FULA_PATH/bluetooth.py
 UPDATE_SC=$FULA_PATH/update.sh
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,25 +116,31 @@ service_exists() {
 }
 
 function create_cron() {
-  local cron_command="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
-  
+  local cron_command_update="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
+  local cron_command_bluetooth="@reboot python /usr/bin/fula/bluetooth.py"
+
   # Create a temporary file
   local temp_file=$(mktemp)
 
-  # Remove all existing instances of the job and write the results to the temporary file
+  # Remove all existing instances of the update job and write the results to the temporary file
   sudo crontab -l | grep -v "/usr/bin/fula/update.sh" > "$temp_file"
-  
-  # Add the cron job back in
-  echo "$cron_command" >> "$temp_file"
-  
+
+  # Remove all existing instances of the bluetooth job and append the results to the temporary file
+  sudo crontab -l | grep -v "/usr/bin/fula/bluetooth.py" >> "$temp_file"
+
+  # Add the cron jobs back in
+  echo "$cron_command_update" >> "$temp_file"
+  echo "$cron_command_bluetooth" >> "$temp_file"
+
   # Replace the current cron jobs with the contents of the temporary file
   sudo crontab "$temp_file"
-  
+
   # Remove the temporary file
   rm "$temp_file"
-  
-  echo "Cron job created/updated." >> $FULA_LOG_PATH 2>&1
+
+  echo "Cron jobs created/updated." >> $FULA_LOG_PATH 2>&1
 }
+
 
 
 
@@ -386,18 +391,6 @@ function restart() {
     sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
   fi
 
-  if [ -f $HOME_DIR/bluetooth_py.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/bluetooth_py.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/bluetooth_py.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing bluetooth_py.pid" >> $FULA_LOG_PATH; }
-  fi
-  
-  if [ -f "$BLUETOOTH_PY_SC" ]; then
-    python $BLUETOOTH_PY_SC &> $HOME_DIR/bluetooth_py.log &
-    echo $! > $HOME_DIR/bluetooth_py.pid
-    echo "Ran $BLUETOOTH_PY_SC" >> $FULA_LOG_PATH
-  fi
-
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
@@ -532,16 +525,6 @@ case $1 in
 "stop")
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
-  if [ -f $HOME_DIR/bluetooth_py.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/bluetooth_py.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/bluetooth_py.pid
-  fi
-  if [ -f $HOME_DIR/bluetooth.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/bluetooth.pid) || { echo "Error Killing Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/bluetooth.pid
-  fi
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046

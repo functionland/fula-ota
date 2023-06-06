@@ -249,6 +249,12 @@ app.register()
 adv = FulatowerAdvertisement(0)
 adv.register()
 
+def kill_bluetooth_processes():
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            # check whether the process command line matches
+            if proc.info['cmdline'] and 'bluetooth.py' in ' '.join(proc.info['cmdline']):
+                proc.kill()  # kill the process
+
 def setup_bluetooth():
     print("bluetooth setup started")
     child = pexpect.spawn('bluetoothctl')
@@ -298,3 +304,4 @@ connect_ongoing.clear()
 print("240 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
 app.stop()
 server_thread.join()
+kill_bluetooth_processes()
