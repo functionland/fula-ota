@@ -117,7 +117,7 @@ service_exists() {
 
 function create_cron() {
   local cron_command_update="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
-  local cron_command_bluetooth="@reboot python /usr/bin/fula/bluetooth.py"
+  local cron_command_bluetooth="@reboot sudo python /usr/bin/fula/bluetooth.py"
 
   # Create a temporary file
   local temp_file=$(mktemp)
