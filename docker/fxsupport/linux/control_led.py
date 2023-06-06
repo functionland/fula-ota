@@ -6,7 +6,7 @@ import logging
 import psutil
 import os
 
-def kill_led_processes():
+def kill_led_processes_except_self():
     current_pid = os.getpid()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         # Exclude current process from being killed
@@ -32,7 +32,7 @@ GPIO.setup(led_g_pin, GPIO.OUT)
 GPIO.output(led_r_pin, GPIO.HIGH)
 GPIO.output(led_g_pin, GPIO.HIGH)
 GPIO.output(led_b_pin, GPIO.HIGH)
-kill_led_processes()
+kill_led_processes_except_self()
 
 logging.info('All LEDs were turned off initially.')
 
@@ -58,7 +58,7 @@ try:
         GPIO.output(led_b_pin, GPIO.HIGH)
         logging.info('All LEDs were turned off by -1.')
         GPIO.cleanup()
-        kill_led_processes()
+        kill_led_processes_except_self()
     else:
         # flash the LED
         while True:
@@ -92,5 +92,5 @@ finally:
     GPIO.output(led_b_pin, GPIO.HIGH)
     logging.info('All LEDs were turned off in finally.')
     GPIO.cleanup()
-    kill_led_processes()
+    kill_led_processes_except_self()
     
