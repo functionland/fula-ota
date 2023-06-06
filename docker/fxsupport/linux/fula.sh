@@ -378,8 +378,10 @@ function restart() {
   # Check if /home/pi/V4.info exists
   if [ ! -f $HOME_DIR/V4.info ]; then
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
-      remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
-      sudo reboot
+      if [ -f $HOME_DIR/V4.info ]; then
+        remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
+        sudo reboot
+      fi
   fi
 
   if [ -f "$HW_CHECK_SC" ]; then
