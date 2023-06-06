@@ -27,6 +27,7 @@ import dbus
 
 import os
 import pexpect
+import psutil
 import subprocess
 import time
 import threading
@@ -137,6 +138,12 @@ class CommandCharacteristic(Characteristic):
         self.add_descriptor(CommandDescriptor(self))
         self.reset_timer = None
 
+    def kill_led_processes(self):
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            # check whether the process command line matches
+            if proc.info['cmdline'] and 'control_led.py' in ' '.join(proc.info['cmdline']):
+                proc.kill()  # kill the process
+
     def WriteValue(self, value, options):
         command = "".join([chr(b) for b in value])
         val = str(command).lower().strip()
@@ -156,6 +163,7 @@ class CommandCharacteristic(Characteristic):
             if os.path.exists('/home/pi/reset.txt'):
                 os.remove('/home/pi/reset.txt')
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+            self.kill_led_processes()
             # Cancel the reset timer if it's running
             if self.reset_timer is not None:
                 self.reset_timer.cancel()
@@ -166,6 +174,7 @@ class CommandCharacteristic(Characteristic):
         elif val == "stopleds":
             print(f"stopleds is received: {val}")
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+            self.kill_led_processes()
         elif val.startswith("connect "):
             parts = val.split(" ")
             if len(parts) == 3:
@@ -182,6 +191,7 @@ class CommandCharacteristic(Characteristic):
             os.remove('/home/pi/reset.txt')
             self.remove_wifi_connections()
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+            self.kill_led_processes()
             subprocess.call(['sudo', 'reboot'])
         # Indicate that the action has finished
         action_ongoing.clear()
@@ -239,6 +249,12 @@ app.register()
 adv = FulatowerAdvertisement(0)
 adv.register()
 
+def kill_bluetooth_processes():
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            # check whether the process command line matches
+            if proc.info['cmdline'] and 'bluetooth.py' in ' '.join(proc.info['cmdline']):
+                proc.kill()  # kill the process
+
 def setup_bluetooth():
     print("bluetooth setup started")
     child = pexpect.spawn('bluetoothctl')
@@ -288,3 +304,4 @@ connect_ongoing.clear()
 print("240 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
 app.stop()
 server_thread.join()
+kill_bluetooth_processes()

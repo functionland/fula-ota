@@ -3,6 +3,15 @@ import RPi.GPIO as GPIO
 import time
 import argparse
 import logging
+import psutil
+import os
+
+def kill_led_processes_except_self():
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        # Exclude current process from being killed
+        if proc.info['pid'] != current_pid and proc.info['cmdline'] and 'control_led.py' in ' '.join(proc.info['cmdline']):
+            proc.kill()  # kill the process
 
 led_r_pin=24
 led_b_pin=16
@@ -23,6 +32,7 @@ GPIO.setup(led_g_pin, GPIO.OUT)
 GPIO.output(led_r_pin, GPIO.HIGH)
 GPIO.output(led_g_pin, GPIO.HIGH)
 GPIO.output(led_b_pin, GPIO.HIGH)
+kill_led_processes_except_self()
 
 logging.info('All LEDs were turned off initially.')
 
@@ -36,8 +46,9 @@ logging.info(f'{args.color} and {args.time} was received.')
 
 led_pin = {"red": led_r_pin, "green": led_g_pin, "blue": led_b_pin}.get(args.color)
 
-# Calculate the end time for 10 minutes in the future
-end_time = time.time() + 10 * 60
+# Calculate the end time for 5 minutes in the future
+end_time = time.time() + 5 * 60
+
 
 try:
     # if time is -1, stop all flashing by setting all to 1
@@ -46,12 +57,14 @@ try:
         GPIO.output(led_g_pin, GPIO.HIGH)
         GPIO.output(led_b_pin, GPIO.HIGH)
         logging.info('All LEDs were turned off by -1.')
+        GPIO.cleanup()
+        kill_led_processes_except_self()
     else:
         # flash the LED
         while True:
             if time.time() > end_time:
-                # More than 10 minutes have passed
-                logging.info('10 minutes have passed. All LEDs were turned off.')
+                # More than 5 minutes have passed
+                logging.info('5 minutes have passed. All LEDs were turned off.')
                 break
             
             GPIO.output(led_pin, GPIO.LOW)
@@ -79,3 +92,5 @@ finally:
     GPIO.output(led_b_pin, GPIO.HIGH)
     logging.info('All LEDs were turned off in finally.')
     GPIO.cleanup()
+    kill_led_processes_except_self()
+    
