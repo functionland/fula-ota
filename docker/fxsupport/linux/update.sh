@@ -36,13 +36,13 @@ for device in "${devices[@]}"; do
         
         mv "$mountpoint/fula_update/update.yaml" "$mountpoint/fula_update/update.completed.yaml"
         sudo bash ./fula.sh install
-        sudo umount "$mountpoint"
         python /usr/bin/fula/control_led.py blue -1 > $FULA_LOG_PATH 2>&1 &
         sudo pkill -f "control_led.py"
         if [ -f "$mountpoint/fula_update/repair.sh" ]; then
             sudo bash "$mountpoint/fula_update/repair.sh"
         fi
         sudo cp /home/pi/fula.sh.log* "$mountpoint/fula_update/"
+        sudo umount "$mountpoint"
         sudo reboot
     fi
 
