@@ -61,25 +61,11 @@ try:
         kill_led_processes_except_self()
     else:
         # flash the LED
-        while True:
-            if time.time() > end_time:
-                # More than 5 minutes have passed
-                logging.info('5 minutes have passed. All LEDs were turned off.')
-                break
-            
-            GPIO.output(led_pin, GPIO.LOW)
-            logging.info(f'{args.color} LED was turned on.')
-            time.sleep(1)
-            GPIO.output(led_pin, GPIO.HIGH)
-            logging.info(f'{args.color} LED was turned off.')
-            time.sleep(1)
-            
-            if args.time > 0:
-                args.time -= 1
-            elif args.time == 0:
-                continue
-            else:
-                break
+        GPIO.output(led_pin, GPIO.LOW)
+        logging.info(f'{args.color} LED was turned on.')
+        time.sleep(args.time)
+        GPIO.output(led_pin, GPIO.HIGH)
+        logging.info(f'{args.color} LED was turned off.')
 
 except KeyboardInterrupt:
     # Handle the Ctrl-C case to ensure we cleanup GPIO settings
