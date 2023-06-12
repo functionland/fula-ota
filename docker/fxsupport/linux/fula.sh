@@ -146,38 +146,43 @@ function create_cron() {
 # Functions
 function install() {
   all_success=true
-  if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
-  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
-  echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
-  # Check if pip is installed
-  command -v pip >/dev/null 2>&1 || {
-    echo >&2 "pip not found, installing..."
-    echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
-    sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
-  }
+  connectwifi
+  if check_internet; then
+    if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
+    setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+    echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
+    # Check if pip is installed
+    command -v pip >/dev/null 2>&1 || {
+      echo >&2 "pip not found, installing..."
+      echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
+      sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+    }
 
-  python -c "import dbus" 2>/dev/null || {
-    echo "python3-dbus not found, installing..." >> $FULA_LOG_PATH 2>&1
-    sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" >> $FULA_LOG_PATH 2>&1; all_success=false; }
-  }
+    python -c "import dbus" 2>/dev/null || {
+      echo "python3-dbus not found, installing..." >> $FULA_LOG_PATH 2>&1
+      sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+    }
 
-  # Check if RPi.GPIO is installed
-  python -c "import RPi.GPIO" 2>/dev/null || {
-    echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
-  }
+    # Check if RPi.GPIO is installed
+    python -c "import RPi.GPIO" 2>/dev/null || {
+      echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
+      pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+    }
 
-  # Check if pexpect is installed
-  python -c "import pexpect" 2>/dev/null || {
-    echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
-  }
+    # Check if pexpect is installed
+    python -c "import pexpect" 2>/dev/null || {
+      echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
+      pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+    }
 
-  # Check if psutil is installed
-  python -c "import psutil" 2>/dev/null || {
-    echo "psutil not found, installing..." >> $FULA_LOG_PATH 2>&1
-    pip install psutil >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install psutil" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
-  }
+    # Check if psutil is installed
+    python -c "import psutil" 2>/dev/null || {
+      echo "psutil not found, installing..." >> $FULA_LOG_PATH 2>&1
+      pip install psutil >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install psutil" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+    }
+  else
+    all_success=false
+  fi
 
   echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
   modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
@@ -190,24 +195,32 @@ function install() {
 
   echo "Copying Files..." >> $FULA_LOG_PATH
   mkdir -p $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error making directory $FULA_PATH" >> $FULA_LOG_PATH; }
-  
-  cp fula.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
-  cp .env $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
-  cp docker-compose.yml $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
+
+  if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
+    cp docker-compose.yml $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
+    cp .env $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
+    cp fula.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
+    cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
+    cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
+    cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
+    cp control_led.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file control_led.py" >> $FULA_LOG_PATH; } || true
+    cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
+    cp advertisement.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file advertisement.py" >> $FULA_LOG_PATH; } || true
+    cp bletools.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bletools.py" >> $FULA_LOG_PATH; } || true
+    cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
+    cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
+    cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
+  else
+    echo "Source and destination are the same, skipping copy" >> $FULA_LOG_PATH
+  fi
   sudo cp fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  
+  if [ -f "/usr/bin/fula/docker.env" ]; then 
+    sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" >> $FULA_LOG_PATH; } || true
+  else 
+    echo "File /usr/bin/fula/docker.env does not exist, skipping removal" >> $FULA_LOG_PATH
+  fi
 
-  cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
-  cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
-  cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
-  cp control_led.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file control_led.sh" >> $FULA_LOG_PATH; } || true
-  cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
-  cp advertisement.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file advertisement.py" >> $FULA_LOG_PATH; } || true
-  cp bletools.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bletools.py" >> $FULA_LOG_PATH; } || true
-  cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
-  cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
-  cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
-
-  sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" >> $FULA_LOG_PATH; } || true
 
   echo "Setting chmod..." >> $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
@@ -249,7 +262,7 @@ function install() {
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
-  echo "installation done" >> $FULA_LOG_PATH
+  echo "installation done with all_success=$all_success" >> $FULA_LOG_PATH
   if $all_success; then
     touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
   else
@@ -304,10 +317,13 @@ function dockerPull() {
 function connectwifi() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
-    sleep 160
     if ! check_internet; then
-      echo "Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
+      echo "connectwifi: Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
+      sleep 15
       bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
+      sleep 15
+    else
+      echo "connectwifi: Already has internet..." >> $FULA_LOG_PATH
     fi
   fi
 }
