@@ -153,7 +153,7 @@ function install() {
   all_success=true
 
   if [ -f "./control_led.py" ]; then
-    python control_led.py blue 100 >> $FULA_LOG_PATH 2>&1
+    python control_led.py blue 100 >> $FULA_LOG_PATH 2>&1 &
   fi
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
@@ -284,12 +284,12 @@ function install() {
   if $all_success; then
     touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
     if [ -f "./control_led.py" ]; then
-      python control_led.py green 5 >> $FULA_LOG_PATH 2>&1
+      python control_led.py green 2 >> $FULA_LOG_PATH 2>&1
     fi
   else
     echo "Installation finished with errors, version file not created." >> $FULA_LOG_PATH
     if [ -f "./control_led.py" ]; then
-      python control_led.py red 5 >> $FULA_LOG_PATH 2>&1
+      python control_led.py red 3 >> $FULA_LOG_PATH 2>&1
     fi
   fi
 }
