@@ -21,6 +21,7 @@ HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 UPDATE_SC=$FULA_PATH/update.sh
+RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -210,6 +211,7 @@ function install() {
     cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
     cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
     cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
+    cp docker_rm_duplicate_network.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker_rm_duplicate_network.py" >> $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" >> $FULA_LOG_PATH
   fi
@@ -402,6 +404,10 @@ function restart() {
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
+  fi
+
+  if [ -f "$RM_DUP_NETWORK_SC" ]; then
+    python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" >> $FULA_LOG_PATH; }
   fi
   
   if [ -f "$RESIZE_SC" ]; then
