@@ -95,9 +95,13 @@ function modify_bluetooth() {
   # Backup the original file
   cp /etc/systemd/system/dbus-org.bluez.service /etc/systemd/system/dbus-org.bluez.service.bak
 
-  # Modify ExecStart and ExecStartPost
+  # Modify ExecStart
   sed -i 's|^ExecStart=/usr/libexec/bluetooth/bluetoothd$|ExecStart=/usr/libexec/bluetooth/bluetoothd  --compat --noplugin=sap -C|' /etc/systemd/system/dbus-org.bluez.service
-  sed -i '/ExecStart=/a ExecStartPost=/usr/bin/sdptool add SP' /etc/systemd/system/dbus-org.bluez.service
+
+  # Modify ExecStartPost only if "ExecStartPost=/usr/bin/sdptool add SP" does not exist
+  if ! grep -q "ExecStartPost=/usr/bin/sdptool add SP" /etc/systemd/system/dbus-org.bluez.service; then
+    sed -i '/ExecStart=/a ExecStartPost=/usr/bin/sdptool add SP' /etc/systemd/system/dbus-org.bluez.service
+  fi
 
   # Reload the systemd manager configuration
   systemctl daemon-reload
@@ -147,10 +151,17 @@ function create_cron() {
 # Functions
 function install() {
   all_success=true
+
+  if [ -f "./control_led.py" ]; then
+    python control_led.py blue 100 >> $FULA_LOG_PATH 2>&1
+  fi
+
+  if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+
   connectwifi
+
   if check_internet; then
-    if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
-    setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
     echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
     # Check if pip is installed
     command -v pip >/dev/null 2>&1 || {
@@ -182,7 +193,12 @@ function install() {
       pip install psutil >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install psutil" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
     }
   else
-    all_success=false
+    echo "Internet check failed, checking for existing dependencies..." >> $FULA_LOG_PATH 2>&1
+    command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
+    python -c "import dbus" 2>/dev/null || { echo "python3-dbus not found"; all_success=false; }
+    python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
+    python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
+    python -c "import psutil" 2>/dev/null || { echo "psutil not found"; all_success=false; }
   fi
 
   echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
@@ -267,8 +283,14 @@ function install() {
   echo "installation done with all_success=$all_success" >> $FULA_LOG_PATH
   if $all_success; then
     touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+    if [ -f "./control_led.py" ]; then
+      python control_led.py green 5 >> $FULA_LOG_PATH 2>&1
+    fi
   else
     echo "Installation finished with errors, version file not created." >> $FULA_LOG_PATH
+    if [ -f "./control_led.py" ]; then
+      python control_led.py red 5 >> $FULA_LOG_PATH 2>&1
+    fi
   fi
 }
 
