@@ -415,6 +415,11 @@ function dockerPrune() {
 
 function restart() {
 
+  if [ -f "$HW_CHECK_SC" ]; then
+    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
+  fi
+  sleep 1
+
   # Check if /home/pi/V4.info exists
   if [ ! -f $HOME_DIR/V4.info ]; then
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
@@ -422,10 +427,6 @@ function restart() {
         remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
         sudo reboot
       fi
-  fi
-
-  if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f "$RM_DUP_NETWORK_SC" ]; then
