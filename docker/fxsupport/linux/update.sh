@@ -18,11 +18,11 @@ for device in "${devices[@]}"; do
             sudo rm /home/pi/stop_docker_copy.txt
 
             if [ -f "$mountpoint/fula_update/repair_init.sh" ]; then
-                sudo bash "$mountpoint/fula_update/repair_init.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Running repair_init" >> $FULA_LOG_PATH 2>&1; exit 1; }
+                sudo bash "$mountpoint/fula_update/repair_init.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Running repair_init" >> $FULA_LOG_PATH 2>&1; }
             fi
 
             if pgrep -f "control_led.py" > /dev/null; then
-                sudo pkill -f "control_led.py" || { echo "Error Killing control_led" >> $FULA_LOG_PATH 2>&1; exit 1; }
+                sudo pkill -f "control_led.py" || { echo "Error Killing control_led" >> $FULA_LOG_PATH 2>&1; }
             fi
 
             python /usr/bin/fula/control_led.py blue 200 >> $FULA_LOG_PATH 2>&1 &
