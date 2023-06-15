@@ -25,7 +25,7 @@ for device in "${devices[@]}"; do
                 sudo pkill -f "control_led.py" || { echo "Error Killing control_led" >> $FULA_LOG_PATH 2>&1; exit 1; }
             fi
 
-            python /usr/bin/fula/control_led.py blue 100 >> $FULA_LOG_PATH 2>&1 &
+            python /usr/bin/fula/control_led.py blue 200 >> $FULA_LOG_PATH 2>&1 &
             sudo systemctl stop fula
 
             if [ -d "$mountpoint/fula_update/fula" ]; then
@@ -35,6 +35,7 @@ for device in "${devices[@]}"; do
                 echo "Error: fula_update/fula directory not found on device $device" >> $FULA_LOG_PATH 2>&1
                 sudo cp /home/pi/fula.sh.log* "$mountpoint/fula_update/"
                 mv "$mountpoint/fula_update/update.inprogress.yaml" "$mountpoint/fula_update/update.error.yaml"
+                python /usr/bin/fula/control_led.py red 3 >> $FULA_LOG_PATH 2>&1
                 exit 1;
             fi
 
@@ -58,11 +59,13 @@ for device in "${devices[@]}"; do
                     sudo pkill -f "control_led.py"
                 fi
                 sleep 2
+                python /usr/bin/fula/control_led.py green 3 >> $FULA_LOG_PATH 2>&1
                 sudo reboot
             else
                 echo "Error: unable to navigate to /usr/bin/fula" >> $FULA_LOG_PATH 2>&1
                 sudo cp /home/pi/fula.sh.log* "$mountpoint/fula_update/"
                 mv "$mountpoint/fula_update/update.inprogress.yaml" "$mountpoint/fula_update/update.error.yaml"
+                python /usr/bin/fula/control_led.py red 3 >> $FULA_LOG_PATH 2>&1
                 exit 1;
             fi
         else
