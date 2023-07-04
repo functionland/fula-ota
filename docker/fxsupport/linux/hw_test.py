@@ -46,6 +46,7 @@ if not os.path.isdir("/sys/module/rockchipdrm"):
     # testing VL805
     out = run_command("lsusb")
     if "VIA Labs" not in out:
+        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
         raise Exception("VL805 USB-to-Ethernet controller not found")
 
     print("Hardware OK")
@@ -60,6 +61,7 @@ else:
     print("Testing General Hardware:")
     hw_output = run_command("lshw")
     if not hw_output:
+        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
         raise Exception("General hardware not found")
     print(hw_output)
     print("Waiting for 1 second...")
@@ -69,6 +71,7 @@ else:
     print("Testing WiFi Module:")
     wifi_modules_output = run_command("iwconfig 2>&1 | grep -B 1 '802.11'")
     if not wifi_modules_output:
+        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
         raise Exception("WiFi module not found")
     print(wifi_modules_output)
     print("Waiting for 1 second...")
@@ -78,6 +81,7 @@ else:
     print("Testing USB Ports:")
     lsusb_output = run_command("lsusb")
     if "Terminus" not in lsusb_output:
+        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
         raise Exception("USB ports not found")
     print(lsusb_output)
     print("Waiting for 1 seconds...")
@@ -87,6 +91,7 @@ else:
     print("Testing Bluetooth Module:")
     bluetooth_output = run_command("echo 'list' | bluetoothctl")
     if "Controller" not in bluetooth_output:
+        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
         raise Exception("Bluetooth module not found")
     print(bluetooth_output)
     print("Waiting for 1 second...")
