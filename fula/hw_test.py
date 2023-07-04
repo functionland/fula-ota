@@ -69,13 +69,18 @@ else:
 
     # Test WiFi Module
     print("Testing WiFi Module:")
-    wifi_modules_output = run_command("iwconfig 2>&1 | grep -B 1 '802.11'")
-    if not wifi_modules_output:
-        subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '3'])
-        raise Exception("WiFi module not found")
-    print(wifi_modules_output)
-    print("Waiting for 1 second...")
-    subprocess.run(["sleep", "1"])
+    # Keep checking for WiFi module every second until it's ready or until we've waited too long
+    timeout = time.time() + 60*1  # Maximum of 2 minutes wait time
+    while True:
+        wifi_modules_output = run_command("iwconfig 2>&1 | grep -B 1 'wlan'")
+        if wifi_modules_output:
+            print(wifi_modules_output)
+            break
+        elif time.time() > timeout:
+            print("No WiFi Module Found. Waited for 1 minute.")
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '5'])
+            raise Exception("WiFi module not found")
+        time.sleep(1)  # Wait for a second before checking again
 
     # Test USB Ports
     print("Testing USB Ports:")
