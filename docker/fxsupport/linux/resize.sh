@@ -6,7 +6,7 @@ format_sd_devices() {
         if [ -z "$PARTITIONS" ]; then
             printf "The device %s is not formatted. Formatting now..." "$DEVICE"
             printf "o\nn\np\n1\n\n\nw" | sudo fdisk "$DEVICE"
-            sudo mkfs.ext4 "${DEVICE}1"
+            sudo mkfs.ext4 -F "${DEVICE}1"
             printf "The device %s has been formatted." "$DEVICE"
 
             # Create a mount point, mount the partition, create a test file
@@ -25,7 +25,7 @@ format_nvme() {
   if [ -z "$PARTITIONS" ]; then
       printf "The device %s is not formatted. Formatting now..." "$DEVICE"
       printf "g\nn\n\n\n\nw" | sudo fdisk "$DEVICE"
-      sudo mkfs.ext4 ${DEVICE}p1
+      sudo mkfs.ext4 -F ${DEVICE}p1
       printf "The device %s has been formatted." "$DEVICE"
 
       # Create a mount point, mount the partition, create a test file
