@@ -45,8 +45,8 @@ if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/prox
 resize_rootfs () {
   if [ -d "/sys/module/rockchipdrm" ]; then
     echo "Running on RockChip."
-    format_sd_devices
-    format_nvme
+    format_sd_devices || { echo "Failed to format nvme"; }
+    format_nvme || { echo "Failed to format nvme"; }
 
     sudo /usr/lib/armbian/armbian-resize-filesystem start
     echo "Rootfs expanded..."
