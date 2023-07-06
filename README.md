@@ -147,7 +147,7 @@ First install dependencies:
 ```shell
     sudo apt-get install gcc python3-dev python-is-python3 python3-pip
     sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
-    sudo apt install net-tools dnsmasq-base rfkill
+    sudo apt install net-tools dnsmasq-base rfkill lshw
 ```
 
 For board installation Navigate to the `fula` directory and give it permission to execute:
