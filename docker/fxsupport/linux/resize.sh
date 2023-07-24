@@ -38,6 +38,7 @@ format_nvme() {
 }
 
 resize_flag=/usr/bin/fula/.resize_flg
+partition_flag=/usr/bin/fula/.partition_flg
 
 #check if proxy.conf exist delete it
 if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
@@ -45,8 +46,6 @@ if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/prox
 resize_rootfs () {
   if [ -d "/sys/module/rockchipdrm" ]; then
     echo "Running on RockChip."
-    format_sd_devices || { echo "Failed to format nvme"; }
-    format_nvme || { echo "Failed to format nvme"; }
 
     sudo /usr/lib/armbian/armbian-resize-filesystem start
     echo "Rootfs expanded..."
@@ -66,9 +65,29 @@ resize_rootfs () {
   fi
 }
 
+partition_fs () {
+  if [ -d "/sys/module/rockchipdrm" ]; then
+    format_sd_devices || { echo "Failed to format nvme"; }
+    format_nvme || { echo "Failed to format nvme"; }
+    touch /usr/bin/fula/.partition_flg
+    python /usr/bin/fula/control_led.py blue 2
+    sudo reboot
+    exit 0
+  else
+    touch /usr/bin/fula/.partition_flg
+    python /usr/bin/fula/control_led.py green 3
+    exit 0
+  fi
+}
+
 if [ -f "$resize_flag" ]; then
   echo "File exists. so no need to expand."
-  python /usr/bin/fula/control_led.py green 3
+  if [ -f "$partition_flag" ]; then
+    echo "Partition exists. so no need to parition."
+    python /usr/bin/fula/control_led.py green 3
+  else
+    partition_fs
+  fi
 else
   resize_rootfs
 fi
