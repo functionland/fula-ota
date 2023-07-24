@@ -15,12 +15,13 @@ check_wifi_name() {
 check_internet() {
   for iface in /sys/class/net/*; do
     iface_name=$(basename $iface)
-    if [ "$iface_name" != "lo" ] && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
+    if [ "$iface_name" != "lo" ] && iwconfig $iface_name 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
       return 0
     fi
   done
   return 1
 }
+
 
 
 check_files_exist() {
