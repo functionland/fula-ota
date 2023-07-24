@@ -2,9 +2,9 @@
 
 check_wifi_name() {
     # Get the name of the currently active Wi-Fi connection.
-    wifi_name=$(nmcli -g GENERAL.CONNECTION device show wlan0)
+    wifi_name=$(nmcli -g GENERAL.CONNECTION device show $1)
 
-    # Return 1 (false) if the Wi-Fi name is "FxBox", or 0 (true) otherwise.
+    # Return 1 (false) if the Wi-Fi name is "FxBlox", or 0 (true) otherwise.
     if [ "$wifi_name" = "FxBlox" ]; then
         return 1
     else
@@ -12,12 +12,16 @@ check_wifi_name() {
     fi
 }
 
-
-
 check_internet() {
-  ip addr show wlan0 | grep -q "inet " && check_wifi_name
-  return $?
+  for iface in /sys/class/net/*; do
+    iface_name=$(basename $iface)
+    if [ "$iface_name" != "lo" ] && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
+      return 0
+    fi
+  done
+  return 1
 }
+
 
 check_files_exist() {
   [ -f "/internal/config.yaml" ]
