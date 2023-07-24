@@ -9,7 +9,7 @@ export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
 export FX_SUPPORT_DOCKER_TAG="$DEFAULT_TAG"
 
 #build go-fula
-export GO_FULA_BRANCH="blockchain-package"
+export GO_FULA_BRANCH="main"
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_DOCKER_TAG="$DEFAULT_TAG"
 
