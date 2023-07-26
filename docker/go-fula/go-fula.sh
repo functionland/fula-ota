@@ -46,5 +46,5 @@ while true; do
     echo "Either Internet not connected or necessary files missing. Running /wap."
   fi
 
-  sleep 20
+  sleep 7
 done
