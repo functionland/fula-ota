@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v4.0.0
+# fula-ota v5.0.0
 
 set -e
 
@@ -21,6 +21,7 @@ HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 UPDATE_SC=$FULA_PATH/update.sh
+COMMANDS_SC=$FULA_PATH/commands.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -125,7 +126,8 @@ function create_cron() {
   local cron_command_bluetooth="@reboot sudo bash /usr/bin/fula/bluetooth.sh 2>&1 | tee -a /home/pi/fula.sh.log"
 
   # Create a temporary file
-  local temp_file=$(mktemp)
+  local temp_file
+  temp_file=$(mktemp)
 
   # Remove all existing instances of the update job and the bluetooth job
   # Write the results to the temporary file
@@ -158,6 +160,7 @@ function install() {
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+  mkdir -p /home/pi/commands/ >> $FULA_LOG_PATH 2>&1 || { echo "Error making directory /home/pi/commands/" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
 
   connectwifi
 
@@ -168,6 +171,12 @@ function install() {
       echo >&2 "pip not found, installing..."
       echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
       sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+    }
+
+    command -v inotifywait >/dev/null 2>&1 || {
+      echo >&2 "inotify-tools not found, installing..."
+      echo "inotify-tools not found, installing..." >> $FULA_LOG_PATH 2>&1
+      sudo apt-get install -y inotify-tools || { echo "Could not  install inotify-tools" >> $FULA_LOG_PATH 2>&1; all_success=false; }
     }
 
     python -c "import dbus" 2>/dev/null || {
@@ -195,6 +204,7 @@ function install() {
   else
     echo "Internet check failed, checking for existing dependencies..." >> $FULA_LOG_PATH 2>&1
     command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
+    command -v inotifywait >/dev/null 2>&1 || { echo "inotifywait not found"; all_success=false; }
     python -c "import dbus" 2>/dev/null || { echo "python3-dbus not found"; all_success=false; }
     python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
     python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
@@ -228,6 +238,7 @@ function install() {
     cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
     cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
     cp docker_rm_duplicate_network.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker_rm_duplicate_network.py" >> $FULA_LOG_PATH; } || true
+    cp commands.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file commands.sh" >> $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" >> $FULA_LOG_PATH
   fi
@@ -274,6 +285,14 @@ function install() {
     fi 
   fi
 
+  if [ -f "$FULA_PATH/commands.sh" ]; then 
+    # Check if commands.sh is executable 
+    if [ ! -x "$FULA_PATH/commands.sh" ]; then 
+      echo "$FULA_PATH/commands.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
+      sudo chmod +x $FULA_PATH/commands.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file commands.sh" >> $FULA_LOG_PATH; }
+    fi 
+  fi
+
   echo "Installing Services..." >> $FULA_LOG_PATH
   systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; all_success=false; }
   systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; all_success=false; }
@@ -282,7 +301,7 @@ function install() {
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done with all_success=$all_success" >> $FULA_LOG_PATH
   if $all_success; then
-    touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+    touch $HOME_DIR/V5.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
     if [ -f "./control_led.py" ]; then
       python control_led.py green 2 >> $FULA_LOG_PATH 2>&1
     fi
@@ -420,11 +439,11 @@ function restart() {
   fi
   sleep 1
 
-  # Check if /home/pi/V4.info exists
-  if [ ! -f $HOME_DIR/V4.info ]; then
+  # Check if /home/pi/V5.info exists
+  if [ ! -f $HOME_DIR/V5.info ]; then
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
-      if [ -f $HOME_DIR/V4.info ]; then
-        remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
+      if [ -f $HOME_DIR/V5.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
+        # remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
         sudo reboot
       fi
   fi
@@ -437,6 +456,19 @@ function restart() {
     sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
   fi
 
+  if [ -f $HOME_DIR/commands.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/commands.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing commands Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/commands.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" >> $FULA_LOG_PATH; }
+  fi
+
+  if [ -f "$COMMANDS_SC" ]; then
+    sudo nohup bash $COMMANDS_SC 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
+    echo $! | sudo tee $HOME_DIR/commands.pid > /dev/null
+    echo "Ran $COMMANDS_SC" >> $FULA_LOG_PATH
+  fi
+
+
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
@@ -444,7 +476,7 @@ function restart() {
   fi
 
   if [ -f "$UPDATE_SC" ]; then
-    sudo bash $UPDATE_SC 2>&1 | sudo tee $HOME_DIR/update.log > /dev/null &
+    sudo bash $UPDATE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
     echo $! | sudo tee $HOME_DIR/update.pid > /dev/null
     echo "Ran $UPDATE_SC" >> $FULA_LOG_PATH
   fi
@@ -576,6 +608,12 @@ case $1 in
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/update.pid
+  fi
+
+  if [ -f $HOME_DIR/commands.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/commands.pid) || { echo "Error Killing commands Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/commands.pid
   fi
   ;;
 "rebuild")
