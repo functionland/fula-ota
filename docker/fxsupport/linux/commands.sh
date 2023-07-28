@@ -3,6 +3,7 @@
 WATCH_PATH="/home/pi/commands/"
 FILE_NAMES=(".command_partition" ".command_reboot")  # Add your file names here
 
+
 while true
 do
     change=$(inotifywait -q -e create --format '%w%f' "$WATCH_PATH")
