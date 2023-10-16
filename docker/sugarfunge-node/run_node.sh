@@ -2,13 +2,34 @@
 
 export NODE_PORT=9945
 # Start the node process
-/sugarfunge-node --chain=local --enable-offchain-indexing true --bob --base-path=.tmp/b --port=30335 --ws-port $NODE_PORT --ws-external --rpc-cors=all --rpc-methods=Unsafe --rpc-external --bootnodes /ip4/127.0.0.1/tcp/30334/p2p/12D3KooWNxmYfzomt7EXfMSLuoaK68JzXnZkNjXyAYAwNrQTDx7Y &
-  
+/sugarfunge-node --chain ./customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password-filename="/internal/.secrets/password.txt" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv &
+NODE_PID=$!
+
 # Start the node api process
-/sugarfunge-api -s wss://localhost:$NODE_PORT &
-  
+/sugarfunge-api --db-uri=/data --node-server ws://127.0.0.1:$NODE_PORT &
+API_PID=$!
+
+Operator_seed=$(cat /internal/.secrets/seed.txt)
+
+/proof-engine -- $Operator_seed &
+PROOF_ENGINE_PID=$!
+
 # Wait for any process to exit
-wait -n
-  
+while :; do
+    if ! kill -0 $NODE_PID 2>/dev/null; then
+        exit_code=$?
+        break
+    fi
+    if ! kill -0 $API_PID 2>/dev/null; then
+        exit_code=$?
+        break
+    fi
+    if ! kill -0 $PROOF_ENGINE_PID 2>/dev/null; then
+        exit_code=$?
+        break
+    fi
+    sleep 1
+done
+
 # Exit with status of process that exited first
-exit $?
+exit $exit_code

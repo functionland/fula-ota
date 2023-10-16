@@ -25,4 +25,5 @@ RUN chmod +x /union-drive.sh
 COPY ./go-fula.sh /go-fula.sh
 RUN chmod +x /go-fula.sh
 EXPOSE 40001
+EXPOSE 5001
 CMD /go-fula.sh

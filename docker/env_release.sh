@@ -16,9 +16,9 @@ export GO_FULA_DOCKER_TAG="$DEFAULT_TAG"
 #build node and node-api
 export SUGARFUNGE_NODE_BRANCH="main"
 export SUGARFUNGE_API_BRANCH="main"
+export PROOF_ENGINE_BRANCH="main"
 export SUGARFUNGE_NODE_IMAGE="$DOCKER_REPO/node"
 export GSUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_TAG"
-
 
 #create .env in fxsupport/linux/.env
 echo "docker images will produce with following variables:"

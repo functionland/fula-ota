@@ -53,6 +53,8 @@ services:
     volumes:
       - shared-volume:/internal
       - /home/pi/:/home:rw,rshared
+      - /media/pi/:/storage:rw,rshared
+      - /var/run/dbus:/var/run/dbus
 
   fxsupport:
     image: $FX_SUPPROT
