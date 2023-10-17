@@ -29,6 +29,7 @@ services:
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
+      - shared-volume:/uniondrive
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
@@ -42,19 +43,24 @@ services:
       - fxsupport
     labels:
       - "com.centurylinklabs.watchtower.enable=true"     
+  
   node:
     image: $SUGARFUNGE_NODE
     restart: always
     container_name: fula_node
     depends_on:
       - fxsupport
+      - go-fula
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
       - shared-volume:/internal
+      - shared-volume:/uniondrive
       - /home/pi/:/home:rw,rshared
       - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
+    network_mode: "host"
+    privileged: true
 
   fxsupport:
     image: $FX_SUPPROT

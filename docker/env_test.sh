@@ -2,9 +2,9 @@
 export ARCH_SUPPORT="linux/arm64"
 
 export DOCKER_REPO="functionland"
-export DEFAULT_FX_TAG="test102"
-export DEFAULT_FULA_TAG="test102"
-export DEFAULT_NODE_TAG="release"
+export DEFAULT_FX_TAG="test103"
+export DEFAULT_FULA_TAG="test103"
+export DEFAULT_NODE_TAG="test103"
 
 #build fxsupport
 export FX_SUPPORT_IMAGE="$DOCKER_REPO/fxsupport"
@@ -19,7 +19,7 @@ export GO_FULA_DOCKER_TAG="$DEFAULT_FULA_TAG"
 export SUGARFUNGE_NODE_BRANCH="main"
 export SUGARFUNGE_API_BRANCH="main"
 export SUGARFUNGE_NODE_IMAGE="$DOCKER_REPO/node"
-export GSUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_NODE_TAG"
+export SUGARFUNGE_NODE_DOCKER_TAG="$DEFAULT_NODE_TAG"
 
 
 #create .env in fxsupport/linux/.env
