@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         g++ pkg-config libx11-dev libasound2-dev libudev-dev \
         libssl-dev git build-essential curl
 
-WORKDIR /sugarfunge
-COPY ./sugarfunge-node /sugarfunge
+WORKDIR /sugarfunge-node
+COPY ./sugarfunge-node /sugarfunge-node
 RUN cargo fetch
 RUN cargo build --locked --release
 
@@ -27,7 +27,8 @@ RUN cargo build --locked --features headless --release
 
 FROM ubuntu:latest
 
-COPY --from=builder /sugarfunge/target/release/sugarfunge-node /sugarfunge-node
+COPY --from=builder /sugarfunge-node/target/release/sugarfunge-node /sugarfunge-node
+COPY --from=builder /sugarfunge-node/customSpecRaw.json /customSpecRaw.json
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api
 COPY --from=builder /proof-engine/target/release/proof-engine /proof-engine
 
