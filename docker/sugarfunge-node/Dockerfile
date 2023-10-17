@@ -10,10 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         g++ pkg-config libx11-dev libasound2-dev libudev-dev \
         libssl-dev git build-essential curl
 
-WORKDIR /
-COPY ./union-drive.sh /union-drive.sh
-RUN chmod +x /union-drive.sh
-
 WORKDIR /sugarfunge
 COPY ./sugarfunge-node /sugarfunge
 RUN cargo fetch
