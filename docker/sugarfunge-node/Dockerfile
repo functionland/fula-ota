@@ -15,13 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev libfindbin-libs-perl
 # Set PERL_MM_USE_DEFAULT to make module installation non-interactive
 ENV PERL_MM_USE_DEFAULT=1
-RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz
-RUN tar -xvzf openssl-1.1.1s.tar.gz
-RUN cd openssl-1.1.1s/
-RUN ./Configure linux-aarch64 --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib
-RUN make -j$(nproc)
-RUN make install
-RUN echo 'LD_LIBRARY_PATH=/usr/local/ssl/lib:${LD_LIBRARY_PATH}' >> /etc/environment && \
+RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \
+    tar -xvzf openssl-1.1.1s.tar.gz && \
+    cd openssl-1.1.1s/ && \
+    ./Configure linux-aarch64 --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib && \
+    make -j$(nproc) && \
+    make install && \
+    echo 'LD_LIBRARY_PATH=/usr/local/ssl/lib:${LD_LIBRARY_PATH}' >> /etc/environment && \
     cd .. && \
     rm -rf openssl-1.1.1s.tar.gz openssl-1.1.1s && \
     ln -s /usr/local/ssl/lib/libssl.so.1.1 /lib/aarch64-linux-gnu/libssl.so.1.1 && \
