@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssl
 
 # OpenSSL1.1
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev && \
-    cpan -T install FindBin && \
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev cpanminus && \
+    cpanm --notest FindBin && \
     wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \
     tar -xvzf openssl-1.1.1s.tar.gz && \
     cd openssl-1.1.1s/ && \
