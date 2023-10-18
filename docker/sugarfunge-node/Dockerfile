@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev
 # Set PERL_MM_USE_DEFAULT to make module installation non-interactive
 ENV PERL_MM_USE_DEFAULT=1
-RUN cpan install FindBin || (cat /root/.cpanm/work/*/build.log && false)
+RUN cpan CPAN && cpan install FindBin || (echo "Log info unavailable for cpan" && false)
 RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \
     tar -xvzf openssl-1.1.1s.tar.gz && \
     cd openssl-1.1.1s/ && \
