@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssl
 
 # OpenSSL1.1
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev libfindbin-libs-perl libasound2
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev libfindbin-libs-perl libasound2 netcat
 # Set PERL_MM_USE_DEFAULT to make module installation non-interactive
 ENV PERL_MM_USE_DEFAULT=1
 RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \

@@ -34,6 +34,10 @@ services:
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
     network_mode: "host"
+    ports:
+      - "4001:4001"
+      - "8001:8080"
+      - "5001:5001"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:
