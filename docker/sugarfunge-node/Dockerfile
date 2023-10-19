@@ -43,6 +43,9 @@ RUN cargo build --locked --features headless --release
 
 FROM ubuntu:latest
 
+# Install netcat
+RUN apt-get update && apt-get install -y netcat libasound2
+
 COPY --from=builder /sugarfunge-node/target/release/sugarfunge-node /sugarfunge-node
 COPY --from=builder /sugarfunge-node/customSpecRaw.json /customSpecRaw.json
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api

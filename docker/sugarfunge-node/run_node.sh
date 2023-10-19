@@ -1,6 +1,7 @@
 #!/bin/sh
 
 export NODE_PORT=9945
+export IPFS_PORT=5001
 # Start the node process
 /sugarfunge-node --chain /customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password-filename="/internal/.secrets/password.txt" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv &
 NODE_PID=$!
@@ -20,8 +21,13 @@ done
 /sugarfunge-api --db-uri=/data --node-server ws://127.0.0.1:$NODE_PORT &
 API_PID=$!
 
-Operator_seed=$(cat /internal/.secrets/seed.txt)
+# Wait indefinitely until port 5001 is up and running
+while ! nc -z 127.0.0.1 $IPFS_PORT; do
+  sleep 1
+  echo "Waiting for port 5001 to be available..."
+done
 
+Operator_seed=$(cat /internal/.secrets/seed.txt)
 /proof-engine -- $Operator_seed &
 PROOF_ENGINE_PID=$!
 
