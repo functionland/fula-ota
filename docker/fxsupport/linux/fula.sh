@@ -451,7 +451,6 @@ function restart() {
 
   # Check if /home/pi/V6.info exists
   if [ ! -f $HOME_DIR/V6.info ]; then
-      sudo rm -f $HOME_DIR/V[0-9].info || { echo "Error removing previous version files" >> $FULA_LOG_PATH; }
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
       if [ -f $HOME_DIR/V6.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
         # remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
