@@ -19,9 +19,6 @@ WORKDIR /
 COPY --from=BuildStage /app /app
 COPY --from=BuildStage /wap /wap
 
-COPY ./union-drive.sh /union-drive.sh
-RUN chmod +x /union-drive.sh
-
 COPY ./go-fula.sh /go-fula.sh
 RUN chmod +x /go-fula.sh
 EXPOSE 40001

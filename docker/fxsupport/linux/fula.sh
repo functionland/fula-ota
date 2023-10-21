@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v5.0.0
+# fula-ota v6.0.0
 
 set -e
 
@@ -166,12 +166,20 @@ function install() {
 
   if check_internet; then
     echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
+    sudo apt-get update || { echo "Could not update before install" >> $FULA_LOG_PATH 2>&1; all_success=false; }
     # Check if pip is installed
     command -v pip >/dev/null 2>&1 || {
       echo >&2 "pip not found, installing..."
       echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
       sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
     }
+
+    command -v mergerfs >/dev/null 2>&1 || {
+      echo >&2 "mergerfs not found, installing..."
+      echo "mergerfs not found, installing..." >> $FULA_LOG_PATH 2>&1
+      sudo apt-get install -y mergerfs || { echo "Could not install mergerfs" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+    }
+
 
     command -v inotifywait >/dev/null 2>&1 || {
       echo >&2 "inotify-tools not found, installing..."
@@ -226,6 +234,7 @@ function install() {
   if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
     cp docker-compose.yml $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
     cp .env $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
+    cp union-drive.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file union-drive.sh" >> $FULA_LOG_PATH; } || true
     cp fula.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
     cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
     cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
@@ -301,7 +310,8 @@ function install() {
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done with all_success=$all_success" >> $FULA_LOG_PATH
   if $all_success; then
-    touch $HOME_DIR/V5.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+    sudo rm -f $HOME_DIR/V[0-9].info || { echo "Error removing previous version files" >> $FULA_LOG_PATH; }
+    touch $HOME_DIR/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
     if [ -f "./control_led.py" ]; then
       python control_led.py green 2 >> $FULA_LOG_PATH 2>&1
     fi
@@ -439,10 +449,11 @@ function restart() {
   fi
   sleep 1
 
-  # Check if /home/pi/V5.info exists
-  if [ ! -f $HOME_DIR/V5.info ]; then
+  # Check if /home/pi/V6.info exists
+  if [ ! -f $HOME_DIR/V6.info ]; then
+      sudo rm -f $HOME_DIR/V[0-9].info || { echo "Error removing previous version files" >> $FULA_LOG_PATH; }
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
-      if [ -f $HOME_DIR/V5.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
+      if [ -f $HOME_DIR/V6.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
         # remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
         sudo reboot
       fi
@@ -454,6 +465,12 @@ function restart() {
   
   if [ -f "$RESIZE_SC" ]; then
     sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
+  fi
+
+  if [ -f $HOME_DIR/uniondrive.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/uniondrive.pid) || { echo "Error Killing uniondrive Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/uniondrive.pid | sudo tee -a $FULA_LOG_PATH || { echo "Error removing uniondrive.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f $HOME_DIR/commands.pid ]; then
@@ -580,6 +597,10 @@ case $1 in
   ;;
 "start" | "restart")
   echo "ran start at: $(date)" >> $FULA_LOG_PATH
+
+  sudo bash ./union-drive.sh 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
+  echo $! | sudo tee $HOME_DIR/uniondrive.pid > /dev/null
+
   restart 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "restart status=> $?" >> $FULA_LOG_PATH; 
   . "$ENV_FILE"
@@ -604,16 +625,22 @@ case $1 in
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
 
+  if [ -f $HOME_DIR/uniondrive.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/uniondrive.pid) || { echo "Error Killing uniondrive Process" >> $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/uniondrive.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing uniondrive.pid" >> $FULA_LOG_PATH; }
+  fi
+
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid
+    sudo rm $HOME_DIR/update.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
   fi
 
   if [ -f $HOME_DIR/commands.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/commands.pid) || { echo "Error Killing commands Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/commands.pid
+    sudo rm $HOME_DIR/commands.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" >> $FULA_LOG_PATH; }
   fi
   ;;
 "rebuild")

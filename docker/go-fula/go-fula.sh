@@ -31,8 +31,6 @@ check_files_exist() {
 
 wap_pid=0
 
-sh /union-drive.sh &
-
 /wap &
 wap_pid=$!
 

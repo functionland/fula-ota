@@ -29,7 +29,7 @@ services:
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
-      - shared-volume-external:/uniondrive
+      - shared-volume-external:/uniondrive:rw
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
@@ -59,7 +59,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
       - shared-volume:/internal
-      - shared-volume-external:/uniondrive
+      - shared-volume-external:/uniondrive:rw
       - /home/pi/:/home:rw,rshared
       - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
@@ -82,3 +82,8 @@ services:
 volumes:
  shared-volume:
  shared-volume-external:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /uniondrive

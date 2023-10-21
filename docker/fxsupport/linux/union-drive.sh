@@ -1,7 +1,7 @@
 #!/bin/sh
 
-MOUNT_USB_PATH=/storage
-MOUNT_LINKS=/storagelinks
+MOUNT_USB_PATH=/media/pi
+MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 
 MAX_DRIVES=20
