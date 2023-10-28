@@ -53,6 +53,9 @@ COPY --from=builder /proof-engine/target/release/proof-engine /proof-engine
 COPY --from=builder /usr/local/ssl/lib/libssl.so.1.1 /lib/aarch64-linux-gnu/libssl.so.1.1
 COPY --from=builder /usr/local/ssl/lib/libcrypto.so.1.1 /lib/aarch64-linux-gnu/libcrypto.so.1.1
 
+ENV FULA_SUGARFUNGE_API_HOST=http://127.0.0.1:4000
+ENV FULA_CONTRACT_API_HOST=https://contract-api.functionyard.fula.network
+
 COPY ./run_node.sh /run_node.sh
 
 RUN chmod +x /run_node.sh

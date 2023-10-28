@@ -1,7 +1,7 @@
 [Unit]
 Description=%i Fula service with docker compose
 PartOf=docker.service
-After=docker.service
+After=docker.service uniondrive.service
 
 [Service]
 Type=simple
