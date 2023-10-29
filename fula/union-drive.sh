@@ -33,8 +33,14 @@ unionfs_fuse_mount_drives
 }
 
 umount_drives() {
- #log "drive removed" 
- umount  $MOUNT_PATH  
+  if mountpoint -q $MOUNT_PATH; then
+    umount $MOUNT_PATH
+  fi
+  if [ -z "$MOUNT_PATH" ]; then
+   echo "MOUNT_PATH is unset or empty, exiting..."
+  else
+   sudo rm -r "${MOUNT_PATH:?}/*"
+  fi
 }
 
 hash_map=","

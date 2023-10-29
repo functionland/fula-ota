@@ -252,7 +252,8 @@ function install() {
     echo "Source and destination are the same, skipping copy" >> $FULA_LOG_PATH
   fi
   sudo cp fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  
+  sudo cp uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+
   if [ -f "/usr/bin/fula/docker.env" ]; then 
     sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" >> $FULA_LOG_PATH; } || true
   else 
@@ -304,6 +305,8 @@ function install() {
 
   echo "Installing Services..." >> $FULA_LOG_PATH
   systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; all_success=false; }
+  systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing uniondrive.service" >> $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Uniondrive Finished" >> $FULA_LOG_PATH
   systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; all_success=false; }
   echo "Installing Fula Finished" >> $FULA_LOG_PATH
   echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
@@ -466,12 +469,6 @@ function restart() {
     sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
   fi
 
-  if [ -f $HOME_DIR/uniondrive.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/uniondrive.pid) || { echo "Error Killing uniondrive Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/uniondrive.pid | sudo tee -a $FULA_LOG_PATH || { echo "Error removing uniondrive.pid" >> $FULA_LOG_PATH; }
-  fi
-
   if [ -f $HOME_DIR/commands.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/commands.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing commands Process" >> $FULA_LOG_PATH; } || true
@@ -518,6 +515,13 @@ function remove() {
   fi
   rm -f $SYSTEMD_PATH/fula.service
   rm -rf "${FULA_PATH:?}/" || { echo "could not remove FULA_PATH"; } || true
+
+  if service_exists uniondrive.service; then
+    systemctl stop uniondrive.service -q
+    systemctl disable uniondrive.service -q
+  fi
+  rm -f $SYSTEMD_PATH/uniondrive.service
+
   systemctl daemon-reload
   dockerPrune
   echo "Removing Fula Finished" >> $FULA_LOG_PATH
@@ -595,13 +599,10 @@ case $1 in
   install 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
-  echo "ran start at: $(date)" >> $FULA_LOG_PATH
-
-  sudo bash ./union-drive.sh 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
-  echo $! | sudo tee $HOME_DIR/uniondrive.pid > /dev/null
+  echo "ran start V6 at: $(date)" >> $FULA_LOG_PATH
 
   restart 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "restart status=> $?" >> $FULA_LOG_PATH; 
+  echo "restart V6 status=> $?" >> $FULA_LOG_PATH; 
   . "$ENV_FILE"
   # Store the last modification time of the "stop_docker_copy.txt" file
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
@@ -623,12 +624,6 @@ case $1 in
 "stop")
   echo "ran stop at: $(date)" >> $FULA_LOG_PATH
   dockerComposeDown
-
-  if [ -f $HOME_DIR/uniondrive.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/uniondrive.pid) || { echo "Error Killing uniondrive Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/uniondrive.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing uniondrive.pid" >> $FULA_LOG_PATH; }
-  fi
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
