@@ -4,9 +4,9 @@ Description=%i Union Drive service with docker compose
 [Service]
 Type=simple
 RemainAfterExit=true
-WorkingDirectory=/usr/bin/fula/  # Specify the directory where union-drive.sh is located
-ExecStart=/bin/bash -c 'chmod +x ./union-drive.sh && bash ./union-drive.sh'
-ExecStop=/bin/bash -c 'pkill -f union-drive.sh'
+WorkingDirectory=/usr/bin/fula/
+ExecStart=/bin/bash -c 'chmod +x /usr/bin/fula/union-drive.sh && bash /usr/bin/fula/union-drive.sh'
+ExecStop=/bin/bash -c 'pkill -f /usr/bin/fula/union-drive.sh'
 Restart=always
 RestartSec=30
 
