@@ -15,38 +15,51 @@ blox_seed=$(jq -r '.blox_seed' /internal/box_props.json)
 
 # Create /internal/.secrets directory if it doesn't exist
 mkdir -p /internal/.secrets
+blox_seed_changed=0
+secret_phrase_changed=0
 
 # Save blox_seed into password.txt
-echo "$blox_seed" > /internal/.secrets/password.txt
+# Check if /internal/.secrets/password.txt exists and has the same content as $blox_seed
+if [ ! -f "/internal/.secrets/password.txt" ] || [ "$blox_seed" != "$(cat /internal/.secrets/password.txt)" ]; then
+  echo "$blox_seed" > /internal/.secrets/password.txt
+  blox_seed_changed=1
+fi
 
 #save the node key
-# Generate the key and save the output to a variable
-output=$(/sugarfunge-node key generate-node-key)
-
-# Extract the 'key' field from the output
-node_key=$(echo "$output" | grep "key:" | awk '{print $2}')
-
-#echo can be removed
-echo "$node_key"
+# Generate the node key only under specific conditions
+if [ ! -f "/internal/.secrets/node_key.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
+  output=$(/sugarfunge-node key generate-node-key 2>&1)
+  echo "$output"
+  node_key=$(echo "$output" | tr ' ' '\n' | tail -n 1)
+  echo "$node_key" > /internal/.secrets/node_key.txt
+fi
 
 # create Aura and Grandpa keys
-# Generate the key and save the output to a variable
-output=$(/sugarfunge-node key generate --scheme Sr25519 --password-filename="/internal/.secrets/password.txt")
-
-# Extract the 'Secret phrase' field from the output
-secret_phrase=$(echo "$output" | grep "Secret phrase:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-
-# echo can be removed
-echo "$secret_phrase"  # You can save this to a file or use it as needed
+# Generate the secret phrase only under specific conditions
+if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
+  output=$(/sugarfunge-node key generate --scheme Sr25519 --password-filename="/internal/.secrets/password.txt" 2>&1)
+  echo "$output"
+  secret_phrase=$(echo "$output" | grep "Secret phrase:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$secret_phrase" != "$(cat /internal/.secrets/secret_phrase.txt)" ]; then
+    echo "$secret_phrase" > /internal/.secrets/secret_phrase.txt
+    secret_phrase_changed=1
+  fi
+fi
 
 # create grandpa account
-/sugarfunge-node key inspect --password-filename="/internal/.secrets/password.txt" --scheme Ed25519 "$secret_phrase"
+secret_phrase=$(cat /internal/.secrets/secret_phrase.txt)
+node_key=$(cat /internal/.secrets/node_key.txt)
+if [ "$secret_phrase_changed" -ne 0 ] || [ "$blox_seed_changed" -ne 0 ] || [ ! -d "/internal/keys/" ] || [ -z "$(ls -A /internal/keys/)" ]; then
 
-#Add Aura key to keystore
-/sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type aura
+    #Remove saved keys
+    rm -rf /internal/keys/*
 
-#Add Grandpa key to keystore
-./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type gran
+    #Add Aura key to keystore
+    /sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type aura
+
+    #Add Grandpa key to keystore
+    ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type gran
+fi
 
 # Start the node process
 /sugarfunge-node --chain /customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password-filename="/internal/.secrets/password.txt" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv --node-key=$node_key --offchain-worker always &
