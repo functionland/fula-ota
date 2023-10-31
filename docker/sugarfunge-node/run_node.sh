@@ -44,6 +44,12 @@ if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$blox_seed_changed" -ne
     echo "$secret_phrase" > /internal/.secrets/secret_phrase.txt
     secret_phrase_changed=1
   fi
+
+  # Extract the Secret seed using awk and trim any extra spaces
+  secret_seed=$(echo "$output" | grep "Secret seed:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$secret_seed" != "$(cat /internal/.secrets/secret_seed.txt)" ]; then
+    echo "$secret_seed" > /internal/.secrets/secret_seed.txt
+  fi
 fi
 
 # create grandpa account
