@@ -36,7 +36,7 @@ fi
 
 # create Aura and Grandpa keys
 # Generate the secret phrase only under specific conditions
-if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
+if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
   output=$(/sugarfunge-node key generate --scheme Sr25519 --password-filename="/internal/.secrets/password.txt" 2>&1)
   echo "$output"
   secret_phrase=$(echo "$output" | grep "Secret phrase:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
