@@ -32,6 +32,10 @@ if [ ! -f "/internal/.secrets/node_key.txt" ] || [ "$blox_seed_changed" -ne 0 ];
   echo "$output"
   node_key=$(echo "$output" | tr ' ' '\n' | tail -n 1)
   echo "$node_key" > /internal/.secrets/node_key.txt
+
+  # Extract the first line from node_peerid.txt
+  node_peerid=$(echo "$output" | head -n 1)
+  echo "$node_peerid" > /internal/.secrets/node_peerid.txt
 fi
 
 # create Aura and Grandpa keys
@@ -49,6 +53,12 @@ if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ ! -f "/internal/.secrets
   secret_seed=$(echo "$output" | grep "Secret seed:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
   if [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$secret_seed" != "$(cat /internal/.secrets/secret_seed.txt)" ]; then
     echo "$secret_seed" > /internal/.secrets/secret_seed.txt
+  fi
+
+  # Extract the SS58 Address using awk and trim any extra spaces
+  account=$(echo "$output" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ ! -f "/internal/.secrets/account.txt" ] || [ "$account" != "$(cat /internal/.secrets/account.txt)" ]; then
+    echo "$account" > /internal/.secrets/account.txt
   fi
 fi
 
