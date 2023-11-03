@@ -65,6 +65,10 @@ services:
       - /var/run/dbus:/var/run/dbus
     network_mode: "host"
     privileged: true
+    devices:
+       - /dev/fuse:/dev/fuse:rwm 
+    cap_add:
+      - ALL
 
   fxsupport:
     image: $FX_SUPPROT
