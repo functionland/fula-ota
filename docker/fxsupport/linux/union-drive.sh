@@ -25,7 +25,7 @@ unionfs_fuse_mount_drives() {
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
- mergerfs -o allow_other "$MOUNT_ARG" "$MOUNT_PATH" 
+ mergerfs -o allow_other,direct_io,default_permissions,use_ino,category.create=lfs,minfreespace=1G "$MOUNT_ARG" "$MOUNT_PATH" 
 }
 
 mount_drives(){
@@ -39,7 +39,7 @@ umount_drives() {
   if [ -z "$MOUNT_PATH" ]; then
    echo "MOUNT_PATH is unset or empty, exiting..."
   else
-   sudo rm -r "${MOUNT_PATH:?}/*"
+   sudo rm -r "${MOUNT_PATH:?}"
   fi
 }
 

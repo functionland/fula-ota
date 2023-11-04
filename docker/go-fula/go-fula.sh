@@ -29,6 +29,40 @@ check_files_exist() {
   return $?
 }
 
+check_writable() {
+  # Check if /internal exists and is writable
+  if [ -d "/internal" ]; then
+    if ! touch /internal/.tmp_write || ! rm /internal/.tmp_write; then
+      echo "/internal is not writable."
+      return 1
+    fi
+  else
+    echo "/internal does not exist."
+    return 1
+  fi
+
+  # Check if /uniondrive exists and is writable
+  if [ -d "/uniondrive" ]; then
+    if ! touch /uniondrive/.tmp_write || ! rm /uniondrive/.tmp_write; then
+      echo "/uniondrive is not writable."
+      return 1
+    fi
+  else
+    echo "/uniondrive does not exist."
+    return 1
+  fi
+
+  echo "Both /internal and /uniondrive exist and are writable."
+  return 0
+}
+
+
+# Loop until /internal and /uniondrive are verified to exist and be writable
+while ! check_writable; do
+  echo "Waiting for /internal and /uniondrive to become writable..."
+  sleep 5
+done
+
 wap_pid=0
 
 /wap &

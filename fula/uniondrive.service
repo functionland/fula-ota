@@ -10,6 +10,8 @@ ExecStop=/bin/bash -c 'pkill -f /usr/bin/fula/union-drive.sh'
 Restart=on-failure
 RestartSec=30
 WatchdogSec=120
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
