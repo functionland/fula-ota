@@ -37,11 +37,12 @@ while ! check_writable; do
   sleep 5
 done
 
-# Wait indefinitely until the password file and /uniondrive folder are available
-while [ ! -f "/internal/box_props.json" ] || [ ! -d "/uniondrive" ]; do
+# Wait indefinitely until the password file and /uniondrive folder are available from go-fule docker
+while [ ! -f "/internal/box_props.json" ] || [ ! -d "/uniondrive" ] || [ ! -f "/internal/.secrets/node_key.txt" ]; do
   sleep 3
   [ ! -f "/internal/box_props.json" ] && echo "Waiting for /internal/box_props.json to become available..."
   [ ! -d "/uniondrive" ] && echo "Waiting for /uniondrive to become available..."
+  [ ! -f "/internal/.secrets/node_key.txt" ] && echo "Waiting for /internal/.secrets/node_key.txt to become available..."
 done
 
 # Read blox_seed from JSON file
@@ -61,7 +62,7 @@ fi
 
 #save the node key
 # Generate the node key only under specific conditions
-if [ ! -f "/internal/.secrets/node_key.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
+if [ ! -f "/internal/.secrets/node_key.txt" ]; then
   output=$(/sugarfunge-node key generate-node-key 2>&1)
   echo "$output"
   node_key=$(echo "$output" | tr ' ' '\n' | tail -n 1)
