@@ -137,7 +137,8 @@ while ! nc -z 127.0.0.1 $IPFS_PORT; do
   echo "Waiting for port 5001 to be available..."
 done
 
-/proof-engine -- $node_key &
+secret_seed=$(cat /internal/.secrets/secret_seed.txt)
+/proof-engine -- $secret_seed &
 PROOF_ENGINE_PID=$!
 
 # Wait for any process to exit

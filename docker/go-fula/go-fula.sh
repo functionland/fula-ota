@@ -74,7 +74,7 @@ while true; do
     node_key_file="/internal/.secrets/node_key.txt"
     mkdir -p /internal/.secrets
     # Generate the node key
-    new_key=$(/app --generateNodeKey)
+    new_key=$(/app --generateNodeKey | grep -E '^[a-f0-9]{64}$')
     # Check if the node_key file exists and has different content
     if [ ! -f "$node_key_file" ] || [ "$new_key" != "$(cat $node_key_file)" ]; then
       echo "$new_key" > "$node_key_file"
