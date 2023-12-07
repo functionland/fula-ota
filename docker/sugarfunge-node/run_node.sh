@@ -2,6 +2,7 @@
 
 export NODE_PORT=9945
 export IPFS_PORT=5001
+export NODEAPI_PORT=4000
 
 check_writable() {
   # Check if /internal exists and is writable
@@ -112,6 +113,12 @@ if [ "$secret_phrase_changed" -ne 0 ] || [ "$blox_seed_changed" -ne 0 ] || [ ! -
     ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type gran
 fi
 
+# Wait for network availability
+until ping -c 1 node.functionyard.fula.network; do
+    echo "Waiting for network..."
+    sleep 2
+done
+
 # Start the node process
 /sugarfunge-node --chain /customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password-filename="/internal/.secrets/password.txt" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv --node-key=$node_key --offchain-worker always &
 NODE_PID=$!
@@ -122,7 +129,7 @@ while ! nc -z 127.0.0.1 $NODE_PORT; do
   sleep 2
   counter=$((counter + 1))
   if [ $counter -ge 60 ]; then
-    echo "Node service didn't start within 60 seconds. Exiting."
+    echo "Node service didn't start within 120 seconds. Exiting."
     exit 1
   fi
 done
@@ -131,10 +138,21 @@ done
 /sugarfunge-api --db-uri=/data --node-server ws://127.0.0.1:$NODE_PORT &
 API_PID=$!
 
+# Wait until the node is up and running (checks every second for up to 120 seconds)
+counter=0
+while ! nc -z 127.0.0.1 $NODEAPI_PORT; do
+  sleep 1
+  counter=$((counter + 1))
+  if [ $counter -ge 60 ]; then
+    echo "Node API service didn't start within 60 seconds. Exiting."
+    exit 1
+  fi
+done
+
 # Wait indefinitely until port 5001 is up and running
 while ! nc -z 127.0.0.1 $IPFS_PORT; do
   sleep 2
-  echo "Waiting for port 5001 to be available..."
+  echo "Waiting for port $IPFS_PORT to be available..."
 done
 
 secret_seed=$(cat /internal/.secrets/secret_seed.txt)
