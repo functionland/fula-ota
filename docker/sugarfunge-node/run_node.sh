@@ -155,6 +155,19 @@ while ! nc -z 127.0.0.1 $IPFS_PORT; do
   echo "Waiting for port $IPFS_PORT to be available..."
 done
 
+# Add a check for the Node API health response
+while :; do
+  response=$(curl -s -X POST "http://127.0.0.1:$NODEAPI_PORT/health")
+  peers=$(echo $response | jq -r '.peers')
+  if [ "$peers" -ge 3 ]; then
+    echo "Node API is healthy with peers >= 3."
+    break
+  else
+    echo "Waiting for Node API to have at least 3 peers..."
+    sleep 5
+  fi
+done
+
 secret_seed=$(cat /internal/.secrets/secret_seed.txt)
 /proof-engine -- $secret_seed &
 PROOF_ENGINE_PID=$!
