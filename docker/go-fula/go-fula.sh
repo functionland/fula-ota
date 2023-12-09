@@ -82,7 +82,7 @@ while true; do
     else
       echo "Node key file already exists and is up to date."
     fi
-    sudo nmcli con down FxBlox
+    nmcli con down FxBlox
     /app --config /internal/config.yaml
     break
   elif [ $wap_pid -eq 0 ]; then
