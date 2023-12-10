@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v6.0.1
+# fula-ota v6.0.0
 
 set -e
 
@@ -448,9 +448,9 @@ function dockerPrune() {
 function restart() {
 
   # Move to the fula-ota directory and perform git pull
-  if [ -d "$HOME/fula-ota" ]; then
+  if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." >> $FULA_LOG_PATH
-    cd "$HOME/fula-ota" || exit
+    cd "$HOME_DIR/fula-ota" || exit
     git pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" >> $FULA_LOG_PATH; }
     cd - || exit  # Go back to the previous directory
   else
