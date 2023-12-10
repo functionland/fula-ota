@@ -5,6 +5,9 @@ services:
     image: containrrr/watchtower
     restart: always
     container_name: fula_updater
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
@@ -43,6 +46,9 @@ services:
     cap_add:
       - ALL
     privileged: true
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       - fxsupport
     labels:
@@ -64,6 +70,9 @@ services:
       - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
     network_mode: "host"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     privileged: true
     devices:
        - /dev/fuse:/dev/fuse:rwm 
@@ -75,6 +84,9 @@ services:
     restart: always
     container_name: fula_fxsupport
     command: tail -F /dev/null
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - /media/pi/:/storage:rw,rshared
       - shared-volume:/internal 
