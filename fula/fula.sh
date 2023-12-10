@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v6.0.0
+# fula-ota v6.0.1
 
 set -e
 
