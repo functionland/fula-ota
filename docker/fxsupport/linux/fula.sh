@@ -422,8 +422,10 @@ function dockerComposeUp() {
         echo "$service failed to start again. Trying to pull the image..." | sudo tee -a $FULA_LOG_PATH
 
         # Pull the failed service's image and try to start the service again
-        pullFailedServices "$service" &
+        (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
         echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
+        disown
+        
       fi
     else
       echo "$service started successfully." | sudo tee -a $FULA_LOG_PATH

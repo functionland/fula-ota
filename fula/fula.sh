@@ -406,18 +406,26 @@ function dockerComposeUp() {
 
       # Get the container ID for the specific service
       container_id=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service)
+      
 
-      # Stop the failed service's container and remove it
-      docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
-      docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+      # Check if container_id is not empty
+      if [ -n "$container_id" ]; then
+        # Stop the failed service's container and remove it
+        docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+        docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+      else
+        echo "No container ID found for $service, skipping stop and remove." | sudo tee -a $FULA_LOG_PATH
+      fi
 
       # Try to start the service again
       if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
         echo "$service failed to start again. Trying to pull the image..." | sudo tee -a $FULA_LOG_PATH
 
         # Pull the failed service's image and try to start the service again
-        pullFailedServices "$service" &
+        (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
         echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
+        disown
+        
       fi
     else
       echo "$service started successfully." | sudo tee -a $FULA_LOG_PATH
@@ -492,7 +500,7 @@ function restart() {
   fi
 
   if [ -f "$COMMANDS_SC" ]; then
-    sudo nohup bash $COMMANDS_SC 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
+    (sudo nohup bash $COMMANDS_SC > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
     echo $! | sudo tee $HOME_DIR/commands.pid > /dev/null
     echo "Ran $COMMANDS_SC" | sudo tee -a $FULA_LOG_PATH
   fi
