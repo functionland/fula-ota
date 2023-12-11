@@ -621,7 +621,15 @@ case $1 in
     echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
   fi
   echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
-  . "$ENV_FILE"
+  if [ -z "$ENV_FILE" ]; then
+    echo "ENV_FILE variable is not set" | sudo tee -a $FULA_LOG_PATH
+  elif [ ! -f "$ENV_FILE" ]; then
+    echo "ENV_FILE ($ENV_FILE) does not exist" | sudo tee -a $FULA_LOG_PATH
+  elif ! . "$ENV_FILE" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+    echo "Failed to source ENV_FILE ($ENV_FILE)" | sudo tee -a $FULA_LOG_PATH
+  else
+    echo "Sourced ENV_FILE ($ENV_FILE) successfully" | sudo tee -a $FULA_LOG_PATH
+  fi
   # Store the last modification time of the "stop_docker_copy.txt" file
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
