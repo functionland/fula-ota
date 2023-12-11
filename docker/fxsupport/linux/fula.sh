@@ -629,10 +629,10 @@ case $1 in
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
   else
-    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH;
+    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
   sync
   echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
