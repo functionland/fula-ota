@@ -513,11 +513,11 @@ function restart() {
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
-  dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; }
+  dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
 
   # Remove dangling images
   if docker image prune --filter="dangling=true" -f; then
-    echo "pruning unused dockers..." | sudo tee -a $FULA_LOG_PATH
+    { echo "pruning unused dockers..." | sudo tee -a $FULA_LOG_PATH; }  || true
   fi
 }
 
