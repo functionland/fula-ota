@@ -450,9 +450,7 @@ function restart() {
   # Move to the fula-ota directory and perform git pull
   if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." >> $FULA_LOG_PATH
-    cd "$HOME_DIR/fula-ota" || exit
-    git pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" >> $FULA_LOG_PATH; }
-    cd - || exit  # Go back to the previous directory
+    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" >> $FULA_LOG_PATH; }
   else
     echo "fula-ota directory not found" >> $FULA_LOG_PATH
   fi
