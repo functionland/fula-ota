@@ -29,10 +29,15 @@ services:
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - shared-volume:/internal
+      - shared-volume-external:/uniondrive:rw
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
     network_mode: "host"
+    ports:
+      - "4001:4001"
+      - "8001:8080"
+      - "5001:5001"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:
@@ -42,17 +47,28 @@ services:
       - fxsupport
     labels:
       - "com.centurylinklabs.watchtower.enable=true"     
+  
   node:
     image: $SUGARFUNGE_NODE
     restart: always
     container_name: fula_node
     depends_on:
       - fxsupport
+      - go-fula
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
       - shared-volume:/internal
+      - shared-volume-external:/uniondrive:rw
       - /home/pi/:/home:rw,rshared
+      - /media/pi/:/storage:rw,rshared
+      - /var/run/dbus:/var/run/dbus
+    network_mode: "host"
+    privileged: true
+    devices:
+       - /dev/fuse:/dev/fuse:rwm 
+    cap_add:
+      - ALL
 
   fxsupport:
     image: $FX_SUPPROT
@@ -69,3 +85,9 @@ services:
       - watchtower      
 volumes:
  shared-volume:
+ shared-volume-external:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /uniondrive

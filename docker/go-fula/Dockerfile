@@ -1,4 +1,4 @@
-FROM golang:1.19 as BuildStage
+FROM golang:1.21 as BuildStage
 
 WORKDIR /go-fula
 
@@ -19,10 +19,8 @@ WORKDIR /
 COPY --from=BuildStage /app /app
 COPY --from=BuildStage /wap /wap
 
-COPY ./union-drive.sh /union-drive.sh
-RUN chmod +x /union-drive.sh
-
 COPY ./go-fula.sh /go-fula.sh
 RUN chmod +x /go-fula.sh
 EXPOSE 40001
+EXPOSE 5001
 CMD /go-fula.sh

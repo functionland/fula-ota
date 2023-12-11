@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v4.0.0
+# fula-ota v6.0.4
 
 set -e
 
@@ -21,6 +21,7 @@ HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 UPDATE_SC=$FULA_PATH/update.sh
+COMMANDS_SC=$FULA_PATH/commands.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +31,7 @@ if [ $# -gt 1 ]; then
   DATA_DIR=$2
 fi
 
-ENV_FILE="$DIR/.env"
+ENV_FILE="$FULA_PATH/.env"
 DOCKER_DIR=$DIR
 
 declare -x CURRENT_USER
@@ -125,7 +126,8 @@ function create_cron() {
   local cron_command_bluetooth="@reboot sudo bash /usr/bin/fula/bluetooth.sh 2>&1 | tee -a /home/pi/fula.sh.log"
 
   # Create a temporary file
-  local temp_file=$(mktemp)
+  local temp_file
+  temp_file=$(mktemp)
 
   # Remove all existing instances of the update job and the bluetooth job
   # Write the results to the temporary file
@@ -141,7 +143,7 @@ function create_cron() {
   # Remove the temporary file
   rm "$temp_file"
 
-  echo "Cron jobs created/updated." >> $FULA_LOG_PATH 2>&1
+  echo "Cron jobs created/updated." 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
 
@@ -152,108 +154,135 @@ function create_cron() {
 function install() {
   all_success=true
 
+  if [ -d "$HOME_DIR/fula-ota" ]; then
+    echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
+    git config --global --add safe.directory "$HOME_DIR/fula-ota" || { echo "Git config failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
+    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
+  else
+    echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
+  fi
+
   if [ -f "./control_led.py" ]; then
-    python control_led.py blue 100 >> $FULA_LOG_PATH 2>&1 &
+    python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
   fi
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
-  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  mkdir -p /home/pi/commands/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory /home/pi/commands/" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
   connectwifi
 
   if check_internet; then
-    echo "Installing dependencies..." >> $FULA_LOG_PATH 2>&1
+    echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo apt-get update || { echo "Could not update before install" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     # Check if pip is installed
     command -v pip >/dev/null 2>&1 || {
       echo >&2 "pip not found, installing..."
-      echo "pip not found, installing..." >> $FULA_LOG_PATH 2>&1
-      sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+      echo "pip not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo apt-get install -y python3-pip || { echo "Could not  install python3-pip" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+    }
+
+    command -v mergerfs >/dev/null 2>&1 || {
+      echo >&2 "mergerfs not found, installing..."
+      echo "mergerfs not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo apt-get install -y mergerfs || { echo "Could not install mergerfs" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+    }
+
+
+    command -v inotifywait >/dev/null 2>&1 || {
+      echo >&2 "inotify-tools not found, installing..."
+      echo "inotify-tools not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo apt-get install -y inotify-tools || { echo "Could not  install inotify-tools" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     }
 
     python -c "import dbus" 2>/dev/null || {
-      echo "python3-dbus not found, installing..." >> $FULA_LOG_PATH 2>&1
-      sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" >> $FULA_LOG_PATH 2>&1; all_success=false; }
+      echo "python3-dbus not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     }
 
     # Check if RPi.GPIO is installed
     python -c "import RPi.GPIO" 2>/dev/null || {
-      echo "RPi.GPIO not found, installing..." >> $FULA_LOG_PATH 2>&1
-      pip install RPi.GPIO >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install RPi.GPIO" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+      echo "RPi.GPIO not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      pip install RPi.GPIO 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install RPi.GPIO" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
     # Check if pexpect is installed
     python -c "import pexpect" 2>/dev/null || {
-      echo "pexpect not found, installing..." >> $FULA_LOG_PATH 2>&1
-      pip install pexpect >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install pexpect" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+      echo "pexpect not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      pip install pexpect 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install pexpect" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
     # Check if psutil is installed
     python -c "import psutil" 2>/dev/null || {
-      echo "psutil not found, installing..." >> $FULA_LOG_PATH 2>&1
-      pip install psutil >> $FULA_LOG_PATH 2>&1 || { echo "Could not pip install psutil" >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+      echo "psutil not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      pip install psutil 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install psutil" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
   else
-    echo "Internet check failed, checking for existing dependencies..." >> $FULA_LOG_PATH 2>&1
+    echo "Internet check failed, checking for existing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
+    command -v inotifywait >/dev/null 2>&1 || { echo "inotifywait not found"; all_success=false; }
     python -c "import dbus" 2>/dev/null || { echo "python3-dbus not found"; all_success=false; }
     python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
     python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
     python -c "import psutil" 2>/dev/null || { echo "psutil not found"; all_success=false; }
   fi
 
-  echo "Call modify_bluetooth, but don't stop the script if it fails" >> $FULA_LOG_PATH 2>&1
-  modify_bluetooth >> $FULA_LOG_PATH 2>&1 || { echo "modify_bluetooth failed, but continuing installation..." >> $FULA_LOG_PATH 2>&1; all_success=false; } || true
+  echo "Call modify_bluetooth, but don't stop the script if it fails" 2>&1 | sudo tee -a $FULA_LOG_PATH
+  modify_bluetooth 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "modify_bluetooth failed, but continuing installation..." 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
-  echo "Installing Fula ..." >> $FULA_LOG_PATH 2>&1
-  echo "Pulling Images..." >> $FULA_LOG_PATH 2>&1
-  dockerPull || { echo "Error while dockerPull" >> $FULA_LOG_PATH 2>&1; all_success=false; }
-  echo "Building Images..." >> $FULA_LOG_PATH
-  dockerComposeBuild >> $FULA_LOG_PATH 2>&1 || { echo "Error while dockerComposeBuild" >> $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Fula ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+  echo "Pulling Images..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+  dockerPull || { echo "Error while dockerPull" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Building Images..." | sudo tee -a $FULA_LOG_PATH
+  dockerComposeBuild 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error while dockerComposeBuild" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
 
-  echo "Copying Files..." >> $FULA_LOG_PATH
-  mkdir -p $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error making directory $FULA_PATH" >> $FULA_LOG_PATH; }
+  echo "Copying Files..." | sudo tee -a $FULA_LOG_PATH
+  mkdir -p $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory $FULA_PATH" | sudo tee -a $FULA_LOG_PATH; }
 
   if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
-    cp docker-compose.yml $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker-compose.yml" >> $FULA_LOG_PATH; } || true
-    cp .env $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file .env" >> $FULA_LOG_PATH; } || true
-    cp fula.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file fula.sh" >> $FULA_LOG_PATH; } || true
-    cp hw_test.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file hw_test.py" >> $FULA_LOG_PATH; } || true
-    cp resize.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file resize.sh" >> $FULA_LOG_PATH; } || true
-    cp wifi.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file wifi.sh" >> $FULA_LOG_PATH; } || true
-    cp control_led.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file control_led.py" >> $FULA_LOG_PATH; } || true
-    cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
-    cp advertisement.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file advertisement.py" >> $FULA_LOG_PATH; } || true
-    cp bletools.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bletools.py" >> $FULA_LOG_PATH; } || true
-    cp service.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file service.py" >> $FULA_LOG_PATH; } || true
-    cp bluetooth.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file bluetooth.py" >> $FULA_LOG_PATH; } || true
-    cp update.sh $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file update.sh" >> $FULA_LOG_PATH; } || true
-    cp docker_rm_duplicate_network.py $FULA_PATH/ >> $FULA_LOG_PATH 2>&1 || { echo "Error copying file docker_rm_duplicate_network.py" >> $FULA_LOG_PATH; } || true
+    cp docker-compose.yml $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker-compose.yml" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp .env $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file .env" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp union-drive.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file union-drive.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp fula.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp hw_test.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file hw_test.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp resize.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file resize.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp wifi.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file wifi.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp control_led.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file control_led.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp advertisement.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file advertisement.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp bluetooth.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp update.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
   else
-    echo "Source and destination are the same, skipping copy" >> $FULA_LOG_PATH
+    echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
   sudo cp fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  
+  sudo cp uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+
   if [ -f "/usr/bin/fula/docker.env" ]; then 
-    sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" >> $FULA_LOG_PATH; } || true
+    sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
   else 
-    echo "File /usr/bin/fula/docker.env does not exist, skipping removal" >> $FULA_LOG_PATH
+    echo "File /usr/bin/fula/docker.env does not exist, skipping removal" | sudo tee -a $FULA_LOG_PATH
   fi
 
 
-  echo "Setting chmod..." >> $FULA_LOG_PATH
+  echo "Setting chmod..." | sudo tee -a $FULA_LOG_PATH
   if [ -f "$FULA_PATH/fula.sh" ]; then 
     # Check if fula.sh is executable 
     if [ ! -x "$FULA_PATH/fula.sh" ]; then 
-      echo "$FULA_PATH/fula.sh is not executable, changing permissions..." >> $FULA_LOG_PATH
-      sudo chmod +x $FULA_PATH/fula.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file fula.sh" >> $FULA_LOG_PATH; }
+      echo "$FULA_PATH/fula.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/fula.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file fula.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
   if [ -f "$FULA_PATH/resize.sh" ]; then 
     # Check if resize.sh is executable 
     if [ ! -x "$FULA_PATH/resize.sh" ]; then 
-      echo "$FULA_PATH/resize.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/resize.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file resize.sh" >> $FULA_LOG_PATH; }
+      echo "$FULA_PATH/resize.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/resize.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file resize.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
   
@@ -261,35 +290,46 @@ function install() {
   if [ -f "$FULA_PATH/update.sh" ]; then 
     # Check if update.sh is executable 
     if [ ! -x "$FULA_PATH/update.sh" ]; then 
-      echo "$FULA_PATH/update.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/update.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file update.sh" >> $FULA_LOG_PATH; }
+      echo "$FULA_PATH/update.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH 
+      sudo chmod +x $FULA_PATH/update.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file update.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
   if [ -f "$FULA_PATH/wifi.sh" ]; then 
     # Check if wifi.sh is executable 
     if [ ! -x "$FULA_PATH/wifi.sh" ]; then 
-      echo "$FULA_PATH/wifi.sh is not executable, changing permissions..." >> $FULA_LOG_PATH 
-      sudo chmod +x $FULA_PATH/wifi.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file wifi.sh" >> $FULA_LOG_PATH; }
+      echo "$FULA_PATH/wifi.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/wifi.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file wifi.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
-  echo "Installing Services..." >> $FULA_LOG_PATH
-  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" >> $FULA_LOG_PATH; all_success=false; }
-  systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" >> $FULA_LOG_PATH; all_success=false; }
-  echo "Installing Fula Finished" >> $FULA_LOG_PATH
-  echo "Setting up cron job for manual update" >> $FULA_LOG_PATH
-  create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" >> $FULA_LOG_PATH; all_success=false; } || true
-  echo "installation done with all_success=$all_success" >> $FULA_LOG_PATH
+  if [ -f "$FULA_PATH/commands.sh" ]; then 
+    # Check if commands.sh is executable 
+    if [ ! -x "$FULA_PATH/commands.sh" ]; then 
+      echo "$FULA_PATH/commands.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH 
+      sudo chmod +x $FULA_PATH/commands.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file commands.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  echo "Installing Services..." | sudo tee -a $FULA_LOG_PATH
+  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing uniondrive.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Uniondrive Finished" | sudo tee -a $FULA_LOG_PATH
+  systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Fula Finished" | sudo tee -a $FULA_LOG_PATH
+  echo "Setting up cron job for manual update" | sudo tee -a $FULA_LOG_PATH
+  create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  echo "installation done with all_success=$all_success" | sudo tee -a $FULA_LOG_PATH
   if $all_success; then
-    touch $HOME_DIR/V4.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" >> $FULA_LOG_PATH; }
+    sudo rm -f $HOME_DIR/V[0-9].info || { echo "Error removing previous version files" | sudo tee -a $FULA_LOG_PATH; }
+    touch $HOME_DIR/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
     if [ -f "./control_led.py" ]; then
-      python control_led.py green 2 >> $FULA_LOG_PATH 2>&1
+      python control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
     fi
   else
-    echo "Installation finished with errors, version file not created." >> $FULA_LOG_PATH
+    echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
     if [ -f "./control_led.py" ]; then
-      python control_led.py red 3 >> $FULA_LOG_PATH 2>&1
+      python control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
     fi
   fi
 }
@@ -302,17 +342,17 @@ function remove_wifi_connections() {
 
     # Iterate over each connection
     for conn in $wifi_connections; do
-        echo "Removing Wi-Fi connection: $conn" >> $FULA_LOG_PATH
+        echo "Removing Wi-Fi connection: $conn" | sudo tee -a $FULA_LOG_PATH
         sudo nmcli con delete "$conn" 2>&1 | sudo tee -a $FULA_LOG_PATH
     done
 }
 
 function dockerPull() {
   if check_internet; then
-    echo "Start polling images..." >> $FULA_LOG_PATH
+    echo "Start polling images..." | sudo tee -a $FULA_LOG_PATH
     
     if [ -z "$1" ]; then
-      echo "Full Image Updating..." >> $FULA_LOG_PATH
+      echo "Full Image Updating..." | sudo tee -a $FULA_LOG_PATH
       
       # Iterate over services and pull images only if they do not exist locally
       for service in $(docker-compose config --services); do
@@ -320,21 +360,21 @@ function dockerPull() {
         
         # Attempt to pull the image, if it fails use the local version
         if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
-          echo "$service image pull failed, using local version" >> $FULA_LOG_PATH
+          echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
         fi
       done
     else
       . "$ENV_FILE"
-      echo "Updating fxsupport ($FX_SUPPROT)..." >> $FULA_LOG_PATH
+      echo "Updating fxsupport ($FX_SUPPROT)..." | sudo tee -a $FULA_LOG_PATH
       
       # Attempt to pull the image, if it fails use the local version
       if ! docker pull "$FX_SUPPROT"; then
-        echo "fx_support image pull failed, using local version" >> $FULA_LOG_PATH
+        echo "fx_support image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
       fi
     fi
   else
-    echo "You are not connected to internet!" >> $FULA_LOG_PATH
-    echo "Please check your connection" >> $FULA_LOG_PATH
+    echo "You are not connected to internet!" | sudo tee -a $FULA_LOG_PATH
+    echo "Please check your connection" | sudo tee -a $FULA_LOG_PATH
   fi
 }
 
@@ -342,12 +382,12 @@ function connectwifi() {
   # Check internet connection and setup WiFi if needed
   if [ -f "$WIFI_SC" ]; then
     if ! check_internet; then
-      echo "connectwifi: Waiting for Wi-Fi adapter to be ready..." >> $FULA_LOG_PATH
+      echo "connectwifi: Waiting for Wi-Fi adapter to be ready..." | sudo tee -a $FULA_LOG_PATH
       sleep 15
-      bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" >> $FULA_LOG_PATH; }
+      bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" | sudo tee -a $FULA_LOG_PATH; }
       sleep 15
     else
-      echo "connectwifi: Already has internet..." >> $FULA_LOG_PATH
+      echo "connectwifi: Already has internet..." | sudo tee -a $FULA_LOG_PATH
     fi
   fi
 }
@@ -358,29 +398,37 @@ function dockerComposeUp() {
 
   # Attempt to start each service individually
   for service in $services; do
-    echo "Starting $service..." >> $FULA_LOG_PATH
+    echo "Starting $service..." | sudo tee -a $FULA_LOG_PATH
 
     # Try to start the service
     if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
-      echo "$service failed to start. Attempting to stop, remove and restart..." >> $FULA_LOG_PATH
+      echo "$service failed to start. Attempting to stop, remove and restart..." | sudo tee -a $FULA_LOG_PATH
 
       # Get the container ID for the specific service
       container_id=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service)
+      
 
-      # Stop the failed service's container and remove it
-      docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
-      docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+      # Check if container_id is not empty
+      if [ -n "$container_id" ]; then
+        # Stop the failed service's container and remove it
+        docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+        docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+      else
+        echo "No container ID found for $service, skipping stop and remove." | sudo tee -a $FULA_LOG_PATH
+      fi
 
       # Try to start the service again
       if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
-        echo "$service failed to start again. Trying to pull the image..." >> $FULA_LOG_PATH
+        echo "$service failed to start again. Trying to pull the image..." | sudo tee -a $FULA_LOG_PATH
 
         # Pull the failed service's image and try to start the service again
-        pullFailedServices "$service" &
-        echo "Pull for $service initiated with PID: $!" >> $FULA_LOG_PATH
+        (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
+        echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
+        disown
+        
       fi
     else
-      echo "$service started successfully." >> $FULA_LOG_PATH
+      echo "$service started successfully." | sudo tee -a $FULA_LOG_PATH
     fi
   done
 }
@@ -388,12 +436,12 @@ function dockerComposeUp() {
 
 
 function dockerComposeDown() {
-  echo "dockerComposeDown: killPullImage" >> $FULA_LOG_PATH
+  echo "dockerComposeDown: killPullImage" | sudo tee -a $FULA_LOG_PATH
   killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "dockerComposeDown: killing done" >> $FULA_LOG_PATH
+  echo "dockerComposeDown: killing done" | sudo tee -a $FULA_LOG_PATH
   # shellcheck disable=SC2046
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
-    echo 'Shutting down existing deployment' >> $FULA_LOG_PATH
+    echo 'Shutting down existing deployment' | sudo tee -a $FULA_LOG_PATH
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" down --remove-orphans || true
   fi
 }
@@ -404,7 +452,7 @@ function dockerComposeBuild() {
 
 function createDir() {
   if [ ! -d "${DATA_DIR}/$1" ]; then
-    echo "Creating directory for docker volume $DATA_DIR/$1" >> $FULA_LOG_PATH
+    echo "Creating directory for docker volume $DATA_DIR/$1" | sudo tee -a $FULA_LOG_PATH
     mkdir -p $DATA_DIR/$1 2>&1 | sudo tee -a $FULA_LOG_PATH
   fi
 }
@@ -415,54 +463,75 @@ function dockerPrune() {
 
 function restart() {
 
+  # Move to the fula-ota directory and perform git pull
+  if [ -d "$HOME_DIR/fula-ota" ]; then
+    echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
+    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
+  else
+    echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
+  fi
+
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" >> $FULA_LOG_PATH; }
+    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   sleep 1
 
-  # Check if /home/pi/V4.info exists
-  if [ ! -f $HOME_DIR/V4.info ]; then
-      install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" >> $FULA_LOG_PATH; }
-      if [ -f $HOME_DIR/V4.info ]; then
-        remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" >> $FULA_LOG_PATH; }
+  # Check if /home/pi/V6.info exists
+  if [ ! -f $HOME_DIR/V6.info ]; then
+      install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" | sudo tee -a $FULA_LOG_PATH; }
+      if [ -f $HOME_DIR/V6.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
+        # remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" | sudo tee -a $FULA_LOG_PATH; }
         sudo reboot
       fi
   fi
 
   if [ -f "$RM_DUP_NETWORK_SC" ]; then
-    python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" >> $FULA_LOG_PATH; }
+    python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" >> $FULA_LOG_PATH; }
+    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
+
+  if [ -f $HOME_DIR/commands.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/commands.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing commands Process" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/commands.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+
+  if [ -f "$COMMANDS_SC" ]; then
+    (sudo nohup bash $COMMANDS_SC > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
+    echo $! | sudo tee $HOME_DIR/commands.pid > /dev/null
+    echo "Ran $COMMANDS_SC" | sudo tee -a $FULA_LOG_PATH
+  fi
+
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" >> $FULA_LOG_PATH; }
+    kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   if [ -f "$UPDATE_SC" ]; then
-    sudo bash $UPDATE_SC 2>&1 | sudo tee $HOME_DIR/update.log > /dev/null &
+    sudo bash $UPDATE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
     echo $! | sudo tee $HOME_DIR/update.pid > /dev/null
-    echo "Ran $UPDATE_SC" >> $FULA_LOG_PATH
+    echo "Ran $UPDATE_SC" | sudo tee -a $FULA_LOG_PATH
   fi
 
-  echo "dockerComposeDown" >> $FULA_LOG_PATH
-  dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" >> $FULA_LOG_PATH; } || true
-  echo "dockerComposeUp" >> $FULA_LOG_PATH
-  dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" >> $FULA_LOG_PATH; }
+  echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
+  dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
+  echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
+  dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
 
   # Remove dangling images
   if docker image prune --filter="dangling=true" -f; then
-    echo "pruning unused dockers..." >> $FULA_LOG_PATH
+    { echo "pruning unused dockers..." | sudo tee -a $FULA_LOG_PATH; }  || true
   fi
 }
 
 
 function remove() {
-  echo "Removing Fula ..." >> $FULA_LOG_PATH
+  echo "Removing Fula ..." | sudo tee -a $FULA_LOG_PATH
   killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
   if service_exists fula.service; then
     systemctl stop fula.service -q
@@ -470,9 +539,16 @@ function remove() {
   fi
   rm -f $SYSTEMD_PATH/fula.service
   rm -rf "${FULA_PATH:?}/" || { echo "could not remove FULA_PATH"; } || true
+
+  if service_exists uniondrive.service; then
+    systemctl stop uniondrive.service -q
+    systemctl disable uniondrive.service -q
+  fi
+  rm -f $SYSTEMD_PATH/uniondrive.service
+
   systemctl daemon-reload
   dockerPrune
-  echo "Removing Fula Finished" >> $FULA_LOG_PATH
+  echo "Removing Fula Finished" | sudo tee -a $FULA_LOG_PATH
 }
 
 function rebuild() {
@@ -503,14 +579,14 @@ function pullFailedServices() {
       if ! status=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service | xargs docker inspect --format='{{.State.Status}}' 2>/dev/null) || [[ $status != "running" ]]; then
         # Pull the latest image
         if check_internet; then
-          echo "Start polling $service images..." >> $FULA_LOG_PATH
+          echo "Start polling $service images..." | sudo tee -a $FULA_LOG_PATH
           if [ -s "${DOCKER_DIR}/docker-compose.yml" ]; then
-            echo "Pulling $service" >> $FULA_LOG_PATH
+            echo "Pulling $service" | sudo tee -a $FULA_LOG_PATH
             # shellcheck disable=SC2046
             if docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull $service; then
-              echo "Successfully pulled $service" >> $FULA_LOG_PATH
+              echo "Successfully pulled $service" | sudo tee -a $FULA_LOG_PATH
             else
-              echo "Failed to get $service" >> $FULA_LOG_PATH
+              echo "Failed to get $service" | sudo tee -a $FULA_LOG_PATH
             fi
           fi
         fi
@@ -519,11 +595,11 @@ function pullFailedServices() {
 
     attempts=$((attempts + 1))
     if [ $attempts -ge $DEFAULT_MAX_ATTEMPTS ]; then
-      echo "Maximum number of attempts reached for service $service. Exiting..." >> $FULA_LOG_PATH
+      echo "Maximum number of attempts reached for service $service. Exiting..." | sudo tee -a $FULA_LOG_PATH
       break 1
     fi
     # Wait before checking again
-    echo "Next Time Will be " $DEFAULT_INTERVAL " Seconds Later..." >> $FULA_LOG_PATH
+    echo "Next Time Will be " $DEFAULT_INTERVAL " Seconds Later..." | sudo tee -a $FULA_LOG_PATH
     sleep $DEFAULT_INTERVAL
   done
 }
@@ -543,62 +619,79 @@ function killPullImage() {
 # Commands
 case $1 in
 "install")
-  echo "ran install at: $(date)" >> $FULA_LOG_PATH
+  echo "ran install at: $(date)" | sudo tee -a $FULA_LOG_PATH
   install 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
-  echo "ran start at: $(date)" >> $FULA_LOG_PATH
-  restart 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "restart status=> $?" >> $FULA_LOG_PATH; 
-  . "$ENV_FILE"
+  echo "ran start V6 at: $(date)" | sudo tee -a $FULA_LOG_PATH
+
+  if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+    echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
+  fi
+  echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
+  if [ -z "$ENV_FILE" ]; then
+    echo "ENV_FILE variable is not set" | sudo tee -a $FULA_LOG_PATH
+  elif [ ! -f "$ENV_FILE" ]; then
+    echo "ENV_FILE ($ENV_FILE) does not exist" | sudo tee -a $FULA_LOG_PATH
+  elif ! . "$ENV_FILE" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+    echo "Failed to source ENV_FILE ($ENV_FILE)" | sudo tee -a $FULA_LOG_PATH
+  else
+    echo "Sourced ENV_FILE ($ENV_FILE) successfully" | sudo tee -a $FULA_LOG_PATH
+  fi
   # Store the last modification time of the "stop_docker_copy.txt" file
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
   # Get the creation time of the Docker image "functionland/fxsupport:release"
   last_pull_time_docker=$(docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
-  echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" >> $FULA_LOG_PATH;
+  echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
-    echo "docker cp status=> $?" >> $FULA_LOG_PATH;
+    sudo docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
   else
-    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." >> $FULA_LOG_PATH;
+    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
   sync
-  echo "sync status=> $?" >> $FULA_LOG_PATH; 
+  echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
   ;;
 "stop")
-  echo "ran stop at: $(date)" >> $FULA_LOG_PATH
+  echo "ran stop at: $(date)" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" >> $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid
+    kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/update.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+
+  if [ -f $HOME_DIR/commands.pid ]; then
+    # shellcheck disable=SC2046
+    kill $(cat $HOME_DIR/commands.pid) || { echo "Error Killing commands Process" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo rm $HOME_DIR/commands.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   ;;
 "rebuild")
-  echo "ran rebuild at: $(date)" >> $FULA_LOG_PATH
+  echo "ran rebuild at: $(date)" | sudo tee -a $FULA_LOG_PATH
   rebuild
   ;;
 "removeall")
-  echo "ran removeall at: $(date)" >> $FULA_LOG_PATH
+  echo "ran removeall at: $(date)" | sudo tee -a $FULA_LOG_PATH
   containers=$(docker ps -a -q)
   if [ -n "$containers" ]; then
       # shellcheck disable=SC2086
       docker rm -f $containers
   else
-      echo "No containers to remove" >> $FULA_LOG_PATH
+      echo "No containers to remove" | sudo tee -a $FULA_LOG_PATH
   fi
   remove
   ;;
 "update")
-  echo "ran update at: $(date)" >> $FULA_LOG_PATH
+  echo "ran update at: $(date)" | sudo tee -a $FULA_LOG_PATH
   dockerPull "${@:2}"
   ;;
 "pull-failed")
-  echo "ran pull-failed at: $(date)" >> $FULA_LOG_PATH
+  echo "ran pull-failed at: $(date)" | sudo tee -a $FULA_LOG_PATH
   pullFailedServices
   ;;
 esac

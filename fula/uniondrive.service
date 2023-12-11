@@ -1,0 +1,17 @@
+[Unit]
+Description=%i Union Drive service with docker compose
+
+[Service]
+Type=notify
+RemainAfterExit=true
+WorkingDirectory=/usr/bin/fula/
+ExecStart=/bin/bash -c 'chmod +x /usr/bin/fula/union-drive.sh && bash /usr/bin/fula/union-drive.sh'
+ExecStop=/bin/bash -c 'pkill -f /usr/bin/fula/union-drive.sh'
+Restart=on-failure
+RestartSec=30
+WatchdogSec=120
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

@@ -164,14 +164,15 @@ sudo bash ./fula.sh start
 
 If you want to build images and push to docker (not on the client) you can follow the below steps.
 
-go to ```docker``` folder and run following commands
+Run following commands
 
 ```shell
+de docker
 #for testing
 #source env_test.sh
 #for releasing
 source env_release.sh
-./build_and_push_images.sh
+bash ./build_and_push_images.sh
 ```
 
 this command will push docker images into docker.io

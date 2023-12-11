@@ -1,7 +1,7 @@
 #!/bin/sh
 
-MOUNT_USB_PATH=/storage
-MOUNT_LINKS=/storagelinks
+MOUNT_USB_PATH=/media/pi
+MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 
 MAX_DRIVES=20
@@ -25,7 +25,7 @@ unionfs_fuse_mount_drives() {
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
- mergerfs -o allow_other "$MOUNT_ARG" "$MOUNT_PATH" 
+ mergerfs -o allow_other,direct_io,default_permissions,use_ino,category.create=lfs,minfreespace=1G "$MOUNT_ARG" "$MOUNT_PATH" 
 }
 
 mount_drives(){
@@ -33,8 +33,14 @@ unionfs_fuse_mount_drives
 }
 
 umount_drives() {
- #log "drive removed" 
- umount  $MOUNT_PATH  
+  if mountpoint -q $MOUNT_PATH; then
+    umount $MOUNT_PATH
+  fi
+  if [ -z "$MOUNT_PATH" ]; then
+   echo "MOUNT_PATH is unset or empty, exiting..."
+  else
+   sudo rm -r "${MOUNT_PATH:?}"
+  fi
 }
 
 hash_map=","
@@ -71,6 +77,42 @@ mkdir -p $MOUNT_LINKS
 mkdir -p $MOUNT_PATH
 
 mount_drives
+
+# Timeout for the mount to become available and to check if it's not read-only.
+TIMEOUT=60
+ELAPSED=0
+SLEEP_INTERVAL=5
+
+while [ $ELAPSED -lt $TIMEOUT ]; do
+    if mountpoint -q "$MOUNT_PATH"; then
+        log "Mount successful"
+
+        # Try to write a temporary file to check if the filesystem is read-write
+        if touch "$MOUNT_PATH/.test_rw" &>/dev/null; then
+            log "Filesystem is read-write"
+            rm -f "$MOUNT_PATH/.test_rw" &>/dev/null # Clean up the test file
+            systemd-notify --ready
+            break
+        else
+            log "Filesystem is read-only. Attempting to remount as read-write."
+            if ! mount -o remount,rw "$MOUNT_PATH"; then
+                log "Failed to remount /uniondrive as read-write."
+                exit 1
+            fi
+        fi
+    else
+        log "Mount is not available yet. Waiting..."
+    fi
+
+    ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
+    sleep $SLEEP_INTERVAL
+done
+
+if [ $ELAPSED -ge $TIMEOUT ]; then
+    log "Mount did not become available or writable within the timeout period."
+    exit 1
+fi
+
 #remove to create new one
 rm -r $MOUNT_LINKS/*
 
@@ -81,6 +123,7 @@ done
 #log $hash_map
 
 while true; do
+   systemd-notify WATCHDOG=1
    cat /proc/mounts | grep "$MOUNT_USB_PATH" |
     while IFS= read -r line; do
         if [ ! -s "$line" ]; then

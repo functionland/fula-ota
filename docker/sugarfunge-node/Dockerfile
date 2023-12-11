@@ -6,11 +6,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clang \
         libclang-dev \
         cmake \
-        protobuf-compiler
+        protobuf-compiler \
+        g++ pkg-config libx11-dev libasound2-dev libudev-dev \
+        libssl-dev git build-essential curl \
+        openssl
 
-WORKDIR /sugarfunge
+# OpenSSL1.1
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev libfindbin-libs-perl libasound2 netcat
+# Set PERL_MM_USE_DEFAULT to make module installation non-interactive
+ENV PERL_MM_USE_DEFAULT=1
+RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \
+    tar -xvzf openssl-1.1.1s.tar.gz && \
+    cd openssl-1.1.1s/ && \
+    ./Configure linux-aarch64 --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib && \
+    make -j$(nproc) && \
+    make install && \
+    echo 'LD_LIBRARY_PATH=/usr/local/ssl/lib:${LD_LIBRARY_PATH}' >> /etc/environment && \
+    cd .. && \
+    rm -rf openssl-1.1.1s.tar.gz openssl-1.1.1s
 
-COPY ./sugarfunge-node /sugarfunge
+
+WORKDIR /sugarfunge-node
+COPY ./sugarfunge-node /sugarfunge-node
 RUN cargo fetch
 RUN cargo build --locked --release
 
@@ -19,10 +36,34 @@ COPY ./sugarfunge-api /sugarfunge-api
 RUN cargo fetch
 RUN cargo build --locked --release
 
+WORKDIR /proof-engine
+COPY ./proof-engine /proof-engine
+RUN cargo fetch
+RUN cargo build --locked --features headless --release
+
 FROM ubuntu:latest
 
-COPY --from=builder /sugarfunge/target/release/sugarfunge-node /sugarfunge-node
+# Install netcat
+RUN apt-get update && apt-get install -y netcat libasound2 jq curl inetutils-ping
+
+COPY --from=builder /sugarfunge-node/target/release/sugarfunge-node /sugarfunge-node
+COPY --from=builder /sugarfunge-node/customSpecRaw.json /customSpecRaw.json
 COPY --from=builder /sugarfunge-api/target/release/sugarfunge-api /sugarfunge-api
+COPY --from=builder /proof-engine/target/release/proof-engine /proof-engine
+COPY --from=builder /usr/local/ssl/lib/libssl.so.1.1 /lib/aarch64-linux-gnu/libssl.so.1.1
+COPY --from=builder /usr/local/ssl/lib/libcrypto.so.1.1 /lib/aarch64-linux-gnu/libcrypto.so.1.1
+
+ENV FULA_SUGARFUNGE_API_HOST=http://127.0.0.1:4000
+ENV FULA_CONTRACT_API_HOST=https://contract-api.functionyard.fula.network
+ENV LABOR_TOKEN_CLASS_ID=100
+ENV LABOR_TOKEN_ASSET_ID=100
+ENV CHALLENGE_TOKEN_CLASS_ID=110
+ENV CHALLENGE_TOKEN_ASSET_ID=100
+ENV LABOR_TOKEN_VALUE=1
+ENV CHALLENGE_TOKEN_VALUE=1
+ENV CLAIMED_TOKEN_CLASS_ID=120
+ENV CLAIMED_TOKEN_ASSET_ID=100
+
 
 COPY ./run_node.sh /run_node.sh
 
