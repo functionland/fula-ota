@@ -617,7 +617,9 @@ case $1 in
 "start" | "restart")
   echo "ran start V6 at: $(date)" | sudo tee -a $FULA_LOG_PATH
 
-  restart 2>&1 | sudo tee -a $FULA_LOG_PATH
+  if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+    echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
+  fi
   echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
   . "$ENV_FILE"
   # Store the last modification time of the "stop_docker_copy.txt" file
