@@ -31,7 +31,7 @@ if [ $# -gt 1 ]; then
   DATA_DIR=$2
 fi
 
-ENV_FILE="$DIR/.env"
+ENV_FILE="$FULA_PATH/.env"
 DOCKER_DIR=$DIR
 
 declare -x CURRENT_USER
@@ -156,8 +156,8 @@ function install() {
 
   if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
-    git config --global --add safe.directory "$HOME_DIR/fula-ota"
-    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; }
+    git config --global --add safe.directory "$HOME_DIR/fula-ota" || { echo "Git config failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
+    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
   fi
@@ -458,13 +458,13 @@ function restart() {
   # Move to the fula-ota directory and perform git pull
   if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
-    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; }
+    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
   fi
 
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; }
+    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   sleep 1
 
@@ -478,17 +478,17 @@ function restart() {
   fi
 
   if [ -f "$RM_DUP_NETWORK_SC" ]; then
-    python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" | sudo tee -a $FULA_LOG_PATH; }
+    python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   
   if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" | sudo tee -a $FULA_LOG_PATH; }
+    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   if [ -f $HOME_DIR/commands.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/commands.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing commands Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/commands.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; }
+    sudo rm $HOME_DIR/commands.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   if [ -f "$COMMANDS_SC" ]; then
@@ -501,7 +501,7 @@ function restart() {
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; }
+    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   if [ -f "$UPDATE_SC" ]; then
