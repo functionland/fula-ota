@@ -31,7 +31,7 @@ services:
       - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
-      - shared-volume:/internal
+      - /home/pi/internal/:/internal:rw,rshared
       - shared-volume-external:/uniondrive:rw
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
@@ -64,7 +64,7 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
-      - shared-volume:/internal
+      - /home/pi/internal/:/internal:rw,rshared
       - shared-volume-external:/uniondrive:rw
       - /home/pi/:/home:rw,rshared
       - /media/pi/:/storage:rw,rshared
@@ -89,7 +89,7 @@ services:
       - 8.8.4.4
     volumes:
       - /media/pi/:/storage:rw,rshared
-      - shared-volume:/internal 
+      - /home/pi/internal/:/internal:rw,rshared
       - /home/pi/:/home:rw,rshared
     labels:
       - "com.centurylinklabs.watchtower.enable=true"

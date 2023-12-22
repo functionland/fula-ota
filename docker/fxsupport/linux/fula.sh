@@ -153,6 +153,7 @@ function create_cron() {
 # Functions
 function install() {
   all_success=true
+  mkdir -p $HOME_DIR/internal
 
   if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
@@ -462,7 +463,7 @@ function dockerPrune() {
 }
 
 function restart() {
-
+  mkdir -p $HOME_DIR/internal
   # Move to the fula-ota directory and perform git pull
   if [ -d "$HOME_DIR/fula-ota" ]; then
     echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
