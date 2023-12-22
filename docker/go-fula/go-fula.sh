@@ -141,7 +141,7 @@ while true; do
     new_key=$(/app --generateNodeKey | grep -E '^[a-f0-9]{64}$')
     # Check if the node_key file exists and has different content
     if [ ! -f "$node_key_file" ] || [ "$new_key" != "$(cat $node_key_file)" ]; then
-      log "$new_key" > "$node_key_file"
+      echo "$new_key" > "$node_key_file"
       log "Node key saved to $node_key_file"
     else
       log "Node key file already exists and is up to date."
