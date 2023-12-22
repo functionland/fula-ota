@@ -101,6 +101,21 @@ check_interfaces() {
   return 0
 }
 
+disconnect_others() {
+    log "Trying to disconnect other wifis"
+    # Get a list of currently connected Wi-Fi networks
+    connections=$(nmcli -t -f NAME,TYPE connection show --active | grep ":802-11-wireless" | cut -d: -f1)
+
+    for conn in $connections; do
+        # If the connection is not "FxBlox", disconnect it
+        if [ "$conn" != "FxBlox" ]; then
+            log "Disconnecting from $conn"
+            nmcli con down "$conn"
+        fi
+    done
+}
+
+disconnect_attempted=0
 
 # Loop until /internal and /uniondrive are verified to exist and be writable
 while ! check_writable; do
@@ -137,6 +152,10 @@ while true; do
   elif [ $wap_pid -eq 0 ]; then
     log "Either Internet not connected or necessary files missing. But wap is also not running. Reboot?"
   else 
+    if [ $disconnect_attempted -eq 0 ]; then
+        disconnect_others
+        disconnect_attempted=1
+    fi
     log "Either Internet not connected or necessary files missing"
   fi
 
