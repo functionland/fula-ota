@@ -153,7 +153,7 @@ function install() {
   all_success=true
   mkdir -p ${HOME_DIR}/.internal
 
-  if [ "$arch" == "RK1" ]; then
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
     if [ -f "$INSTALLATION_FULA_DIR/control_led.py" ]; then
       python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
     fi
@@ -320,14 +320,14 @@ function install() {
   if $all_success; then
     sudo rm -f ${HOME_DIR}/V[0-9].info || { echo "Error removing previous version files" | sudo tee -a $FULA_LOG_PATH; }
     touch ${HOME_DIR}/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
-    if [ "$arch" == "RK1" ]; then
+    if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
         python ${FULA_PATH}/control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
     fi
   else
     echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
-    if [ "$arch" == "RK1" ]; then
+    if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
         python ${FULA_PATH}/control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
