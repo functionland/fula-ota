@@ -14,6 +14,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 HOME_DIR=/home/pi
+INSTALLATION_FULA_DIR=$HOME_DIR/fula-ota/docker/fxsupport/linux
 FULA_PATH=/usr/bin/fula
 FULA_LOG_PATH=$HOME_DIR/fula.sh.log
 SYSTEMD_PATH=/etc/systemd/system
@@ -24,22 +25,17 @@ UPDATE_SC=$FULA_PATH/update.sh
 COMMANDS_SC=$FULA_PATH/commands.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-DATA_DIR=$DIR
+DATA_DIR=$FULA_PATH
 if [ $# -gt 1 ]; then
   DATA_DIR=$2
 fi
 
 ENV_FILE="$FULA_PATH/.env"
-DOCKER_DIR=$DIR
+DOCKER_DIR=$FULA_PATH
 
 declare -x CURRENT_USER
 CURRENT_USER=$(whoami)
 export MOUNT_PATH=/media/$CURRENT_USER
-
-# Determine default host machine IP address
-IP_ADDRESS=$(ip route get 1 | awk '{print $7}' | head -1)
 
 function setup_logrotate {
     # Check if logrotate is installed
@@ -94,14 +90,14 @@ function check_internet() {
 
 function modify_bluetooth() {
   # Backup the original file
-  cp /etc/systemd/system/dbus-org.bluez.service /etc/systemd/system/dbus-org.bluez.service.bak
+  cp ${SYSTEMD_PATH}/dbus-org.bluez.service ${SYSTEMD_PATH}/dbus-org.bluez.service.bak
 
   # Modify ExecStart
-  sed -i 's|^ExecStart=/usr/libexec/bluetooth/bluetoothd$|ExecStart=/usr/libexec/bluetooth/bluetoothd  --compat --noplugin=sap -C|' /etc/systemd/system/dbus-org.bluez.service
+  sed -i 's|^ExecStart=/usr/libexec/bluetooth/bluetoothd$|ExecStart=/usr/libexec/bluetooth/bluetoothd  --compat --noplugin=sap -C|' $SYSTEMD_PATH/dbus-org.bluez.service
 
   # Modify ExecStartPost only if "ExecStartPost=/usr/bin/sdptool add SP" does not exist
-  if ! grep -q "ExecStartPost=/usr/bin/sdptool add SP" /etc/systemd/system/dbus-org.bluez.service; then
-    sed -i '/ExecStart=/a ExecStartPost=/usr/bin/sdptool add SP' /etc/systemd/system/dbus-org.bluez.service
+  if ! grep -q "ExecStartPost=/usr/bin/sdptool add SP" ${SYSTEMD_PATH}/dbus-org.bluez.service; then
+    sed -i '/ExecStart=/a ExecStartPost=/usr/bin/sdptool add SP' ${SYSTEMD_PATH}/dbus-org.bluez.service
   fi
 
   # Reload the systemd manager configuration
@@ -122,8 +118,8 @@ service_exists() {
 }
 
 function create_cron() {
-  local cron_command_update="*/5 * * * * if [ -f /usr/bin/fula/update.sh ]; then sudo bash /usr/bin/fula/update.sh; fi"
-  local cron_command_bluetooth="@reboot sudo bash /usr/bin/fula/bluetooth.sh 2>&1 | tee -a /home/pi/fula.sh.log"
+  local cron_command_update="*/5 * * * * if [ -f $FULA_PATH/update.sh ]; then sudo bash $FULA_PATH/update.sh; fi"
+  local cron_command_bluetooth="@reboot sudo bash $FULA_PATH/bluetooth.sh 2>&1 | tee -a $FULA_LOG_PATH"
 
   # Create a temporary file
   local temp_file
@@ -131,7 +127,7 @@ function create_cron() {
 
   # Remove all existing instances of the update job and the bluetooth job
   # Write the results to the temporary file
-  sudo crontab -l | grep -v -e "/usr/bin/fula/update.sh" -e "/usr/bin/fula/bluetooth.sh" > "$temp_file"
+  sudo crontab -l | grep -v -e "$FULA_PATH/update.sh" -e "$FULA_PATH/bluetooth.sh" > "$temp_file"
 
   # Add the cron jobs back in
   echo "$cron_command_update" >> "$temp_file"
@@ -152,26 +148,24 @@ function create_cron() {
 
 # Functions
 function install() {
+  arch=${1:-ARM}  # Set arch based on the provided argument, default to ARM
+
   all_success=true
-  mkdir -p $HOME_DIR/internal
+  mkdir -p ${HOME_DIR}/.internal
 
-  if [ -d "$HOME_DIR/fula-ota" ]; then
-    echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
-    git config --global --add safe.directory "$HOME_DIR/fula-ota" || { echo "Git config failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
-    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
-  else
-    echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
-  fi
-
-  if [ -f "./control_led.py" ]; then
-    python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
+  if [ "$arch" == "ARM" ]; then
+    if [ -f "$INSTALLATION_FULA_DIR/control_led.py" ]; then
+      python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
+    fi
   fi
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
-  mkdir -p /home/pi/commands/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory /home/pi/commands/" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  mkdir -p ${HOME_DIR}/commands/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory $HOME_DIR/commands/" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
-  connectwifi
+  if [ "$arch" == "ARM" ]; then
+    connectwifi
+  fi
 
   if check_internet; then
     echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -231,42 +225,36 @@ function install() {
   echo "Call modify_bluetooth, but don't stop the script if it fails" 2>&1 | sudo tee -a $FULA_LOG_PATH
   modify_bluetooth 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "modify_bluetooth failed, but continuing installation..." 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
-  echo "Installing Fula ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "Pulling Images..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-  dockerPull || { echo "Error while dockerPull" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
-  echo "Building Images..." | sudo tee -a $FULA_LOG_PATH
-  dockerComposeBuild 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error while dockerComposeBuild" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
-
   echo "Copying Files..." | sudo tee -a $FULA_LOG_PATH
   mkdir -p $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory $FULA_PATH" | sudo tee -a $FULA_LOG_PATH; }
 
   if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
-    cp docker-compose.yml $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker-compose.yml" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp .env $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file .env" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp union-drive.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file union-drive.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp fula.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp hw_test.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file hw_test.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp resize.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file resize.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp wifi.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file wifi.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp control_led.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file control_led.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp advertisement.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file advertisement.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp bluetooth.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp update.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/docker-compose.yml $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker-compose.yml" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/.env $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file .env" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/union-drive.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file union-drive.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/fula.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/hw_test.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file hw_test.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/resize.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file resize.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/wifi.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file wifi.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/control_led.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file control_led.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/advertisement.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file advertisement.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/bluetooth.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/update.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
-  sudo cp fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  sudo cp uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo cp ${INSTALLATION_FULA_DIR}/fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo cp ${INSTALLATION_FULA_DIR}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
-  if [ -f "/usr/bin/fula/docker.env" ]; then 
-    sudo rm /usr/bin/fula/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing /usr/bin/fula/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
+  if [ -f "$FULA_PATH/docker.env" ]; then 
+    sudo rm ${FULA_PATH}/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing $FULA_PATH/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
   else 
-    echo "File /usr/bin/fula/docker.env does not exist, skipping removal" | sudo tee -a $FULA_LOG_PATH
+    echo "File $FULA_PATH/docker.env does not exist, skipping removal" | sudo tee -a $FULA_LOG_PATH
   fi
 
 
@@ -312,8 +300,16 @@ function install() {
     fi 
   fi
 
+  echo "Installing Fula ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+  echo "Pulling Images..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+  dockerPull || { echo "Error while dockerPull" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Building Images..." | sudo tee -a $FULA_LOG_PATH
+  dockerComposeBuild 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error while dockerComposeBuild" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+
   echo "Installing Services..." | sudo tee -a $FULA_LOG_PATH
-  systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  if [ "$arch" == "ARM" ]; then
+    systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  fi
   systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing uniondrive.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing Uniondrive Finished" | sudo tee -a $FULA_LOG_PATH
   systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
@@ -322,15 +318,19 @@ function install() {
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done with all_success=$all_success" | sudo tee -a $FULA_LOG_PATH
   if $all_success; then
-    sudo rm -f $HOME_DIR/V[0-9].info || { echo "Error removing previous version files" | sudo tee -a $FULA_LOG_PATH; }
-    touch $HOME_DIR/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
-    if [ -f "./control_led.py" ]; then
-      python control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo rm -f ${HOME_DIR}/V[0-9].info || { echo "Error removing previous version files" | sudo tee -a $FULA_LOG_PATH; }
+    touch ${HOME_DIR}/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
+    if [ "$arch" == "ARM" ]; then
+      if [ -f "$FULA_PATH/control_led.py" ]; then
+        python ${FULA_PATH}/control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
+      fi
     fi
   else
     echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
-    if [ -f "./control_led.py" ]; then
-      python control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
+    if [ "$arch" == "ARM" ]; then
+      if [ -f "$FULA_PATH/control_led.py" ]; then
+        python ${FULA_PATH}/control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
+      fi
     fi
   fi
 }
@@ -505,24 +505,17 @@ function dockerPrune() {
 }
 
 function restart() {
-  mkdir -p $HOME_DIR/internal
-  # Move to the fula-ota directory and perform git pull
-  if [ -d "$HOME_DIR/fula-ota" ]; then
-    echo "Updating fula-ota repository..." | sudo tee -a $FULA_LOG_PATH
-    git -C "$HOME_DIR/fula-ota" pull 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Git pull failed for fula-ota" | sudo tee -a $FULA_LOG_PATH; } || true
-  else
-    echo "fula-ota directory not found" | sudo tee -a $FULA_LOG_PATH
-  fi
+  mkdir -p ${HOME_DIR}/internal
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   sleep 1
 
-  # Check if /home/pi/V6.info exists
-  if [ ! -f $HOME_DIR/V6.info ]; then
+  # Check if $HOME_DIR/V6.info exists
+  if [ ! -f ${HOME_DIR}/V6.info ]; then
       install 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error install" | sudo tee -a $FULA_LOG_PATH; }
-      if [ -f $HOME_DIR/V6.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
+      if [ -f ${HOME_DIR}/V6.info ] && [ -f "$HOME_DIR/go_fula_version.info" ]; then
         # remove_wifi_connections 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing wifi connectins" | sudo tee -a $FULA_LOG_PATH; }
         sudo reboot
       fi
@@ -663,7 +656,7 @@ function killPullImage() {
 case $1 in
 "install")
   echo "ran install at: $(date)" | sudo tee -a $FULA_LOG_PATH
-  install 2>&1 | sudo tee -a $FULA_LOG_PATH
+  install "${2:-ARM}" 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
   echo "ran start V6 at: $(date)" | sudo tee -a $FULA_LOG_PATH
@@ -690,7 +683,7 @@ case $1 in
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    sudo docker cp fula_fxsupport:/linux/. /usr/bin/fula/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo docker cp fula_fxsupport:/linux/. ${$FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
