@@ -148,12 +148,12 @@ function create_cron() {
 
 # Functions
 function install() {
-  arch=${1:-ARM}  # Set arch based on the provided argument, default to ARM
+  arch=${1:-RK1}  # Set arch based on the provided argument, default to RK1
 
   all_success=true
   mkdir -p ${HOME_DIR}/.internal
 
-  if [ "$arch" == "ARM" ]; then
+  if [ "$arch" == "RK1" ]; then
     if [ -f "$INSTALLATION_FULA_DIR/control_led.py" ]; then
       python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
     fi
@@ -163,7 +163,7 @@ function install() {
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   mkdir -p ${HOME_DIR}/commands/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory $HOME_DIR/commands/" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
-  if [ "$arch" == "ARM" ]; then
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
     connectwifi
   fi
 
@@ -307,7 +307,7 @@ function install() {
   dockerComposeBuild 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error while dockerComposeBuild" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
 
   echo "Installing Services..." | sudo tee -a $FULA_LOG_PATH
-  if [ "$arch" == "ARM" ]; then
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
     systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   fi
   systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing uniondrive.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
@@ -320,14 +320,14 @@ function install() {
   if $all_success; then
     sudo rm -f ${HOME_DIR}/V[0-9].info || { echo "Error removing previous version files" | sudo tee -a $FULA_LOG_PATH; }
     touch ${HOME_DIR}/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
-    if [ "$arch" == "ARM" ]; then
+    if [ "$arch" == "RK1" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
         python ${FULA_PATH}/control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
     fi
   else
     echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
-    if [ "$arch" == "ARM" ]; then
+    if [ "$arch" == "RK1" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
         python ${FULA_PATH}/control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
@@ -656,7 +656,7 @@ function killPullImage() {
 case $1 in
 "install")
   echo "ran install at: $(date)" | sudo tee -a $FULA_LOG_PATH
-  install "${2:-ARM}" 2>&1 | sudo tee -a $FULA_LOG_PATH
+  install "${2:-RK1}" 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
   echo "ran start V6 at: $(date)" | sudo tee -a $FULA_LOG_PATH
