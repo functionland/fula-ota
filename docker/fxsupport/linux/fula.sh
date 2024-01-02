@@ -378,9 +378,9 @@ function dockerPull() {
 
         # If pull fails, try to download the latest image from GitHub
         if [[ ! -z "$latest_release_tag" ]]; then
-          download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}"
+          download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}.tar"
           echo "Attempting to download $service from $download_url"
-          if curl -L $download_url -o "$tar_path"; then
+          if sudo curl -L $download_url -o "$tar_path"; then
             echo "Successfully downloaded $service from GitHub."
             docker load -i "$tar_path" || echo "Failed to load $image from downloaded $tar_path"
           else
