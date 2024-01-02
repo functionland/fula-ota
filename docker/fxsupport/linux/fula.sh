@@ -349,34 +349,55 @@ function remove_wifi_connections() {
 }
 
 function dockerPull() {
-  if check_internet; then
-    echo "Start polling images..." | sudo tee -a $FULA_LOG_PATH
-    
-    if [ -z "$1" ]; then
-      echo "Full Image Updating..." | sudo tee -a $FULA_LOG_PATH
-      
-      # Iterate over services and pull images only if they do not exist locally
-      for service in $(docker-compose config --services); do
-        image=$(docker-compose config | awk '$1 == "image:" { print $2 }' | grep "$service")
-        
-        # Attempt to pull the image, if it fails use the local version
-        if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
-          echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
+  local service image tar_path latest_release_url latest_release_tag download_url
+
+  echo "Start polling images..." | sudo tee -a $FULA_LOG_PATH
+  
+  # Get the latest release tag from GitHub
+  latest_release_url="https://api.github.com/repos/functionland/fula-ota/releases/latest"
+  latest_release_tag=$(curl -s $latest_release_url | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+  
+  # Check if the curl command succeeded and a tag was found
+  if [[ -z "$latest_release_tag" ]]; then
+    echo "Failed to retrieve the latest release tag from GitHub." | sudo tee -a $FULA_LOG_PATH
+  fi
+
+  # Get list of services from the docker-compose.yml file
+  services=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" config --services)
+
+  for service in $services; do
+    image=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" config | awk '$1 == "image:" { print $2 }' | grep "$service")
+    tar_path="${DOCKER_DIR}/${service}.tar"  # Construct the path from the service name
+
+    # First, try to pull from Docker Hub if internet is available
+    if check_internet; then
+      if docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
+        echo "$service image successfully pulled from Docker Hub."
+      else
+        echo "$service image pull failed from Docker Hub, attempting to download from GitHub."
+
+        # If pull fails, try to download the latest image from GitHub
+        if [[ ! -z "$latest_release_tag" ]]; then
+          download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}"
+          echo "Attempting to download $service from $download_url"
+          if curl -L $download_url -o "$tar_path"; then
+            echo "Successfully downloaded $service from GitHub."
+            docker load -i "$tar_path" || echo "Failed to load $image from downloaded $tar_path"
+          else
+            echo "Failed to download $service tar file from GitHub."
+          fi
         fi
-      done
+      fi
     else
-      . "$ENV_FILE"
-      echo "Updating fxsupport ($FX_SUPPROT)..." | sudo tee -a $FULA_LOG_PATH
-      
-      # Attempt to pull the image, if it fails use the local version
-      if ! docker pull "$FX_SUPPROT"; then
-        echo "fx_support image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
+      echo "Internet is not available. Attempting to load $service image from local storage."
+      # If internet is not available, try to load from local storage
+      if [ -f "$tar_path" ]; then
+        docker load -i "$tar_path" || echo "Failed to load $image from $tar_path"
+      else
+        echo "Local tar file for $service is not found."
       fi
     fi
-  else
-    echo "You are not connected to internet!" | sudo tee -a $FULA_LOG_PATH
-    echo "Please check your connection" | sudo tee -a $FULA_LOG_PATH
-  fi
+  done
 }
 
 function connectwifi() {
@@ -392,13 +413,36 @@ function connectwifi() {
     fi
   fi
 }
-
 function dockerComposeUp() {
+  local service image tar_path
+
   # Get list of services from the docker-compose.yml file
   services=$(docker-compose --env-file "$ENV_FILE" config --services)
 
   # Attempt to start each service individually
   for service in $services; do
+    pullFailed=0
+    image=$(docker-compose config | awk '$1 == "image:" { print $2 }' | grep "$service")
+    tar_path="${DOCKER_DIR}/${service}.tar"  # Directly construct the path from the service name
+
+    # Check for internet connectivity before pulling from Docker Hub
+    if check_internet; then
+      echo "Internet is available. Attempting to pull $service image"
+      if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
+        echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
+        pullFailed=1
+      fi
+    else
+      pullFailed=1
+      echo "Internet is not available. Skipping pull for $service"
+    fi
+
+    # Check if a tar file for the service exists and load it
+    if [ -f "$tar_path" ] && [ "$pullFailed" -eq 1 ]; then
+      echo "Loading $image from local file $tar_path"
+      docker load -i "$tar_path" || echo "Failed to load $image from $tar_path"
+    fi
+
     echo "Starting $service..." | sudo tee -a $FULA_LOG_PATH
 
     # Try to start the service
@@ -433,8 +477,6 @@ function dockerComposeUp() {
     fi
   done
 }
-
-
 
 function dockerComposeDown() {
   echo "dockerComposeDown: killPullImage" | sudo tee -a $FULA_LOG_PATH
