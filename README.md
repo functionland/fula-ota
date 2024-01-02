@@ -153,7 +153,7 @@ First install dependencies:
 For board installation Navigate to the `fula` directory and give it permission to execute:
 
 ```shell
-cd fula
+cd docker/fxsupport/linux
 sudo bash ./fula.sh rebuild
 sudo bash ./fula.sh start
 ```
@@ -167,7 +167,7 @@ If you want to build images and push to docker (not on the client) you can follo
 Run following commands
 
 ```shell
-de docker
+cd docker
 #for testing
 #source env_test.sh
 #for releasing
