@@ -355,7 +355,7 @@ function dockerPull() {
   
   # Get the latest release tag from GitHub
   latest_release_url="https://api.github.com/repos/functionland/fula-ota/releases/latest"
-  latest_release_tag=$(curl -s $latest_release_url | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+  latest_release_tag=$(curl --retry 2 -s $latest_release_url | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
   
   # Check if the curl command succeeded and a tag was found
   if [[ -z "$latest_release_tag" ]]; then
@@ -380,7 +380,7 @@ function dockerPull() {
         if [[ ! -z "$latest_release_tag" ]]; then
           download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}.tar"
           echo "Attempting to download $service from $download_url"
-          if sudo curl -L $download_url -o "$tar_path"; then
+          if sudo curl --retry 5 -L $download_url -o "$tar_path"; then
             echo "Successfully downloaded $service from GitHub."
             docker load -i "$tar_path" || echo "Failed to load $image from downloaded $tar_path"
           else
