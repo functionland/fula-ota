@@ -1,0 +1,10 @@
+[Unit]
+Description=Automount disks
+BindsTo=dev-%i.device
+After=dev-%i.device
+    
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/automount.sh %I
+ExecStop=/usr/bin/sh -c '/bin/umount /media/pi/$(echo %I | sed 's/[^a-zA-Z0-9]//g'); /bin/rmdir /media/pi/$(echo %I | sed 's/[^a-zA-Z0-9]//g')'
