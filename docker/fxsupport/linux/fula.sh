@@ -505,7 +505,7 @@ function dockerPrune() {
 }
 
 function restart() {
-  mkdir -p ${HOME_DIR}/internal
+  mkdir -p ${HOME_DIR}/.internal
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
