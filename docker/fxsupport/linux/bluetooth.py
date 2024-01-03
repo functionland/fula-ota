@@ -294,14 +294,14 @@ def start_server():
 server_thread = threading.Thread(target=start_server)
 server_thread.start()
 
-# Main thread sleeps for 240 seconds then stops server
-time.sleep(240)
+# Main thread sleeps for 900 seconds then stops server
+time.sleep(900)
 # If an action is ongoing, wait until it is finished
 action_ongoing.wait()
 
 connect_ongoing.clear()
 
-print("240 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
+print("900 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
 app.stop()
 server_thread.join()
 kill_bluetooth_processes()
