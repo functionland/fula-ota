@@ -242,6 +242,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/bluetooth.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/bluetooth.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/update.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -297,6 +298,14 @@ function install() {
     if [ ! -x "$FULA_PATH/commands.sh" ]; then 
       echo "$FULA_PATH/commands.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH 
       sudo chmod +x $FULA_PATH/commands.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file commands.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/bluetooth.sh" ]; then 
+    # Check if fula.sh is executable 
+    if [ ! -x "$FULA_PATH/bluetooth.sh" ]; then 
+      echo "$FULA_PATH/bluetooth.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/bluetooth.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file bluetooth.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
