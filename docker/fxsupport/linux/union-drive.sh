@@ -1,8 +1,12 @@
 #!/bin/sh
 
+# Set the NOTIFY_SOCKET environment variable
+export NOTIFY_SOCKET=/run/systemd/notify
+
 MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
+
 
 MAX_DRIVES=20
 
