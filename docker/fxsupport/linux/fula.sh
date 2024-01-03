@@ -380,7 +380,7 @@ function dockerPull() {
         if [[ ! -z "$latest_release_tag" ]]; then
           download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}.tar"
           echo "Attempting to download $service from $download_url"
-          if [ -f $tar_path/${service}.tar ] ; then
+          if [ -f $tar_path ] ; then
             echo "load $service from local file."
             docker load -i "$tar_path" || echo "Failed to load $image from downloaded $tar_path"
           else  
