@@ -27,23 +27,37 @@ jobs:
         run: cd ./docker && source env_release.sh && cd ./fxsupport && bash ./download_image.sh
       - name: Get Release Info
         id: get-release-info
-        uses: actions/github-script@v6
+        uses: actions/github-script@v5
         with:
           script: |
-            const release = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            return release.data.upload_url;
+            let uploadUrl = 0;
+            try {
+              const release = await github.rest.repos.getLatestRelease({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+              });
+              uploadUrl = release.data.id;
+            } catch (error) {
+              console.log('Error fetching latest release: ', error.message);
+            }
+            return uploadUrl;
+      - name: Print release upload URL
+        run: echo "Upload URL is ${{ steps.get-release-info.outputs.result }}"
       - name: Upload fxsupport Image to Release
-        uses: actions/upload-release-asset@v1
+        uses: actions/github-script@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.get-release-info.outputs.result }}
-          asset_path: ./docker/fxsupport/dockers/fxsupport.tar
-          asset_name: fxsupport.tar
-          asset_content_type: application/octet-stream
+            script: |
+              const fs = require('fs');
+              // Upload the release asset
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ steps.get-release-info.outputs.result }},
+                name: "fxsupport.tar",
+                data: await fs.readFileSync("./docker/fxsupport/dockers/fxsupport.tar")
+              });
 
   build_go_fula:
 
@@ -65,23 +79,37 @@ jobs:
         run: cd ./docker && source env_release.sh && cd ./go-fula && bash ./download_image.sh
       - name: Get Release Info
         id: get-release-info
-        uses: actions/github-script@v6
+        uses: actions/github-script@v5
         with:
           script: |
-            const release = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            return release.data.upload_url;
+            let uploadUrl = 0;
+            try {
+              const release = await github.rest.repos.getLatestRelease({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+              });
+              uploadUrl = release.data.id;
+            } catch (error) {
+              console.log('Error fetching latest release: ', error.message);
+            }
+            return uploadUrl;
+      - name: Print release upload URL
+        run: echo "Upload URL is ${{ steps.get-release-info.outputs.result }}"
       - name: Upload go-fula Image to Release
-        uses: actions/upload-release-asset@v1
+        uses: actions/github-script@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.get-release-info.outputs.result }}
-          asset_path: ./docker/go-fula/dockers/go-fula.tar
-          asset_name: go-fula.tar
-          asset_content_type: application/octet-stream
+            script: |
+              const fs = require('fs');
+              // Upload the release asset
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ steps.get-release-info.outputs.result }},
+                name: "go-fula.tar",
+                data: await fs.readFileSync("./docker/go-fula/dockers/go-fula.tar")
+              });
 
   build_node:
 
@@ -103,20 +131,34 @@ jobs:
         run: cd ./docker && source env_release.sh && cd ./sugarfunge-node && bash ./download_image.sh
       - name: Get Release Info
         id: get-release-info
-        uses: actions/github-script@v6
+        uses: actions/github-script@v5
         with:
           script: |
-            const release = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            return release.data.upload_url;
+            let uploadUrl = 0;
+            try {
+              const release = await github.rest.repos.getLatestRelease({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+              });
+              uploadUrl = release.data.id;
+            } catch (error) {
+              console.log('Error fetching latest release: ', error.message);
+            }
+            return uploadUrl;
+      - name: Print release upload URL
+        run: echo "Upload URL is ${{ steps.get-release-info.outputs.result }}"
       - name: Upload node Image to Release
-        uses: actions/upload-release-asset@v1
+        uses: actions/github-script@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.get-release-info.outputs.result }}
-          asset_path: ./docker/sugarfunge-node/dockers/node.tar
-          asset_name: node.tar
-          asset_content_type: application/octet-stream
+            script: |
+              const fs = require('fs');
+              // Upload the release asset
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ steps.get-release-info.outputs.result }},
+                name: "node.tar",
+                data: await fs.readFileSync("./docker/sugarfunge-node/dockers/node.tar")
+              });
