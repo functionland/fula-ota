@@ -26,3 +26,5 @@ jobs:
         run: docker buildx create --name multiarch --driver docker-container --use --node multiarch0
       - name: Build fxsupport
         run: cd ./docker && source env_test.sh && cd ./fxsupport && bash ./build.sh
+      - name: Download fxsupport
+        run: source ../env_test.sh && bash ./download_image.sh

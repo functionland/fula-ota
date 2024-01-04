@@ -25,3 +25,5 @@ jobs:
         run: docker buildx create --name multiarch --driver docker-container --use --node multiarch0
       - name: Build go-fula
         run: cd ./docker && source env_test.sh && cd ./go-fula && bash ./build.sh
+      - name: Download go-fula
+        run: source ../env_test.sh && bash ./download_image.sh
