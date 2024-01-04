@@ -26,4 +26,23 @@ jobs:
       - name: Build go-fula
         run: cd ./docker && source env_test.sh && cd ./go-fula && bash ./build.sh
       - name: Download go-fula
-        run: source ../env_test.sh && bash ./download_image.sh
+        run: cd ./docker && source env_test.sh && cd ./go-fula && bash ./download_image.sh
+      - name: Get Release Info
+        id: get-release-info
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const release = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            return release.data.upload_url;
+      - name: Upload go-fula Image to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.get-release-info.outputs.result }}
+          asset_path: ./docker/go-fula/dockers/go-fula.tar
+          asset_name: go-fula.tar
+          asset_content_type: application/octet-stream
