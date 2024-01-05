@@ -26,3 +26,38 @@ jobs:
         run: docker buildx create --name multiarch --driver docker-container --use --node multiarch0
       - name: Build fxsupport
         run: cd ./docker && source env_test.sh && cd ./fxsupport && bash ./build.sh
+      - name: Download fxsupport
+        run: cd ./docker && source env_test.sh && cd ./fxsupport && bash ./download_image.sh
+      - name: Get Release Info
+        id: get-release-info
+        uses: actions/github-script@v5
+        with:
+          script: |
+            let uploadUrl = 0;
+            try {
+              const release = await github.rest.repos.getLatestRelease({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+              });
+              uploadUrl = release.data.id;
+            } catch (error) {
+              console.log('Error fetching latest release: ', error.message);
+            }
+            return uploadUrl;
+      - name: Print release upload URL
+        run: echo "Upload URL is ${{ steps.get-release-info.outputs.result }}"
+      - name: Upload fxsupport Image to Release
+        uses: actions/github-script@v5
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+            script: |
+              const fs = require('fs');
+              // Upload the release asset
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ steps.get-release-info.outputs.result }},
+                name: "fxsupport.tar",
+                data: await fs.readFileSync("./docker/fxsupport/dockers/fxsupport.tar")
+              });

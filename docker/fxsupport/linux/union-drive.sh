@@ -1,8 +1,12 @@
 #!/bin/sh
 
+# Set the NOTIFY_SOCKET environment variable
+export NOTIFY_SOCKET=/run/systemd/notify
+
 MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
+
 
 MAX_DRIVES=20
 
@@ -10,6 +14,14 @@ log()
 {
   echo $1
 }
+
+# New while loop to wait for at least one drive to be mounted under /media/pi
+while [ -z "$(ls -A /media/pi)" ]; do
+    echo "Waiting for at least one drive to be mounted under /media/pi..."
+    sleep 5  # Wait for 5 seconds before checking again
+done
+
+echo "Drive detected. Proceeding with the script..."
 
 unionfs_fuse_mount_drives() {
  #log "mount drives" 
@@ -21,7 +33,7 @@ unionfs_fuse_mount_drives() {
 #all of them will be deleted after
  for d in `seq 0 $MAX_DRIVES` ; do
    DISK_PATH=${MOUNT_LINKS}/disk-${d}
-   mkdir $DISK_PATH;
+   mkdir -p $DISK_PATH;
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 

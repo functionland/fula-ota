@@ -1,7 +1,7 @@
 #!/bin/bash
 
 WATCH_PATH="/home/pi/commands/"
-FILE_NAMES=(".command_partition" ".command_reboot")  # Add your file names here
+FILE_NAMES=(".command_partition" ".command_reboot" ".command_repairfs")  # Add your file names here
 
 
 while true
@@ -32,6 +32,12 @@ do
                     rm "/usr/bin/fula/.partition_flg"
                 fi
                 sudo bash "/usr/bin/fula/resize.sh"
+                ;;
+            ".command_repairfs")
+                # Perform the reboot
+                echo "Repairing External Storage Filesystem now..."
+                sync
+                sudo bash /usr/bin/fula/repairfs.sh
                 ;;
             esac
 
