@@ -1,18 +1,20 @@
-FROM rustlang/rust:nightly AS builder
+FROM rust:latest AS builder
 
 RUN rustup target add wasm32-unknown-unknown
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# OpenSSL1.1
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        perl gcc make zlib1g-dev libfindbin-libs-perl libasound2 netcat-openbsd \
         clang \
         libclang-dev \
         cmake \
         protobuf-compiler \
         g++ pkg-config libx11-dev libasound2-dev libudev-dev \
         libssl-dev git build-essential curl \
-        openssl
-
-# OpenSSL1.1
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl gcc make zlib1g-dev libfindbin-libs-perl libasound2 netcat
+        openssl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 # Set PERL_MM_USE_DEFAULT to make module installation non-interactive
 ENV PERL_MM_USE_DEFAULT=1
 RUN wget https://www.openssl.org/source/openssl-1.1.1s.tar.gz && \
@@ -44,7 +46,10 @@ RUN cargo build --locked --features headless --release
 FROM ubuntu:latest
 
 # Install netcat
-RUN apt-get update && apt-get install -y netcat libasound2 jq curl inetutils-ping
+RUN apt-get update \
+    && apt-get install -y netcat libasound2 jq curl inetutils-ping \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /sugarfunge-node/target/release/sugarfunge-node /sugarfunge-node
 COPY --from=builder /sugarfunge-node/customSpecRaw.json /customSpecRaw.json

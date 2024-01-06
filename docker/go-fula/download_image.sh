@@ -10,10 +10,10 @@ if [ -z "$GO_FULA_IMAGE" ] || [ -z "$GO_FULA_DOCKER_TAG" ]; then
 fi
 
 # Pull the go-fula image from Docker Hub for the specified platform
-docker pull --platform=$PLATFORM $GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG
+docker pull --platform=$PLATFORM "$GO_FULA_IMAGE":"$GO_FULA_DOCKER_TAG"
 
 # Save the image as a tar file
 mkdir -p dockers
-docker save $GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG -o dockers/go-fula.tar
+docker save "$GO_FULA_IMAGE":"$GO_FULA_DOCKER_TAG" -o dockers/go-fula.tar
 
 echo "Docker image saved to dockers/go-fula.tar"

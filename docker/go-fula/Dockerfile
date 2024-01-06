@@ -1,4 +1,4 @@
-FROM golang:1.21 as BuildStage
+FROM golang:1.21 AS BuildStage
 
 WORKDIR /go-fula
 

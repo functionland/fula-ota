@@ -6,7 +6,7 @@ log() {
 
 check_wifi_name() {
     # Get the name of the currently active Wi-Fi connection.
-    wifi_name=$(nmcli -g GENERAL.CONNECTION device show $1)
+    wifi_name=$(nmcli -g GENERAL.CONNECTION device show "$1")
 
     # Return 1 (false) if the Wi-Fi name is "FxBlox", or 0 (true) otherwise.
     if [ "$wifi_name" = "FxBlox" ]; then
@@ -18,8 +18,8 @@ check_wifi_name() {
 
 check_internet() {
   for iface in /sys/class/net/*; do
-    iface_name=$(basename $iface)
-    if [ "$iface_name" != "lo" ] && iwconfig $iface_name 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
+    iface_name=$(basename "$iface")
+    if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
       return 0
     fi
   done
