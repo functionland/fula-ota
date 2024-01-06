@@ -113,7 +113,7 @@ jobs:
 
   build_node:
 
-    runs-on: ubuntu-latest
+    runs-on: self-host
 
     steps:
       - name: Checkout
