@@ -6,7 +6,7 @@ export NOTIFY_SOCKET=/run/systemd/notify
 MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
-
+mkdir -p $MOUNT_PATH
 
 MAX_DRIVES=20
 
@@ -86,7 +86,6 @@ for d in $MOUNT_LINKS/* ; do
 done 
 
 mkdir -p $MOUNT_LINKS
-mkdir -p $MOUNT_PATH
 
 mount_drives
 
