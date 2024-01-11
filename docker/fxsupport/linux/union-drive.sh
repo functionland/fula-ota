@@ -7,7 +7,6 @@ MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 mkdir -p $MOUNT_PATH
-
 MAX_DRIVES=20
 
 log()
@@ -79,13 +78,13 @@ create_disk_link(){
 
 umount_drives
 
-
 #delete previous symbolic files
 for d in $MOUNT_LINKS/* ; do
    rm $d
 done 
 
 mkdir -p $MOUNT_LINKS
+mkdir -p $MOUNT_PATH
 
 mount_drives
 
