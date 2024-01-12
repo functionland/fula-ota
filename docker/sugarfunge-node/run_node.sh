@@ -77,7 +77,7 @@ fi
 # create Aura and Grandpa keys
 # Generate the secret phrase only under specific conditions
 if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
-  output=$(/sugarfunge-node key generate --scheme Sr25519 --password-filename="/internal/.secrets/password.txt" 2>&1)
+  output=$(/sugarfunge-node key generate --scheme Sr25519 --password="$(cat '/internal/.secrets/password.txt')" 2>&1)
   echo "$output"
   secret_phrase=$(echo "$output" | grep "Secret phrase:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
   if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$secret_phrase" != "$(cat /internal/.secrets/secret_phrase.txt)" ]; then
@@ -100,6 +100,14 @@ fi
 
 # create grandpa account
 secret_phrase=$(cat /internal/.secrets/secret_phrase.txt)
+output_grandpa=$(/sugarfunge-node key inspect --password="$(cat '/internal/.secrets/password.txt')" --scheme Ed25519 "$secret_phrase" 2>&1)
+echo "$output_grandpa"
+# Extract the SS58 Address using awk and trim any extra spaces
+account_grandpa=$(echo "$output" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+if [ ! -f "/internal/.secrets/account_grandpa.txt" ] || [ "$account_grandpa" != "$(cat /internal/.secrets/account_grandpa.txt)" ]; then
+  echo "$account_grandpa" > /internal/.secrets/account_grandpa.txt
+fi
+
 node_key=$(cat /internal/.secrets/node_key.txt)
 if [ "$secret_phrase_changed" -ne 0 ] || [ "$blox_seed_changed" -ne 0 ] || [ ! -d "/internal/keys/" ] || [ -z "$(ls -A /internal/keys/)" ]; then
 
@@ -107,10 +115,10 @@ if [ "$secret_phrase_changed" -ne 0 ] || [ "$blox_seed_changed" -ne 0 ] || [ ! -
     rm -rf /internal/keys/*
 
     #Add Aura key to keystore
-    /sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type aura
+    /sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password="$(cat '/internal/.secrets/password.txt')" --key-type aura
 
     #Add Grandpa key to keystore
-    ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password-filename="/internal/.secrets/password.txt" --key-type gran
+    ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password="$(cat '/internal/.secrets/password.txt')" --key-type gran
 fi
 
 # Wait for network availability
@@ -124,7 +132,7 @@ until ping -c 1 contract-api.functionyard.fula.network; do
 done
 
 # Start the node process
-/sugarfunge-node --chain /customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password-filename="/internal/.secrets/password.txt" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv --node-key=$node_key --offchain-worker always &
+/sugarfunge-node --chain /customSpecRaw.json --enable-offchain-indexing true --base-path=/uniondrive/chain --keystore-path=/internal/keys --port=30335 --rpc-port $NODE_PORT --rpc-external --rpc-cors=all --rpc-methods=Unsafe --name FulaNode --password="$(cat '/internal/.secrets/password.txt')" --bootnodes /dns4/node.functionyard.fula.network/tcp/30334/p2p/12D3KooWBeXV65svCyknCvG1yLxXVFwRxzBLqvBJnUF6W84BLugv --node-key=$node_key --offchain-worker always &
 NODE_PID=$!
 
 # Wait until the node is up and running (checks every second for up to 120 seconds)
