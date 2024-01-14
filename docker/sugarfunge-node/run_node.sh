@@ -180,6 +180,27 @@ while :; do
   fi
 done
 
+sleep 120
+
+# Read account from file
+account=$(cat /internal/.secrets/account.txt)
+
+# Check if the account exists by querying the API and checking the response code
+while :; do
+    response_code=$(curl -X POST "http://127.0.0.1:4000/account/exists" \
+        -H "Content-Type: application/json" \
+        -d "{\"account\":\"${account}\"}" \
+        -o /dev/null -s -w "%{http_code}\n")
+    
+    if [ "$response_code" -eq 200 ]; then
+        echo "Account exists. Response code is 200."
+        break
+    else
+        echo "Waiting for account to exist. Current response code: $response_code"
+        sleep 10
+    fi
+done
+
 secret_seed=$(cat /internal/.secrets/secret_seed.txt)
 /proof-engine -- $secret_seed &
 PROOF_ENGINE_PID=$!
@@ -198,7 +219,7 @@ while :; do
         exit_code=$?
         break
     fi
-    sleep 1
+    sleep 5
 done
 
 # Exit with status of process that exited first
