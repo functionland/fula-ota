@@ -187,7 +187,7 @@ account=$(cat /internal/.secrets/account.txt)
 
 # Check if the account exists by querying the API and checking the response code
 while :; do
-    response_code=$(curl -X POST "http://127.0.0.1:4000/account/exists" \
+    response_code=$(curl -X POST "http://127.0.0.1:$NODEAPI_PORT/account/exists" \
         -H "Content-Type: application/json" \
         -d "{\"account\":\"${account}\"}" \
         -o /dev/null -s -w "%{http_code}\n")
