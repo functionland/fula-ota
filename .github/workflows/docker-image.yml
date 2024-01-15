@@ -44,7 +44,6 @@ jobs:
             
       - name: Print release upload URL
         run: echo "Upload URL is ${{ steps.get-release-info.outputs.result }}"
-		
       - name: Upload Watchtower Image to Release
         uses: actions/github-script@v5
         env:
