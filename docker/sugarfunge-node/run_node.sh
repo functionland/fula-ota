@@ -202,8 +202,15 @@ while :; do
 done
 
 secret_seed=$(cat /internal/.secrets/secret_seed.txt)
-/proof-engine -- $secret_seed &
-PROOF_ENGINE_PID=$!
+aura_account=$(cat /internal/.secrets/account.txt)
+grandpa_account=$(cat /internal/.secrets/account_grandpa.txt)
+if [ -n "$secret_seed" ] && [ -n "$aura_account" ] && [ -n "$grandpa_account" ]; then
+  /proof-engine -- "$secret_seed" "$aura_account" "$grandpa_account" &
+  PROOF_ENGINE_PID=$!
+else
+    echo "One or more required variables are empty."
+    # Handle the error case here
+fi
 
 # Wait for any process to exit
 while :; do
