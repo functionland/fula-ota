@@ -22,7 +22,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Pull Watchtower Docker Image
-        run: docker pull containrrr/watchtower:latest
+        run: docker pull --platform=linux/arm64 containrrr/watchtower:latest
       - name: Save Watchtower Image as Tar File
         run: docker save containrrr/watchtower:latest -o ./watchtower.tar
       - name: Get Release Info
