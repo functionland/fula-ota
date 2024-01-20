@@ -24,7 +24,7 @@ jobs:
       - name: Build node
         run: cd ./docker && source env_release.sh && cd ./sugarfunge-node && bash ./build.sh
       - name: Download node
-        run: cd ./docker && source source env_release.sh && cd ./sugarfunge-node && bash ./download_image.sh
+        run: cd ./docker && source env_release.sh && cd ./sugarfunge-node && bash ./download_image.sh
       - name: Get Release Info
         id: get-release-info
         uses: actions/github-script@v5
