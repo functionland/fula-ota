@@ -23,6 +23,7 @@ RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 UPDATE_SC=$FULA_PATH/update.sh
 COMMANDS_SC=$FULA_PATH/commands.sh
+MOUNT_SC=$FULA_PATH/check-mount.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 
 DATA_DIR=$FULA_PATH
@@ -120,6 +121,7 @@ service_exists() {
 function create_cron() {
   local cron_command_update="*/5 * * * * if [ -f $FULA_PATH/update.sh ]; then sudo bash $FULA_PATH/update.sh; fi"
   local cron_command_bluetooth="@reboot sudo bash $FULA_PATH/bluetooth.sh 2>&1 | tee -a $FULA_LOG_PATH"
+  local cron_command_mount="*/4 * * * * if [ -f $FULA_PATH/check-mount.sh ]; then sudo bash $FULA_PATH/check-mount.sh; fi"
 
   # Create a temporary file
   local temp_file
@@ -132,6 +134,7 @@ function create_cron() {
   # Add the cron jobs back in
   echo "$cron_command_update" >> "$temp_file"
   echo "$cron_command_bluetooth" >> "$temp_file"
+  echo "$cron_command_mount" >> "$temp_file"
 
   # Replace the current cron jobs with the contents of the temporary file
   sudo crontab "$temp_file"
@@ -247,6 +250,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
@@ -299,6 +303,14 @@ function install() {
     if [ ! -x "$FULA_PATH/commands.sh" ]; then 
       echo "$FULA_PATH/commands.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH 
       sudo chmod +x $FULA_PATH/commands.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file commands.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/check-mount.sh" ]; then 
+    # Check if check-mount.sh is executable 
+    if [ ! -x "$FULA_PATH/check-mount.sh" ]; then 
+      echo "$FULA_PATH/check-mount.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH 
+      sudo chmod +x $FULA_PATH/check-mount.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
