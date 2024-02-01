@@ -127,14 +127,20 @@ function create_cron() {
   local temp_file
   temp_file=$(mktemp)
 
-  # Remove all existing instances of the update job and the bluetooth job
-  # Write the results to the temporary file
-  sudo crontab -l | grep -v -e "$FULA_PATH/update.sh" -e "$FULA_PATH/bluetooth.sh" > "$temp_file"
+  # Remove all existing instances of the update, bluetooth, and mount jobs
+  # Write the results to the temporary file, while also removing any leading or trailing blank lines
+  sudo crontab -l | grep -v -e "$FULA_PATH/update.sh" -e "$FULA_PATH/bluetooth.sh" -e "$FULA_PATH/check-mount.sh" | sed '/^$/d' > "$temp_file"
 
   # Add the cron jobs back in
   echo "$cron_command_update" >> "$temp_file"
   echo "$cron_command_bluetooth" >> "$temp_file"
-  echo "$cron_command_mount" >> "$temp_file"
+  # Ensure the mount command is added only once
+  if ! grep -q -F "$cron_command_mount" "$temp_file"; then
+    echo "$cron_command_mount" >> "$temp_file"
+  fi
+
+  # Remove any leading or trailing blank lines from the temp file
+  sed -i '/^$/d' "$temp_file"
 
   # Replace the current cron jobs with the contents of the temporary file
   sudo crontab "$temp_file"
@@ -144,10 +150,6 @@ function create_cron() {
 
   echo "Cron jobs created/updated." 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
-
-
-
-
 
 # Functions
 function install() {
