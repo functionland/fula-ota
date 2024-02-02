@@ -1,5 +1,18 @@
 #!/bin/sh
+can_control_leds=0
+# Check if Python is available
+if command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
+    log "Python exists"
+    if [ -f /usr/bin/fula/control_led.py ]; then
+      can_control_leds=1
+    fi
+fi
 
+# Execute the Python script if can_control_leds is 1
+if [ "$can_control_leds" -eq 1 ]; then
+    python3 /usr/bin/fula/control_led.py white 999999
+    echo "LED control command executed"
+fi
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
 }
@@ -119,6 +132,10 @@ disconnect_attempted=0
 
 # Loop until /internal and /uniondrive are verified to exist and be writable
 while ! check_writable; do
+  if [ "$can_control_leds" -eq 1 ]; then
+    python3 /usr/bin/fula/control_led.py yellow 999999
+    echo "LED control command executed"
+  fi
   log "Waiting for /internal and /uniondrive to become writable..."
   sleep 5
 done
@@ -132,6 +149,10 @@ wap_pid=0
 /wap &
 wap_pid=$!
 
+if [ "$can_control_leds" -eq 1 ]; then
+    python3 /usr/bin/fula/control_led.py blue 999999
+    echo "LED control command executed"
+fi
 while true; do
   if check_internet && check_files_exist; then
     log "Internet connected and necessary files exist. Running /app."
@@ -148,13 +169,25 @@ while true; do
     fi
     nmcli con down FxBlox
     /app --config /internal/config.yaml
+    if [ "$can_control_leds" -eq 1 ]; then
+        python3 /usr/bin/fula/control_led.py green 999999
+        echo "LED control command executed"
+    fi
     break
   elif [ $wap_pid -eq 0 ]; then
+    if [ "$can_control_leds" -eq 1 ]; then
+        python3 /usr/bin/fula/control_led.py red 999999
+        echo "LED control command executed"
+    fi
     log "Either Internet not connected or necessary files missing. But wap is also not running. Reboot?"
   else 
     if [ $disconnect_attempted -eq 0 ]; then
         disconnect_others
         disconnect_attempted=1
+    fi
+    if [ "$can_control_leds" -eq 1 ]; then
+        python3 /usr/bin/fula/control_led.py light_purple 999999
+        echo "LED control command executed"
     fi
     log "Either Internet not connected or necessary files missing"
   fi
