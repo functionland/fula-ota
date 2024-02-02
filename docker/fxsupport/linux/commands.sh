@@ -1,8 +1,8 @@
 #!/bin/bash
 
 WATCH_PATH="/home/pi/commands/"
-FILE_NAMES=(".command_partition" ".command_reboot" ".command_repairfs")  # Add your file names here
-
+FILE_NAMES=(".command_partition" ".command_reboot" ".command_repairfs" ".command_led")  # Add your file names here
+FILE_CONTENT=""
 
 while true
 do
@@ -14,6 +14,7 @@ do
             
             # Delete the file
             if [ -f "$change" ]; then
+                FILE_CONTENT=$(cat "$change")  # Read the content before deletion for .command_led
                 rm "$change"
                 echo "File $change has been removed successfully"
             fi
@@ -39,8 +40,16 @@ do
                 sync
                 sudo bash /usr/bin/fula/repairfs.sh
                 ;;
+            ".command_led")
+                # Extract color and time from FILE_CONTENT, default time to 999999 if not provided
+                COLOR=$(echo $FILE_CONTENT | cut -d ' ' -f 1)
+                TIME=$(echo $FILE_CONTENT | cut -s -d ' ' -f 2)
+                TIME=${TIME:-999999}
+                
+                echo "Setting LED: Color=$COLOR, Time=$TIME"
+                python /usr/bin/fula/control_led.py "$COLOR" "$TIME" 100
+                ;;
             esac
-
         fi
     done
 done
