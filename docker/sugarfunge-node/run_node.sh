@@ -103,7 +103,8 @@ secret_phrase=$(cat /internal/.secrets/secret_phrase.txt)
 output_grandpa=$(/sugarfunge-node key inspect --password="$(cat '/internal/.secrets/password.txt')" --scheme Ed25519 "$secret_phrase" 2>&1)
 echo "$output_grandpa"
 # Extract the SS58 Address using awk and trim any extra spaces
-account_grandpa=$(echo "$output" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+account_grandpa=$(echo "$output_grandpa" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+echo $account_grandpa
 if [ ! -f "/internal/.secrets/account_grandpa.txt" ] || [ "$account_grandpa" != "$(cat /internal/.secrets/account_grandpa.txt)" ]; then
   echo "$account_grandpa" > /internal/.secrets/account_grandpa.txt
 fi
