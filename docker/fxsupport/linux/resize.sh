@@ -183,6 +183,9 @@ partition_fs () {
     sudo systemctl start uniondrive.service
     echo "uniondrive service started..."
     sleep 1
+    sudo systemctl start fula.service
+    echo "fula service started..."
+    sleep 1
     python /usr/bin/fula/control_led.py blue 2
     sudo reboot
     exit 0
