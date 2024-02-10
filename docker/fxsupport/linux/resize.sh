@@ -18,9 +18,38 @@ format_sd_devices() {
             if [ ! -z "$MOUNTED_PARTS" ]; then
                 echo "Unmounting partitions on $DEVICE..."
                 for PART in $MOUNTED_PARTS; do
-                    sudo umount "$PART" || {
-                        echo "Failed to unmount $PART. Still proceeding."
-                    }
+                    PART_NAME=$(basename "$PART")
+                    SERVICE_NAME="automount@${PART_NAME}.service"
+
+                    echo "Stopping service $SERVICE_NAME..."
+                    sudo systemctl stop "$SERVICE_NAME"
+                    if sudo umount "$PART"; then
+                        echo "Unmounted $PART successfully."
+                        # Check if the mount point directory exists and is empty before removing
+                        if [ -d "$PART" ] && [ -z "$(ls -A "$PART")" ]; then
+                            echo "Removing mount point directory $PART."
+                            sudo rm -r "$PART"
+                        else
+                            echo "$PART is not empty or does not exist as a directory."
+                        fi
+                    else
+                        echo "Failed to unmount $PART. Attempting to kill processes using it."
+                        sudo fuser -km "$PART"
+                        sleep 2  # Give some time for processes to terminate
+                        if sudo umount "$PART"; then
+                            echo "Unmounted $PART after killing processes."
+                            # Check again before attempting to remove
+                            if [ -d "$PART" ] && [ -z "$(ls -A "$PART")" ]; then
+                                echo "Removing mount point directory $PART."
+                                sudo rm -r "$PART"
+                            else
+                                echo "$PART is not empty or does not exist as a directory."
+                            fi
+                        else
+                            echo "Still could not unmount $PART. Not removing $PART."
+                        fi
+                    fi
+                    sudo sync
                 done
             fi
             printf "The device %s is not formatted. Formatting now..." "$DEVICE"
@@ -29,9 +58,13 @@ format_sd_devices() {
             printf "The device %s has been formatted." "$DEVICE"
 
             # Create a mount point, mount the partition, create a test file
-            sudo mkdir -p "/mnt/${DEVICE}1"
-            sudo mount "${DEVICE}1" "/mnt/${DEVICE}1"
-            sudo touch "/mnt/${DEVICE}1/formatted.txt"
+            DEVICE_PATH=$(basename "${DEVICE}1")
+            sudo mkdir -p "/media/pi/${DEVICE_PATH}"
+            sudo chown pi:pi "/media/pi/${DEVICE_PATH}"
+            sudo chmod 777 "/media/pi/${DEVICE_PATH}"
+            sudo mount "${DEVICE}1" "/media/pi/${DEVICE_PATH}"
+            sudo touch "/media/pi/${DEVICE_PATH}/formatted${DEVICE_PATH}.txt"
+            sudo sync
         else
             printf "The device %s is already formatted." "$DEVICE"
         fi
@@ -54,9 +87,38 @@ format_nvme() {
       if [ ! -z "$MOUNTED_PARTS" ]; then
           echo "Unmounting partitions on $DEVICE..."
           for PART in $MOUNTED_PARTS; do
-              sudo umount "$PART" || {
-                  echo "Failed to unmount $PART. Still proceeding."
-              }
+              PART_NAME=$(basename "$PART")
+              SERVICE_NAME="automount@${PART_NAME}.service"
+
+              echo "Stopping service $SERVICE_NAME..."
+              sudo systemctl stop "$SERVICE_NAME"
+              if sudo umount "$PART"; then
+                  echo "Unmounted $PART successfully."
+                  # Check if the mount point directory exists and is empty before removing
+                  if [ -d "$PART" ] && [ -z "$(ls -A "$PART")" ]; then
+                      echo "Removing mount point directory $PART."
+                      sudo rm -r "$PART"
+                  else
+                      echo "$PART is not empty or does not exist as a directory."
+                  fi
+              else
+                  echo "Failed to unmount $PART. Attempting to kill processes using it."
+                  sudo fuser -km "$PART"
+                  sleep 2  # Give some time for processes to terminate
+                  if sudo umount "$PART"; then
+                      echo "Unmounted $PART after killing processes."
+                      # Check again before attempting to remove
+                      if [ -d "$PART" ] && [ -z "$(ls -A "$PART")" ]; then
+                          echo "Removing mount point directory $PART."
+                          sudo rm -r "$PART"
+                      else
+                          echo "$PART is not empty or does not exist as a directory."
+                      fi
+                  else
+                      echo "Still could not unmount $PART. Not removing $PART."
+                  fi
+              fi
+              sudo sync
           done
       fi
       printf "The device %s is not formatted. Formatting now..." "$DEVICE"
@@ -65,9 +127,13 @@ format_nvme() {
       printf "The device %s has been formatted." "$DEVICE"
 
       # Create a mount point, mount the partition, create a test file
-      sudo mkdir -p "/mnt/${DEVICE}p1"
-      sudo mount "${DEVICE}p1" "/mnt/${DEVICE}p1"
-      sudo touch "/mnt/${DEVICE}p1/formatted.txt"
+      DEVICE_PATH=$(basename "${DEVICE}p1")
+      sudo mkdir -p "/media/pi/${DEVICE_PATH}"
+      sudo chown pi:pi "/media/pi/${DEVICE_PATH}"
+      sudo chmod 777 "/media/pi/${DEVICE_PATH}"
+      sudo mount "${DEVICE}p1" "/media/pi/${DEVICE_PATH}"
+      sudo touch "/media/pi/${DEVICE_PATH}/formatted${DEVICE_PATH}.txt"
+      sudo sync
   else
       echo "The device is formatted."
   fi
@@ -104,9 +170,19 @@ resize_rootfs () {
 partition_fs () {
   force_format="$1"
   if [ -d "/sys/module/rockchipdrm" ]; then
+    sudo systemctl stop fula.service
+    echo "Fula service stopped..."
+    sleep 1
+
+    sudo systemctl stop uniondrive.service
+    echo "uniondrive service stopped..."
+    sleep 1
     format_sd_devices "$force_format" || { echo "Failed to format nvme"; }
     format_nvme "$force_format" || { echo "Failed to format nvme"; }
     touch /usr/bin/fula/.partition_flg
+    sudo systemctl start uniondrive.service
+    echo "uniondrive service started..."
+    sleep 1
     python /usr/bin/fula/control_led.py blue 2
     sudo reboot
     exit 0
