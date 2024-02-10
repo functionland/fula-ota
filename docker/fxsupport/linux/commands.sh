@@ -1,7 +1,7 @@
 #!/bin/bash
 
 WATCH_PATH="/home/pi/commands/"
-FILE_NAMES=(".command_partition" ".command_reboot" ".command_repairfs" ".command_led")  # Add your file names here
+FILE_NAMES=(".command_partition" ".command_repairfs" ".command_led" ".command_reboot")  # Add your file names here
 FILE_CONTENT=""
 
 while true
@@ -20,12 +20,6 @@ do
             fi
             
             case "$file_name" in
-            ".command_reboot")
-                # Perform the reboot
-                echo "Rebooting now..."
-                sync
-                sudo reboot
-                ;;
             ".command_partition")
                 # Delete the flag and run the script
                 echo "Deleting .partition_flg and running resize.sh..."
@@ -48,6 +42,12 @@ do
                 
                 echo "Setting LED: Color=$COLOR, Time=$TIME"
                 python /usr/bin/fula/control_led.py "$COLOR" "$TIME" 100
+                ;;
+            ".command_reboot")
+                # Perform the reboot
+                echo "Rebooting now..."
+                sync
+                sudo reboot
                 ;;
             esac
         fi
