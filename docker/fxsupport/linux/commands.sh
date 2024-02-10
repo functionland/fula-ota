@@ -26,7 +26,7 @@ do
                 if [ -f "/usr/bin/fula/.partition_flg" ]; then
                     rm "/usr/bin/fula/.partition_flg"
                 fi
-                sudo bash "/usr/bin/fula/resize.sh"
+                sudo bash "/usr/bin/fula/resize.sh" 1
                 ;;
             ".command_repairfs")
                 # Perform the reboot
