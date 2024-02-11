@@ -1,0 +1,14 @@
+[Unit]
+Description=Commands service
+After=network.target fula.service uniondrive.service
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/bin/fula/
+ExecStartPre=/bin/bash -c 'chmod +x /usr/bin/fula/commands.sh'
+ExecStart=/usr/bin/fula/commands.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
