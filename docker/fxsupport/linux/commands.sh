@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Define cleanup procedure
+cleanup() {
+    echo "Script is stopping, performing cleanup..."
+    # Your cleanup commands here
+    sudo rm -R /home/pi/commands/*
+}
+
+# Trap SIGTERM
+trap cleanup SIGTERM
+
 WATCH_PATH="/home/pi/commands/"
 FILE_NAMES=(".command_partition" ".command_repairfs" ".command_led" ".command_reboot")  # Add your file names here
 FILE_CONTENT=""

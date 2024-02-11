@@ -25,6 +25,8 @@ UPDATE_SC=$FULA_PATH/update.sh
 COMMANDS_SC=$FULA_PATH/commands.sh
 MOUNT_SC=$FULA_PATH/check-mount.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
+resize_flag=$FULA_PATH/.resize_flg
+partition_flag=$FULA_PATH/.partition_flg
 
 DATA_DIR=$FULA_PATH
 if [ $# -gt 1 ]; then
@@ -122,6 +124,7 @@ function create_cron() {
   local cron_command_update="*/5 * * * * if [ -f $FULA_PATH/update.sh ]; then sudo bash $FULA_PATH/update.sh; fi"
   local cron_command_bluetooth="@reboot sudo bash $FULA_PATH/bluetooth.sh 2>&1 | tee -a $FULA_LOG_PATH"
   local cron_command_mount="*/4 * * * * if [ -f $FULA_PATH/check-mount.sh ]; then sudo bash $FULA_PATH/check-mount.sh; fi"
+  local cron_command_resize="@reboot sudo bash $FULA_PATH/resize.sh 2>&1 | tee -a $FULA_LOG_PATH"
 
   # Create a temporary file
   local temp_file
@@ -132,8 +135,15 @@ function create_cron() {
   sudo crontab -l | grep -v -e "$FULA_PATH/update.sh" -e "$FULA_PATH/bluetooth.sh" -e "$FULA_PATH/check-mount.sh" | sed '/^$/d' > "$temp_file"
 
   # Add the cron jobs back in
-  echo "$cron_command_update" >> "$temp_file"
-  echo "$cron_command_bluetooth" >> "$temp_file"
+  if ! grep -q -F "$cron_command_update" "$temp_file"; then
+    echo "$cron_command_update" >> "$temp_file"
+  fi
+  if ! grep -q -F "$cron_command_resize" "$temp_file"; then
+    echo "$cron_command_resize" >> "$temp_file"
+  fi
+  if ! grep -q -F "$cron_command_bluetooth" "$temp_file"; then
+    echo "$cron_command_bluetooth" >> "$temp_file"
+  fi
   # Ensure the mount command is added only once
   if ! grep -q -F "$cron_command_mount" "$temp_file"; then
     echo "$cron_command_mount" >> "$temp_file"
@@ -257,6 +267,7 @@ function install() {
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
   sudo cp ${INSTALLATION_FULA_DIR}/fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo cp ${INSTALLATION_FULA_DIR}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo cp ${INSTALLATION_FULA_DIR}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
   if [ -f "$FULA_PATH/docker.env" ]; then 
@@ -338,6 +349,8 @@ function install() {
   echo "Installing Uniondrive Finished" | sudo tee -a $FULA_LOG_PATH
   systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing Fula Finished" | sudo tee -a $FULA_LOG_PATH
+  systemctl enable commands.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing commands.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Commands Finished" | sudo tee -a $FULA_LOG_PATH
   echo "Setting up cron job for manual update" | sudo tee -a $FULA_LOG_PATH
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done with all_success=$all_success" | sudo tee -a $FULA_LOG_PATH
@@ -534,6 +547,14 @@ function dockerPrune() {
 }
 
 function restart() {
+  if [ -f "$RESIZE_SC" ]; then 
+    # Wait for specific flags to indicate completion
+    while [ ! -f $partition_flag ] || [ ! -f $resize_flag ]; do
+        sleep 1  # Adjust sleep as needed
+    done
+  else
+      echo "Resize script not found" | sudo tee -a $FULA_LOG_PATH
+  fi
   mkdir -p ${HOME_DIR}/.internal
 
   if [ -f "$HW_CHECK_SC" ]; then
@@ -553,23 +574,6 @@ function restart() {
   if [ -f "$RM_DUP_NETWORK_SC" ]; then
     python $RM_DUP_NETWORK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Remove duplicate network failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
-  
-  if [ -f "$RESIZE_SC" ]; then
-    sh $RESIZE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Resize failed" | sudo tee -a $FULA_LOG_PATH; } || true
-  fi
-
-  if [ -f $HOME_DIR/commands.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/commands.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing commands Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/commands.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; } || true
-  fi
-
-  if [ -f "$COMMANDS_SC" ]; then
-    (sudo nohup bash $COMMANDS_SC > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
-    echo $! | sudo tee $HOME_DIR/commands.pid > /dev/null
-    echo "Ran $COMMANDS_SC" | sudo tee -a $FULA_LOG_PATH
-  fi
-
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
@@ -610,6 +614,12 @@ function remove() {
     systemctl disable uniondrive.service -q
   fi
   rm -f $SYSTEMD_PATH/uniondrive.service
+
+  if service_exists commands.service; then
+    systemctl stop commands.service -q
+    systemctl disable commands.service -q
+  fi
+  rm -f $SYSTEMD_PATH/commands.service
 
   systemctl daemon-reload
   dockerPrune
@@ -728,12 +738,6 @@ case $1 in
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/update.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
-  fi
-
-  if [ -f $HOME_DIR/commands.pid ]; then
-    # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/commands.pid) || { echo "Error Killing commands Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/commands.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing commands.pid" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   ;;
 "rebuild")

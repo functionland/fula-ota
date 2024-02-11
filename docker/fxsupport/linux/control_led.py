@@ -14,7 +14,12 @@ color_combinations = {
     'red': {'red': 100, 'green': 0, 'blue': 0}, 
     'green': {'red': 0, 'green': 100, 'blue': 0}, 
     'blue': {'red': 0, 'green': 0, 'blue': 100},
-    'white': {'red': 100, 'green': 100, 'blue': 100}
+    'white': {'red': 100, 'green': 100, 'blue': 100},
+    'orange': {'red': 100, 'green': 50, 'blue': 0},
+    'cyan': {'red': 0, 'green': 100, 'blue': 100},
+    'magenta': {'red': 100, 'green': 0, 'blue': 100},
+    'grey': {'red': 50, 'green': 50, 'blue': 50},
+    'dark_green': {'red': 0, 'green': 50, 'blue': 0}
 }
 
 def turn_off_all_leds():

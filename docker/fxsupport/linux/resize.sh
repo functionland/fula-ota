@@ -153,7 +153,7 @@ resize_rootfs () {
     echo "Rootfs expanded..."
     
     python /usr/bin/fula/control_led.py blue 2
-    touch /usr/bin/fula/.resize_flg
+    sudo touch "${resize_flag}"
     sudo reboot
     exit 0
   else
@@ -161,7 +161,7 @@ resize_rootfs () {
     sudo raspi-config --expand-rootfs
     echo "Rootfs expanded..."
     python /usr/bin/fula/control_led.py blue 2
-    touch /usr/bin/fula/.resize_flg
+    sudo touch "${resize_flag}"
     sudo reboot
     exit 0
   fi
@@ -177,9 +177,9 @@ partition_fs () {
     sudo systemctl stop uniondrive.service
     echo "uniondrive service stopped..."
     sleep 1
-    format_sd_devices "$force_format" || { echo "Failed to format nvme"; }
-    format_nvme "$force_format" || { echo "Failed to format nvme"; }
-    touch /usr/bin/fula/.partition_flg
+    format_sd_devices "$force_format" || { echo "Failed to format nvme"; } || true
+    format_nvme "$force_format" || { echo "Failed to format nvme"; } || true
+    sudo touch "${partition_flag}"
     sudo systemctl start uniondrive.service
     echo "uniondrive service started..."
     sleep 1
@@ -190,7 +190,7 @@ partition_fs () {
     sudo reboot
     exit 0
   else
-    touch /usr/bin/fula/.partition_flg
+    sudo touch "${partition_flag}"
     python /usr/bin/fula/control_led.py green 3
     exit 0
   fi
