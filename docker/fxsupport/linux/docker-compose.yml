@@ -22,6 +22,11 @@ services:
       - WATCHTOWER_POLL_INTERVAL=3600
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   go-fula:
     image: $GO_FULA
@@ -52,7 +57,12 @@ services:
     depends_on:
       - fxsupport
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"     
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
   
   node:
     image: $SUGARFUNGE_NODE
@@ -78,6 +88,11 @@ services:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:
       - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   fxsupport:
     image: $FX_SUPPROT
@@ -94,7 +109,12 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
-      - watchtower      
+      - watchtower
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 volumes:
  shared-volume:
  shared-volume-external:
