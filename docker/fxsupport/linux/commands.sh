@@ -51,7 +51,7 @@ do
                 TIME=${TIME:-999999}
                 
                 echo "Setting LED: Color=$COLOR, Time=$TIME"
-                python /usr/bin/fula/control_led.py "$COLOR" "$TIME" 100
+                python /usr/bin/fula/control_led.py "$COLOR" "$TIME" 100 &
                 ;;
             ".command_reboot")
                 # Perform the reboot

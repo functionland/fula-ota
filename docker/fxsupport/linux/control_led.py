@@ -1,5 +1,6 @@
 import os
 import time
+import datetime
 import argparse
 import logging
 import psutil
@@ -22,6 +23,62 @@ color_combinations = {
     'dark_green': {'red': 0, 'green': 50, 'blue': 0}
 }
 
+if os.path.exists("/sys/module/rockchipdrm"):
+    led_r_pin="red"
+    led_b_pin="blue"
+    led_g_pin="green"
+else:
+    import RPi.GPIO as GPIO
+    led_r_pin=24
+    led_b_pin=16
+    led_g_pin=12
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+    GPIO.setup(led_r_pin, GPIO.OUT)
+    GPIO.setup(led_b_pin, GPIO.OUT)
+    GPIO.setup(led_g_pin, GPIO.OUT)
+
+def write_persistence_file(color, time_param, brightness, persist):
+    logging.info(f"Writing to persistence file: Color={color}, Time={time_param}, Brightness={brightness}, Persist={persist}")
+    if persist:
+        with open('/home/pi/control_led.per', 'w') as f:
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logging.info("write_persistence_file")
+            f.write(f"{current_time}\n{color}\n{time_param}\n{brightness}")
+
+def read_persistence_file():
+    logging.info("Reading persistence file")
+    try:
+        with open('/home/pi/control_led.per', 'r') as f:
+            saved_time_str = f.readline().strip()
+            color = f.readline().strip()
+            time_param_str = f.readline().strip()
+            brightness_str = f.readline().strip()
+            logging.info(f"Reading persistence file: Color={color}, time_param_str={time_param_str}, brightness_str={brightness_str}")
+            
+            time_param = int(time_param_str)
+            brightness = int(brightness_str)
+            saved_time = datetime.datetime.strptime(saved_time_str, "%Y-%m-%d %H:%M:%S")
+            current_time = datetime.datetime.now()
+            elapsed = (current_time - saved_time).total_seconds()
+            logging.info(f"Reading persistence file: Color={color}, time_param={time_param}, saved_time={saved_time}")
+            if time_param != 999999:
+                remaining_time = max(0, time_param - int(elapsed))
+                if remaining_time <= 0:
+                    os.remove('/home/pi/control_led.per')
+                    return None, None, None
+            else:
+                remaining_time = 999999
+            return color, remaining_time, brightness
+    except FileNotFoundError:
+        pass
+    except ValueError as e:
+        logging.error(f"Error parsing time_param or brightness as integers: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error reading persistence file: {e}")
+    return None, None, None
+
+
 def turn_off_all_leds():
     for color in ['red', 'green', 'blue']:
         set_led_brightness(color, 0)
@@ -38,22 +95,8 @@ def kill_led_processes_except_self():
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         # Exclude current process from being killed
         if proc.info['pid'] != current_pid and proc.info['cmdline'] and 'control_led.py' in ' '.join(proc.info['cmdline']):
+            logging.info(f'{proc.info["pid"]} is killed in {current_pid}.')
             proc.kill()  # kill the process
-
-if os.path.exists("/sys/module/rockchipdrm"):
-    led_r_pin="red"
-    led_b_pin="blue"
-    led_g_pin="green"
-else:
-    import RPi.GPIO as GPIO
-    led_r_pin=24
-    led_b_pin=16
-    led_g_pin=12
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    GPIO.setup(led_r_pin, GPIO.OUT)
-    GPIO.setup(led_b_pin, GPIO.OUT)
-    GPIO.setup(led_g_pin, GPIO.OUT)
 
 # function to control individual LED
 def individual_led_control(color, brightness=100):
@@ -77,38 +120,56 @@ def set_led_brightness(color, brightness):
             # Assuming GPIO.LOW simulates full brightness without actual PWM support
             GPIO.output({"red": led_r_pin, "green": led_g_pin, "blue": led_b_pin}.get(color), GPIO.LOW)
 
+
+def execute_led_control(color, time_param, brightness):
+    """Executes the LED control command and optionally checks for persisted state."""
+    logging.info(f"Executing LED control: Color={color}, Time={time_param}, Brightness={brightness}")
+    kill_led_processes_except_self()
+    individual_led_control(color, brightness)
+    if time_param == -1 or time_param == 0:
+        turn_off_all_leds()
+    elif time_param != 999999:
+        logging.info(f'{color} LED was turned on for {time_param} seconds.')
+        time.sleep(time_param)
+        turn_off_all_leds()
+    else:
+        logging.info(f'{color} LED was turned on indefinitely.')
+
 #setup logging
 logging.basicConfig(filename='/home/pi/fula.sh.log', filemode='a', level=logging.INFO, format='%(asctime)s %(message)s')
 
-# Create a parser for command line arguments
-parser = argparse.ArgumentParser(description='Control LEDs.')
-parser.add_argument('color', type=str, choices=['red', 'green', 'blue', 'light_blue', 'yellow', 'light_green', 'light_purple', 'white'], help='LED color.')
-parser.add_argument('time', type=int, default=3, help='Time to flash the LED.')
-parser.add_argument('brightness', nargs='?', default=100, type=int, help='Brightness level (0-100). Default is 100.')
+def main():
+    parser = argparse.ArgumentParser(description='Control LEDs.')
+    parser.add_argument('color', choices=color_combinations.keys(), help='LED color.')
+    parser.add_argument('time', type=int, help='Time to keep the LED on.')
+    parser.add_argument('brightness', nargs='?', default=100, type=int, help='Brightness level (0-100).')
+    parser.add_argument('--persist', action='store_true', help='Persist LED state across calls.')
+    parser.add_argument('--background', action='store_true', help='Indicates background execution for persisted state')
 
+    args = parser.parse_args()
 
-args = parser.parse_args()
-logging.info(f'{args.color} and {args.time} was received.')
-
-led_pin = {"red": led_r_pin, "green": led_g_pin, "blue": led_b_pin}.get(args.color)
-
-try:
-    if args.time == -1 or args.time == 0:
-        turn_off_all_leds()
-        kill_led_processes_except_self()
-    elif args.time != 999999:  # Check if the time is not 999999
-        individual_led_control(args.color, args.brightness)
-        logging.info(f'{args.color} LED was turned on.')
-        # Only start the timer if the time is not 999999
-        timer = threading.Timer(args.time, turn_off_all_leds)
-        timer.start()
-    else:
-        # If the time is 999999, turn on the LED without setting a timer to turn it off
-        individual_led_control(args.color, args.brightness)
-        logging.info(f'{args.color} LED was turned on and will stay on indefinitely.')
-
-except KeyboardInterrupt:
-    logging.info('Interrupted by user.')
-    if 'timer' in locals():
-        timer.cancel()
+    logging.info(f"Received command: Color={args.color}, Time={args.time}, Brightness={args.brightness}, Persist={args.persist}")
     
+    if args.background:
+        # If running in background mode, skip persistence logic to prevent recursion
+        execute_led_control(args.color, args.time, args.brightness)
+    else:
+        # Normal execution flow
+        if args.persist:
+            write_persistence_file(args.color, args.time, args.brightness, args.persist)
+        
+        execute_led_control(args.color, args.time, args.brightness)
+
+        # Check for persisted state and execute in background if needed
+        persisted_color, persisted_time, persisted_brightness = read_persistence_file()
+        if persisted_color and persisted_time is not None and persisted_brightness is not None:
+            command = f'python {__file__} {persisted_color} {persisted_time} {persisted_brightness} --background'
+            subprocess.Popen(command, shell=True)
+
+logging.basicConfig(filename='/home/pi/fula.sh.log', filemode='a', level=logging.INFO, format='%(asctime)s %(message)s')
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.info('Script interrupted by user.')

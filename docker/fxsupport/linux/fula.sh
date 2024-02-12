@@ -168,12 +168,6 @@ function install() {
   all_success=true
   mkdir -p ${HOME_DIR}/.internal
 
-  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
-    if [ -f "$INSTALLATION_FULA_DIR/control_led.py" ]; then
-      python control_led.py blue 100 2>&1 | tee -a $FULA_LOG_PATH &
-    fi
-  fi
-
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   mkdir -p ${HOME_DIR}/commands/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory $HOME_DIR/commands/" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
@@ -269,6 +263,7 @@ function install() {
   sudo cp ${INSTALLATION_FULA_DIR}/fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo cp ${INSTALLATION_FULA_DIR}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo cp ${INSTALLATION_FULA_DIR}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo cp ${INSTALLATION_FULA_DIR}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
   if [ -f "$FULA_PATH/docker.env" ]; then 
     sudo rm ${FULA_PATH}/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing $FULA_PATH/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -345,12 +340,19 @@ function install() {
   if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
     systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   fi
+  
   systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing uniondrive.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing Uniondrive Finished" | sudo tee -a $FULA_LOG_PATH
+  
   systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing Fula Finished" | sudo tee -a $FULA_LOG_PATH
+  
   systemctl enable commands.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing commands.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing Commands Finished" | sudo tee -a $FULA_LOG_PATH
+
+  systemctl enable fula-readiness-check.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing fula-readiness-check Finished" | sudo tee -a $FULA_LOG_PATH
+
   echo "Setting up cron job for manual update" | sudo tee -a $FULA_LOG_PATH
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   echo "installation done with all_success=$all_success" | sudo tee -a $FULA_LOG_PATH
@@ -359,14 +361,14 @@ function install() {
     touch ${HOME_DIR}/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
     if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
-        python ${FULA_PATH}/control_led.py green 2 2>&1 | sudo tee -a $FULA_LOG_PATH
+        python ${FULA_PATH}/control_led.py white 5 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
     fi
   else
     echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
     if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
-        python ${FULA_PATH}/control_led.py red 3 2>&1 | sudo tee -a $FULA_LOG_PATH
+        python ${FULA_PATH}/control_led.py red 5 2>&1 | sudo tee -a $FULA_LOG_PATH
       fi
     fi
   fi
@@ -621,6 +623,12 @@ function remove() {
   fi
   rm -f $SYSTEMD_PATH/commands.service
 
+  if service_exists fula-readiness-check.service; then
+    systemctl stop fula-readiness-check.service -q
+    systemctl disable fula-readiness-check.service -q
+  fi
+  rm -f $SYSTEMD_PATH/fula-readiness-check.service
+
   systemctl daemon-reload
   dockerPrune
   echo "Removing Fula Finished" | sudo tee -a $FULA_LOG_PATH
@@ -694,11 +702,24 @@ function killPullImage() {
 # Commands
 case $1 in
 "install")
-  echo "ran install at: $(date)" | sudo tee -a $FULA_LOG_PATH
+  arch=${2:-RK1}
+  echo "ran install at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
+  
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
+    if [ -f "$FULA_PATH/control_led.py" ]; then
+      python ${FULA_PATH}/control_led.py light_purple 9000 &
+    fi
+  fi
   install "${2:-RK1}" 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
-  echo "ran start V6 at: $(date)" | sudo tee -a $FULA_LOG_PATH
+  arch=${2:-RK1}
+  echo "ran start V6 at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
+    if [ -f "$FULA_PATH/control_led.py" ]; then
+      python ${FULA_PATH}/control_led.py white 9000 &
+    fi
+  fi
 
   if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
     echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
@@ -731,13 +752,20 @@ case $1 in
   echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
   ;;
 "stop")
-  echo "ran stop at: $(date)" | sudo tee -a $FULA_LOG_PATH
+  arch=${2:-RK1}
+  echo "ran stop at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
     kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
     sudo rm $HOME_DIR/update.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+  
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
+    if [ -f "$FULA_PATH/control_led.py" ]; then
+      python ${FULA_PATH}/control_led.py red 0 2>&1 | sudo tee -a $FULA_LOG_PATH
+    fi
   fi
   ;;
 "rebuild")
