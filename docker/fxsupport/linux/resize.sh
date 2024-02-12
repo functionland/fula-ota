@@ -1,6 +1,43 @@
 #!/bin/sh
-
+HOME_DIR=/home/pi
 force_partition="${1:-0}"
+services_stopped=0
+services_started=0
+
+if [ -f $HOME_DIR/control_led.per ]; then
+    sudo rm $HOME_DIR/control_led.per
+fi
+
+# Function to stop services
+stop_services() {
+    if [ "$services_stopped" -eq 0 ]; then
+        echo "Stopping services..."
+        python /usr/bin/fula/control_led.py light_purple 999999 --persist &
+        sudo systemctl stop fula.service
+        echo "Fula service stopped..."
+        sudo systemctl stop uniondrive.service
+        echo "uniondrive service stopped..."
+        services_stopped=1
+    fi
+}
+
+# Function to start services
+start_services() {
+    if [ "$services_started" -eq 0 ]; then
+        echo "Starting services..."
+        sudo systemctl start uniondrive.service
+        echo "uniondrive service started..."
+        sudo systemctl start fula.service
+        echo "fula service started..."
+        if [ -f $HOME_DIR/control_led.per ]; then
+            sudo rm $HOME_DIR/control_led.per
+        fi
+        if [ -f /usr/bin/fula/control_led.py ]; then
+            python /usr/bin/fula/control_led.py yellow 30 &
+        fi
+        services_started=1
+    fi
+}
 
 format_sd_devices() {
     force="$1"
@@ -12,6 +49,7 @@ format_sd_devices() {
         PARTITIONS=$(sudo fdisk -l "$DEVICE" | grep "^${DEVICE}[0-9]*")
         if [ -z "$PARTITIONS" ] || [ "$force" -eq 1 ]; then
             echo "The device $DEVICE is not formatted or force format is requested. Formatting now..."
+            stop_services
 
             # Unmount any mounted partitions on the device before formatting
             MOUNTED_PARTS=$(lsblk -lnp -o NAME,MOUNTPOINT "$DEVICE" | awk '$2 != "" {print $1}')
@@ -65,6 +103,9 @@ format_sd_devices() {
             sudo mount "${DEVICE}1" "/media/pi/${DEVICE_PATH}"
             sudo touch "/media/pi/${DEVICE_PATH}/formatted${DEVICE_PATH}.txt"
             sudo sync
+            start_services
+            sleep 1
+            sudo reboot
         else
             printf "The device %s is already formatted." "$DEVICE"
         fi
@@ -81,6 +122,7 @@ format_nvme() {
   PARTITIONS=$(sudo fdisk -l $DEVICE | grep "^${DEVICE}p[0-9]*")
   if [ -z "$PARTITIONS" ] || [ "$force" -eq 1 ]; then
       echo "The device $DEVICE is not formatted or force format is requested. Formatting now..."
+      stop_services
 
        # Unmount any mounted partitions on the device before formatting
       MOUNTED_PARTS=$(lsblk -lnp -o NAME,MOUNTPOINT "$DEVICE" | awk '$2 != "" {print $1}')
@@ -134,6 +176,9 @@ format_nvme() {
       sudo mount "${DEVICE}p1" "/media/pi/${DEVICE_PATH}"
       sudo touch "/media/pi/${DEVICE_PATH}/formatted${DEVICE_PATH}.txt"
       sudo sync
+      start_services
+      sleep 1
+      sudo reboot
   else
       echo "The device is formatted."
   fi
@@ -146,13 +191,18 @@ partition_flag=/usr/bin/fula/.partition_flg
 if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
 
 resize_rootfs () {
+  python /usr/bin/fula/control_led.py light_purple 999999 --persist &
   if [ -d "/sys/module/rockchipdrm" ]; then
     echo "Running on RockChip."
 
     sudo /usr/lib/armbian/armbian-resize-filesystem start
     echo "Rootfs expanded..."
-    
-    python /usr/bin/fula/control_led.py blue 2
+    if [ -f $HOME_DIR/control_led.per ]; then
+        sudo rm $HOME_DIR/control_led.per
+    fi
+    if [ -f /usr/bin/fula/control_led.py ]; then
+        python /usr/bin/fula/control_led.py yellow 20 &
+    fi
     sudo touch "${resize_flag}"
     sudo reboot
     exit 0
@@ -160,7 +210,12 @@ resize_rootfs () {
     echo "Not running on RockChip."
     sudo raspi-config --expand-rootfs
     echo "Rootfs expanded..."
-    python /usr/bin/fula/control_led.py blue 2
+    if [ -f $HOME_DIR/control_led.per ]; then
+        sudo rm $HOME_DIR/control_led.per
+    fi
+    if [ -f /usr/bin/fula/control_led.py ]; then
+        python /usr/bin/fula/control_led.py yellow 20 &
+    fi
     sudo touch "${resize_flag}"
     sudo reboot
     exit 0
@@ -170,28 +225,12 @@ resize_rootfs () {
 partition_fs () {
   force_format="$1"
   if [ -d "/sys/module/rockchipdrm" ]; then
-    sudo systemctl stop fula.service
-    echo "Fula service stopped..."
-    sleep 1
-
-    sudo systemctl stop uniondrive.service
-    echo "uniondrive service stopped..."
-    sleep 1
     format_sd_devices "$force_format" || { echo "Failed to format nvme"; } || true
     format_nvme "$force_format" || { echo "Failed to format nvme"; } || true
     sudo touch "${partition_flag}"
-    sudo systemctl start uniondrive.service
-    echo "uniondrive service started..."
-    sleep 1
-    sudo systemctl start fula.service
-    echo "fula service started..."
-    sleep 1
-    python /usr/bin/fula/control_led.py blue 2
-    sudo reboot
     exit 0
   else
     sudo touch "${partition_flag}"
-    python /usr/bin/fula/control_led.py green 3
     exit 0
   fi
 }
@@ -200,7 +239,6 @@ if [ -f "$resize_flag" ]; then
   echo "File exists. so no need to expand."
   if [ -f "$partition_flag" ]; then
     echo "Partition exists. so no need to parition."
-    python /usr/bin/fula/control_led.py green 3
   else
     partition_fs "$force_partition"
   fi

@@ -25,7 +25,7 @@ for device in "${devices[@]}"; do
                 sudo pkill -f "control_led.py" || { echo "Error Killing control_led" >> $FULA_LOG_PATH 2>&1; }
             fi
 
-            python /usr/bin/fula/control_led.py blue 200 >> $FULA_LOG_PATH 2>&1 &
+            python /usr/bin/fula/control_led.py yellow 200 >> $FULA_LOG_PATH 2>&1 &
             sudo systemctl stop fula
 
             if [ -d "$mountpoint/fula_update/fula" ]; then
@@ -53,11 +53,12 @@ for device in "${devices[@]}"; do
                 sudo cp /home/pi/fula.sh.log* "$mountpoint/fula_update/"
                 date | sudo tee -a /home/pi/stop_docker_copy.txt > /dev/null
                 mv "$mountpoint/fula_update/update.inprogress.yaml" "$mountpoint/fula_update/update.completed.yaml"
-                python /usr/bin/fula/control_led.py blue -1 >> $FULA_LOG_PATH 2>&1 &
+                python /usr/bin/fula/control_led.py yellow -1 >> $FULA_LOG_PATH 2>&1 &
 
                 if pgrep -f "control_led.py" > /dev/null; then
                     sudo pkill -f "control_led.py"
                 fi
+                sync
                 sleep 2
                 python /usr/bin/fula/control_led.py green 3 >> $FULA_LOG_PATH 2>&1
                 sudo reboot
