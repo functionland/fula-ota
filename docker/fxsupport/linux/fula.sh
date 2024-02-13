@@ -93,7 +93,7 @@ function check_internet() {
 
 function modify_bluetooth() {
   # Backup the original file
-  if [! -f ${SYSTEMD_PATH}/dbus-org.bluez.service.bak ]; then
+  if [ ! -f ${SYSTEMD_PATH}/dbus-org.bluez.service.bak ]; then
     cp ${SYSTEMD_PATH}/dbus-org.bluez.service ${SYSTEMD_PATH}/dbus-org.bluez.service.bak
   fi
 
