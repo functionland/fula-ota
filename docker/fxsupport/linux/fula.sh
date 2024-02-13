@@ -93,7 +93,9 @@ function check_internet() {
 
 function modify_bluetooth() {
   # Backup the original file
-  cp ${SYSTEMD_PATH}/dbus-org.bluez.service ${SYSTEMD_PATH}/dbus-org.bluez.service.bak
+  if [! -f ${SYSTEMD_PATH}/dbus-org.bluez.service.bak ]; then
+    cp ${SYSTEMD_PATH}/dbus-org.bluez.service ${SYSTEMD_PATH}/dbus-org.bluez.service.bak
+  fi
 
   # Modify ExecStart
   sed -i 's|^ExecStart=/usr/libexec/bluetooth/bluetoothd$|ExecStart=/usr/libexec/bluetooth/bluetoothd  --compat --noplugin=sap -C|' $SYSTEMD_PATH/dbus-org.bluez.service
@@ -260,13 +262,18 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
+
+    cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/uniondrive.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/fula-readiness-check.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
-  sudo cp ${INSTALLATION_FULA_DIR}/fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  sudo cp ${INSTALLATION_FULA_DIR}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  sudo cp ${INSTALLATION_FULA_DIR}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  sudo cp ${INSTALLATION_FULA_DIR}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/fula.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
   if [ -f "$FULA_PATH/docker.env" ]; then 
     sudo rm ${FULA_PATH}/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing $FULA_PATH/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -364,14 +371,14 @@ function install() {
     touch ${HOME_DIR}/V6.info 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error creating version file" | sudo tee -a $FULA_LOG_PATH; }
     if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
-        python ${FULA_PATH}/control_led.py white 5 2>&1 | sudo tee -a $FULA_LOG_PATH
+        python ${FULA_PATH}/control_led.py white 5 2>&1 | sudo tee -a $FULA_LOG_PATH || true
       fi
     fi
   else
     echo "Installation finished with errors, version file not created." | sudo tee -a $FULA_LOG_PATH
     if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
       if [ -f "$FULA_PATH/control_led.py" ]; then
-        python ${FULA_PATH}/control_led.py red 5 2>&1 | sudo tee -a $FULA_LOG_PATH
+        python ${FULA_PATH}/control_led.py red 5 2>&1 | sudo tee -a $FULA_LOG_PATH || true
       fi
     fi
   fi
@@ -713,7 +720,7 @@ case $1 in
       python ${FULA_PATH}/control_led.py light_purple 9000 &
     fi
   fi
-  install "${2:-RK1}" 2>&1 | sudo tee -a $FULA_LOG_PATH
+  install "$arch" 2>&1 | sudo tee -a $FULA_LOG_PATH
   ;;
 "start" | "restart")
   arch=${2:-RK1}
