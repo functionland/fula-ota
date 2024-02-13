@@ -715,11 +715,6 @@ case $1 in
 "start" | "restart")
   arch=${2:-RK1}
   echo "ran start V6 at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
-  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
-    if [ -f "$FULA_PATH/control_led.py" ]; then
-      python ${FULA_PATH}/control_led.py white 9000 &
-    fi
-  fi
 
   if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
     echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
