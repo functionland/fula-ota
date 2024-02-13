@@ -17,6 +17,8 @@ stop_services() {
         echo "Fula service stopped..."
         sudo systemctl stop uniondrive.service
         echo "uniondrive service stopped..."
+        sudo systemctl stop commands.service
+        echo "commands service stopped..."
         services_stopped=1
     fi
 }
@@ -29,6 +31,9 @@ start_services() {
         echo "uniondrive service started..."
         sudo systemctl start fula.service
         echo "fula service started..."
+        sudo rm -rf "$HOME_DIR/commands/*"
+        sudo systemctl start commands.service
+        echo "commands service stopped..."
         if [ -f $HOME_DIR/control_led.per ]; then
             sudo rm $HOME_DIR/control_led.per
         fi
