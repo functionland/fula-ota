@@ -226,7 +226,9 @@ function install() {
     command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
     command -v inotifywait >/dev/null 2>&1 || { echo "inotifywait not found"; all_success=false; }
     python -c "import dbus" 2>/dev/null || { echo "python3-dbus not found"; all_success=false; }
-    python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
+    if [ ! -d "/sys/module/rockchipdrm" ]; then
+      python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
+    fi
     python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
     python -c "import psutil" 2>/dev/null || { echo "psutil not found"; all_success=false; }
   fi
@@ -257,6 +259,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/commands.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
