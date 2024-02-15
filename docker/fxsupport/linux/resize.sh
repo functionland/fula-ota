@@ -142,8 +142,8 @@ format_storage_devices() {
                 done
             fi
             echo "The device %s is not formatted. Formatting now... $DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            echo "o\nn\np\n1\n\n\nw" | sudo fdisk "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            sudo mkfs.ext4 -F "${DEVICE}1" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo sfdisk --delete "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo parted -a optimal "$DEVICE" mkpart primary ext4 "0%" "100%" 2>&1 | sudo tee -a $FULA_LOG_PATH
             echo "The device %s has been formatted. $DEVICE"
 
             # Create a mount point, mount the partition, create a test file
