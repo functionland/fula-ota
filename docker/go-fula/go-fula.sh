@@ -19,7 +19,7 @@ check_wifi_name() {
 check_internet() {
   for iface in /sys/class/net/*; do
     iface_name=$(basename "$iface")
-    if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name $iface_name; then
+    if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name "$iface_name"; then
       return 0
     fi
   done
@@ -62,15 +62,15 @@ check_writable() {
 
 check_interfaces() {
   # Check for required commands
-  if ! command -v ip &> /dev/null; then
-      log "The 'ip' command is required but not found. Exiting."
-      return 1
-  fi
+  if ! command -v ip > /dev/null 2>&1; then
+    log "The 'ip' command is required but not found. Exiting."
+    return 1
+fi
 
-  if ! command -v iwconfig &> /dev/null; then
-      log "The 'iwconfig' command is required but not found. Exiting."
-      return 1
-  fi
+if ! command -v iwconfig > /dev/null 2>&1; then
+    log "The 'iwconfig' command is required but not found. Exiting."
+    return 1
+fi
   # Get a list of all network interfaces
   interfaces=$(iwconfig 2>&1 | grep 'IEEE' | awk '{print $1}')
   if [ -z "$interfaces" ]; then

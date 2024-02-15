@@ -10,9 +10,6 @@ set -e
 
 # Setup
 
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
 HOME_DIR=/home/pi
 INSTALLATION_FULA_DIR=$HOME_DIR/fula-ota/docker/fxsupport/linux
 FULA_PATH=/usr/bin/fula
@@ -22,8 +19,6 @@ HW_CHECK_SC=$FULA_PATH/hw_test.py
 RESIZE_SC=$FULA_PATH/resize.sh
 WIFI_SC=$FULA_PATH/wifi.sh
 UPDATE_SC=$FULA_PATH/update.sh
-COMMANDS_SC=$FULA_PATH/commands.sh
-MOUNT_SC=$FULA_PATH/check-mount.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 resize_flag=$FULA_PATH/.resize_flg
 partition_flag=$FULA_PATH/.partition_flg
@@ -426,7 +421,7 @@ function dockerPull() {
         echo "$service image pull failed from Docker Hub, attempting to download from GitHub."
 
         # If pull fails, try to download the latest image from GitHub
-        if [[ ! -z "$latest_release_tag" ]]; then
+        if [[ -n "$latest_release_tag" ]]; then
           download_url="https://github.com/functionland/fula-ota/releases/download/${latest_release_tag}/${service}.tar"
           echo "Attempting to download $service from $download_url"
           if [ -f $tar_path ] ; then
@@ -734,7 +729,7 @@ case $1 in
     echo "ENV_FILE variable is not set" | sudo tee -a $FULA_LOG_PATH
   elif [ ! -f "$ENV_FILE" ]; then
     echo "ENV_FILE ($ENV_FILE) does not exist" | sudo tee -a $FULA_LOG_PATH
-  elif ! . "$ENV_FILE" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+  elif ! . "${ENV_FILE}" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
     echo "Failed to source ENV_FILE ($ENV_FILE)" | sudo tee -a $FULA_LOG_PATH
   else
     echo "Sourced ENV_FILE ($ENV_FILE) successfully" | sudo tee -a $FULA_LOG_PATH
@@ -748,7 +743,7 @@ case $1 in
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    sudo docker cp fula_fxsupport:/linux/. ${$FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
