@@ -57,8 +57,8 @@ start_services() {
         sudo systemctl start fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         echo "fula service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo rm -rf "$HOME_DIR/commands/*" 2>&1 | sudo tee -a $FULA_LOG_PATH
-        sudo systemctl start commands.service 2>&1 | sudo tee -a $FULA_LOG_PATH
-        echo "commands service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        # sudo systemctl start commands.service 2>&1 | sudo tee -a $FULA_LOG_PATH
+        # echo "commands service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo systemctl start cron.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         echo "cron service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo sync
