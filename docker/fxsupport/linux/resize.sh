@@ -52,13 +52,16 @@ start_services() {
             python /usr/bin/fula/control_led.py light_purple 0 2>&1 | sudo tee -a $FULA_LOG_PATH
         fi
         echo "Starting services..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        sudo systemctl enable uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo systemctl start uniondrive.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         echo "uniondrive service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        sudo systemctl enable fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo systemctl start fula.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         echo "fula service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo rm -rf "$HOME_DIR/commands/*" 2>&1 | sudo tee -a $FULA_LOG_PATH
         # sudo systemctl start commands.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         # echo "commands service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+         sudo systemctl enable cron.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo systemctl start cron.service 2>&1 | sudo tee -a $FULA_LOG_PATH
         echo "cron service started..." 2>&1 | sudo tee -a $FULA_LOG_PATH
         sudo sync
@@ -104,7 +107,7 @@ format_storage_devices() {
 
             # Unmount any mounted partitions on the device before formatting
             MOUNTED_PARTS=$(lsblk -lnp -o NAME,MOUNTPOINT "$DEVICE" | awk '$2 != "" {print $1}')
-            if [ ! -z "$MOUNTED_PARTS" ]; then
+            if [ -n "$MOUNTED_PARTS" ]; then
                 echo "Unmounting partitions on $DEVICE..." 2>&1 | sudo tee -a $FULA_LOG_PATH
                 for PART in $MOUNTED_PARTS; do
                     PART_NAME=$(basename "$PART")
