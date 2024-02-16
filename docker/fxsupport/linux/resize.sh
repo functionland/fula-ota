@@ -87,10 +87,13 @@ format_storage_devices() {
     force="$2"
     # Determine the list of devices to format based on the type
     DEVICELIST=''
+    PARTITION_SUFFIX=''
     if [ "$type" = "sd" ]; then
         DEVICELIST=$(lsblk -dpno NAME | grep '^/dev/sd')
+        PARTITION_SUFFIX='1'
     elif [ "$type" = "nvme" ]; then
         DEVICELIST='/dev/nvme0n1'
+        PARTITION_SUFFIX='p1'
     else
         echo "Invalid device type specified."
         return 1  # Exit the function with an error
@@ -144,10 +147,11 @@ format_storage_devices() {
                     sudo sync
                 done
             fi
-            echo "The device %s is not formatted. Formatting now... $DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            echo "The device $DEVICE is not formatted. Formatting now..." 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo sfdisk --delete "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted -a optimal "$DEVICE" mkpart primary ext4 "0%" "100%" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            echo "The device %s has been formatted. $DEVICE"
+            sudo mkfs.ext4 -F "${DEVICE}${PARTITION_SUFFIX}" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            echo "The device $DEVICE has been formatted."
 
             # Create a mount point, mount the partition, create a test file
             DEVICE_PATH=$(basename "${DEVICE}1")
@@ -159,7 +163,7 @@ format_storage_devices() {
             trap - EXIT
             start_services 0
         else
-            printf "The device %s is already formatted." "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            echo "The device $DEVICE is already formatted." 2>&1 | sudo tee -a $FULA_LOG_PATH
         fi
     done
 }
