@@ -57,19 +57,24 @@ def main():
         else:
             logging.info("check_conditions failed")
             # Check if 'fula_go' exists in `docker ps -a`
-            if "fula_go" in subprocess.getoutput("docker ps -a --format '{{.Names}}'") and fula_restart_attempts < 4:
-                logging.info("fula_go container found but is not running. Attempting to restart fula.service")
-                result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
-                if result.returncode == 0:
-                    logging.info("fula.service restarted successfully.")
-                    if result.stdout:
-                        logging.info(f"Restart output: {result.stdout}")
-                else:
-                    logging.error("Failed to restart fula.service.")
-                    if result.stderr:
-                        logging.error(f"Restart error: {result.stderr}")
+            docker_ps_a_output = subprocess.getoutput("docker ps -a --format '{{.Names}}'")
+            docker_ps_output = subprocess.getoutput("docker ps --format '{{.Names}}'")
 
-                fula_restart_attempts += 1
+            if "fula_go" in docker_ps_a_output and \
+                all(container in docker_ps_output for container in ["fula_node", "fula_fxsupport", "fula_updater"]) and \
+                fula_restart_attempts < 4:
+                    logging.info("fula_go container found but is not running. Attempting to restart fula.service")
+                    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                    if result.returncode == 0:
+                        logging.info("fula.service restarted successfully.")
+                        if result.stdout:
+                            logging.info(f"Restart output: {result.stdout}")
+                    else:
+                        logging.error("Failed to restart fula.service.")
+                        if result.stderr:
+                            logging.error(f"Restart error: {result.stderr}")
+
+                    fula_restart_attempts += 1
             time.sleep(7)
 
 if __name__ == "__main__":
