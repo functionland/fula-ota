@@ -554,13 +554,20 @@ function dockerPrune() {
 }
 
 function restart() {
-  if [ -f "$RESIZE_SC" ]; then 
-    # Wait for specific flags to indicate completion
-    while [ ! -f $partition_flag ] || [ ! -f $resize_flag ]; do
-        sleep 1  # Adjust sleep as needed
-    done
+  if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
+    echo "Resize cron job found, proceeding..."
+    # Proceed only if the cron job exists
+    if [ -f "$RESIZE_SC" ]; then 
+      # Wait for specific flags to indicate completion
+      while [ ! -f $partition_flag ] || [ ! -f $resize_flag ]; do
+          sleep 1  # Adjust sleep as needed
+      done
+    else
+        echo "Resize script not found" | sudo tee -a $FULA_LOG_PATH
+    fi
   else
-      echo "Resize script not found" | sudo tee -a $FULA_LOG_PATH
+    echo "Resize cron job not found in crontab" | sudo tee -a $FULA_LOG_PATH
+    # Optionally, handle the case when the cron job does not exist
   fi
   mkdir -p ${HOME_DIR}/.internal
 
