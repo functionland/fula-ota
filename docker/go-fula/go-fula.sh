@@ -136,16 +136,29 @@ while true; do
   if check_internet && check_files_exist; then
     log "Internet connected and necessary files exist. Running /app."
     node_key_file="/internal/.secrets/node_key.txt"
+    secret_phrase_file="/internal/.secrets/secret_phrase.txt"
     mkdir -p /internal/.secrets
+
     # Generate the node key
     new_key=$(/app --generateNodeKey | grep -E '^[a-f0-9]{64}$')
     # Check if the node_key file exists and has different content
     if [ ! -f "$node_key_file" ] || [ "$new_key" != "$(cat $node_key_file)" ]; then
-      echo "$new_key" > "$node_key_file"
+      printf "%s" "$new_key" > "$node_key_file"
       log "Node key saved to $node_key_file"
     else
       log "Node key file already exists and is up to date."
     fi
+
+    # Generate the 12-word secret phrase
+    new_secret_phrase=$(/app --generateSecretPhrase)
+    # Check if the secret_phrase file exists and has different content
+    if [ ! -f "$secret_phrase_file" ] || [ "$new_secret_phrase" != "$(cat $secret_phrase_file)" ]; then
+      printf "%s" "$new_secret_phrase" > "$secret_phrase_file"
+      log "Secret Phrase saved to $secret_phrase_file"
+    else
+      log "Secret Phrase file already exists and is up to date."
+    fi
+
     nmcli con down FxBlox
     /app --config /internal/config.yaml
     break
