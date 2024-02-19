@@ -39,11 +39,12 @@ while ! check_writable; do
 done
 
 # Wait indefinitely until the password file and /uniondrive folder are available from go-fule docker
-while [ ! -f "/internal/box_props.json" ] || [ ! -d "/uniondrive" ] || [ ! -f "/internal/.secrets/node_key.txt" ]; do
-  sleep 3
+while [ ! -f "/internal/box_props.json" ] || [ ! -d "/uniondrive" ] || [ ! -f "/internal/.secrets/node_key.txt" ] || [ ! -f "/internal/.secrets/secret_phrase.txt" ]; do
   [ ! -f "/internal/box_props.json" ] && echo "Waiting for /internal/box_props.json to become available..."
   [ ! -d "/uniondrive" ] && echo "Waiting for /uniondrive to become available..."
   [ ! -f "/internal/.secrets/node_key.txt" ] && echo "Waiting for /internal/.secrets/node_key.txt to become available..."
+  [ ! -f "/internal/.secrets/secret_phrase.txt" ] && echo "Waiting for /internal/.secrets/secret_phrase.txt to become available..."
+  sleep 3
 done
 
 # Read blox_seed from JSON file
@@ -56,70 +57,54 @@ secret_phrase_changed=0
 
 # Save blox_seed into password.txt
 # Check if /internal/.secrets/password.txt exists and has the same content as $blox_seed
-if [ ! -f "/internal/.secrets/password.txt" ] || [ "$blox_seed" != "$(cat /internal/.secrets/password.txt)" ]; then
-  echo "$blox_seed" > /internal/.secrets/password.txt
+if [ ! -f "/internal/.secrets/password.txt" ] || [ "$blox_seed" != "$(xargs < '/internal/.secrets/password.txt')" ]; then
+  printf "%s" "$blox_seed" > /internal/.secrets/password.txt
   blox_seed_changed=1
-fi
-
-#save the node key
-# Generate the node key only under specific conditions
-if [ ! -f "/internal/.secrets/node_key.txt" ]; then
-  output=$(/sugarfunge-node key generate-node-key 2>&1)
-  echo "$output"
-  node_key=$(echo "$output" | tr ' ' '\n' | tail -n 1)
-  echo "$node_key" > /internal/.secrets/node_key.txt
-
-  # Extract the first line from node_peerid.txt
-  node_peerid=$(echo "$output" | head -n 1)
-  echo "$node_peerid" > /internal/.secrets/node_peerid.txt
 fi
 
 # create Aura and Grandpa keys
 # Generate the secret phrase only under specific conditions
-if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$blox_seed_changed" -ne 0 ]; then
-  output=$(/sugarfunge-node key generate --scheme Sr25519 --password="$(cat '/internal/.secrets/password.txt')" 2>&1)
+if { [ -f "/internal/.secrets/secret_phrase.txt" ] && [ ! -f "/internal/.secrets/secret_seed.txt" ]; } || [ "$blox_seed_changed" -ne 0 ]; then
+  #output=$(/sugarfunge-node key generate --scheme Sr25519 --password="$(cat '/internal/.secrets/password.txt')" 2>&1)
+  output=$(/sugarfunge-node key inspect "$(xargs < '/internal/.secrets/secret_phrase.txt')" --scheme Sr25519 --password="$(xargs < '/internal/.secrets/password.txt')" 2>&1)
   echo "$output"
-  secret_phrase=$(echo "$output" | grep "Secret phrase:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ ! -f "/internal/.secrets/secret_phrase.txt" ] || [ "$secret_phrase" != "$(cat /internal/.secrets/secret_phrase.txt)" ]; then
-    echo "$secret_phrase" > /internal/.secrets/secret_phrase.txt
-    secret_phrase_changed=1
-  fi
+  secret_phrase=$(xargs < '/internal/.secrets/secret_phrase.txt')
 
   # Extract the Secret seed using awk and trim any extra spaces
-  secret_seed=$(echo "$output" | grep "Secret seed:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$secret_seed" != "$(cat /internal/.secrets/secret_seed.txt)" ]; then
-    echo "$secret_seed" > /internal/.secrets/secret_seed.txt
+  secret_seed=$(printf "%s" "$output" | grep "Secret seed:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ ! -f "/internal/.secrets/secret_seed.txt" ] || [ "$secret_seed" != "$(xargs < '/internal/.secrets/secret_seed.txt')" ]; then
+    printf "%s" "$secret_seed" > /internal/.secrets/secret_seed.txt
   fi
 
   # Extract the SS58 Address using awk and trim any extra spaces
   account=$(echo "$output" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ ! -f "/internal/.secrets/account.txt" ] || [ "$account" != "$(cat /internal/.secrets/account.txt)" ]; then
-    echo "$account" > /internal/.secrets/account.txt
+  if [ ! -f "/internal/.secrets/account.txt" ] || [ "$account" != "$(xargs < '/internal/.secrets/account.txt')" ]; then
+    printf "%s" "$account" > /internal/.secrets/account.txt
   fi
 fi
 
 # create grandpa account
-secret_phrase=$(cat /internal/.secrets/secret_phrase.txt)
-output_grandpa=$(/sugarfunge-node key inspect --password="$(cat '/internal/.secrets/password.txt')" --scheme Ed25519 "$secret_phrase" 2>&1)
+output_grandpa=$(/sugarfunge-node key inspect --password="$(xargs < '/internal/.secrets/password.txt')" --scheme Ed25519 "$(xargs < '/internal/.secrets/secret_phrase.txt')" 2>&1)
+
 echo "$output_grandpa"
 # Extract the SS58 Address using awk and trim any extra spaces
-account_grandpa=$(echo "$output_grandpa" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-echo $account_grandpa
+account_grandpa=$(printf "%s" "$output_grandpa" | grep "SS58 Address:" | awk '{$1=$2=""; print $0}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+echo "$account_grandpa"
 if [ ! -f "/internal/.secrets/account_grandpa.txt" ] || [ "$account_grandpa" != "$(cat /internal/.secrets/account_grandpa.txt)" ]; then
-  echo "$account_grandpa" > /internal/.secrets/account_grandpa.txt
+  printf "%s" "$account_grandpa" > /internal/.secrets/account_grandpa.txt
 fi
 
-node_key=$(cat /internal/.secrets/node_key.txt)
+node_key=$(xargs < '/internal/.secrets/node_key.txt')
 if [ "$secret_phrase_changed" -ne 0 ] || [ "$blox_seed_changed" -ne 0 ] || [ ! -d "/internal/keys/" ] || [ -z "$(ls -A /internal/keys/)" ]; then
 
     #Remove saved keys
     rm -rf /internal/keys/*
 
     #Add Aura key to keystore
-    /sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password="$(cat '/internal/.secrets/password.txt')" --key-type aura
+    /sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Sr25519 --suri "$secret_phrase" --password="$(xargs < '/internal/.secrets/password.txt')" --key-type aura
 
     #Add Grandpa key to keystore
-    ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password="$(cat '/internal/.secrets/password.txt')" --key-type gran
+    ./sugarfunge-node key insert --base-path=/uniondrive/chain --keystore-path=/internal/keys --chain /customSpecRaw.json --scheme Ed25519 --suri "$secret_phrase" --password="$(xargs < '/internal/.secrets/password.txt')" --key-type gran
 fi
 
 # Wait for network availability
@@ -202,9 +187,10 @@ while :; do
     fi
 done
 
-secret_seed=$(cat /internal/.secrets/secret_seed.txt)
-aura_account=$(cat /internal/.secrets/account.txt)
-grandpa_account=$(cat /internal/.secrets/account_grandpa.txt)
+secret_seed=$(xargs < '/internal/.secrets/secret_seed.txt')
+aura_account=$(xargs < '/internal/.secrets/account.txt')
+grandpa_account=$(xargs < '/internal/.secrets/account_grandpa.txt')
+echo "secret_seed=$secret_seed and aura_account=$aura_account and grandpa_account=$grandpa_account"
 if [ -n "$secret_seed" ] && [ -n "$aura_account" ] && [ -n "$grandpa_account" ]; then
   /proof-engine -- "$secret_seed" "$aura_account" "$grandpa_account" &
   PROOF_ENGINE_PID=$!
@@ -223,7 +209,7 @@ while :; do
         exit_code=$?
         break
     fi
-    if ! kill -0 $PROOF_ENGINE_PID 2>/dev/null; then
+    if ! kill -0 "$PROOF_ENGINE_PID" 2>/dev/null; then
         exit_code=$?
         break
     fi
@@ -231,4 +217,4 @@ while :; do
 done
 
 # Exit with status of process that exited first
-exit $exit_code
+exit "$exit_code"

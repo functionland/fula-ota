@@ -37,9 +37,40 @@ def check_wifi_connection():
         return "other"
     return None
 
+def attempt_wifi_connection():
+    config_yaml_path = os.path.join(HOME_PATH, ".internal", "config.yaml")
+    if os.path.exists(config_yaml_path):
+        logging.info("config.yaml exists, checking for non-FxBlox WiFi connections")
+        connections_output = subprocess.getoutput("nmcli con show | grep wifi")
+        wifi_connections = [line.split()[0] for line in connections_output.split('\n') if "wifi" in line and "FxBlox" not in line]
+
+        wifi_connected = False
+        for wifi_con in wifi_connections:
+            logging.info(f"Attempting to connect to {wifi_con}")
+            result = subprocess.run(["sudo", "nmcli", "con", "up", wifi_con], capture_output=True)
+            if result.returncode == 0:
+                logging.info(f"Successfully connected to {wifi_con}")
+                wifi_connected = True
+                break
+            else:
+                logging.error(f"Failed to connect to {wifi_con}")
+                if result.stderr:
+                    logging.error(f"nmcli error: {result.stderr}")
+
+        if not wifi_connected:
+            logging.info("No successful WiFi connections, defaulting to FxBlox hotspot")
+            subprocess.run(["sudo", "nmcli", "con", "up", "FxBlox"], capture_output=True)
+
+    else:
+        logging.info("config.yaml does not exist, attempting to start FxBlox hotspot")
+        subprocess.run(["sudo", "nmcli", "con", "up", "FxBlox"], capture_output=True)
+
+    return None
+
 def main():
     logging.info("readiness check started")
     fula_restart_attempts = 0
+    cycles_with_no_wifi = 0
     while True:
         if check_conditions():
             logging.info("check_conditions passed")
@@ -53,7 +84,13 @@ def main():
                 break  # Exit the loop as no further check is needed
             else:
                 logging.info("wifi_status not connected")
-                subprocess.run(["python", os.path.join(FULA_PATH, "control_led.py"), "red", "5"])
+                if cycles_with_no_wifi == 6:
+                    logging.info("wifi not connected, attempting to start FxBlox hotspot")
+                    attempt_wifi_connection()
+                    cycles_with_no_wifi = 0
+
+                subprocess.run(["python", os.path.join(FULA_PATH, "control_led.py"), "red", "10"])
+                cycles_with_no_wifi += 1
         else:
             logging.info("check_conditions failed")
             # Check if 'fula_go' exists in `docker ps -a`
