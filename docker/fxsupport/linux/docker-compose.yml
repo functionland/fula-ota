@@ -49,7 +49,7 @@ services:
       - "4001:4001"
       - "4001:4001/udp"
       - "127.0.0.1:8080:8080"
-      - "127.0.0.1:5002:5001"  # Expose IPFS API on a different port to avoid conflict with other services
+      - "127.0.0.1:5001:5001"  # Expose IPFS API on a different port to avoid conflict with other services
     environment:
       - IPFS_PROFILE=badgerds
     dns:
