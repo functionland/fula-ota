@@ -164,6 +164,11 @@ function install() {
 
   all_success=true
   mkdir -p ${HOME_DIR}/.internal
+  mkdir -p ${FULA_PATH}/kubo
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data
+  touch ${HOME_DIR}/.internal/ipfs_data/config
+  touch ${HOME_DIR}/.internal/ipfs_data/version
+  touch ${HOME_DIR}/.internal/ipfs_data/datastore_spec
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
@@ -257,7 +262,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp ${INSTALLATION_FULA_DIR}/kubo-container-init.d.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file kubo-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/kubo/kubo-container-init.d.sh $FULA_PATH/kubo/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file kubo-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; } || true
 
     cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true

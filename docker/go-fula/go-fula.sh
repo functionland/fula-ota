@@ -175,9 +175,11 @@ while true; do
       log "Secret Phrase file already exists and is up to date."
     fi
 
-    wait_for_ipfs
-
     /initipfs
+    touch /internal/.ipfs_setup
+
+    wait_for_ipfs
+    
     exit_code=$?
 
     # Check if the program exited due to a panic (or any error)
