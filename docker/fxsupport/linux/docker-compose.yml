@@ -43,8 +43,8 @@ services:
       - /home/pi/.internal/ipfs_data/config:/data/ipfs/config:rw,shared
       - /home/pi/.internal/ipfs_data/datastore_spec:/data/ipfs/datastore_spec:rw,shared
       - /home/pi/.internal/ipfs_data/version:/data/ipfs/version:rw,shared
-      - shared-volume-external/ipfs_staging:/export:rw,shared
-      - shared-volume-external/ipfs_data:/data/ipfs:rw,shared
+      - /uniondrive/ipfs_staging:/export:rw,shared
+      - /uniondrive/ipfs_data:/data/ipfs:rw,shared
     ports:
       - "4001:4001"
       - "4001:4001/udp"
