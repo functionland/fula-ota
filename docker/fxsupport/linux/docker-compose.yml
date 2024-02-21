@@ -28,6 +28,41 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  ipfs-kubo:
+    image: ipfs/kubo:master-latest
+    container_name: ipfs_host
+    restart: always
+    depends_on:
+      - fxsupport
+    volumes:
+      - shared-volume-external:/uniondrive:rw
+      - /media/pi/:/storage:rw,shared
+      - /home/pi/.internal/:/internal:rw,shared
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/fula/kubo-container-init.d.sh:/container-init.d/kubo-container-init.d.sh
+      - /home/pi/.internal/ipfs_data/config:/data/ipfs/config:rw,shared
+      - /home/pi/.internal/ipfs_data/datastore_spec:/data/ipfs/datastore_spec:rw,shared
+      - /home/pi/.internal/ipfs_data/version:/data/ipfs/version:rw,shared
+      - shared-volume-external/ipfs_staging:/export:rw,shared
+      - shared-volume-external/ipfs_data:/data/ipfs:rw,shared
+    ports:
+      - "4001:4001"
+      - "4001:4001/udp"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:5002:5001"  # Expose IPFS API on a different port to avoid conflict with other services
+    environment:
+      - IPFS_PROFILE=badgerds
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    cap_add:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   go-fula:
     image: $GO_FULA
     restart: always
@@ -45,7 +80,6 @@ services:
     ports:
       - "4001:4001"
       - "8001:8080"
-      - "5001:5001"
     devices:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:

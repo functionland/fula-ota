@@ -26,12 +26,28 @@ check_internet() {
   return 1
 }
 
-
-
 check_files_exist() {
   [ -f "/internal/config.yaml" ]
   return $?
 }
+
+wait_for_ipfs() {
+    log "Waiting for IPFS daemon to be ready..."
+    while : ; do
+        # Attempt to query the IPFS daemon
+        response=$(curl -X POST -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5001/api/v0/id)
+
+        # Check if the response status is 200
+        if [ "$response" -eq 200 ]; then
+            log "IPFS daemon is ready."
+            break
+        else
+            log "Waiting for IPFS daemon..."
+            sleep 5
+        fi
+    done
+}
+
 
 check_writable() {
   # Check if /internal exists and is writable
@@ -157,6 +173,16 @@ while true; do
       log "Secret Phrase saved to $secret_phrase_file"
     else
       log "Secret Phrase file already exists and is up to date."
+    fi
+
+    wait_for_ipfs
+
+    /initipfs
+    exit_code=$?
+
+    # Check if the program exited due to a panic (or any error)
+    if [ $exit_code -ne 0 ]; then
+      log "The initipfs exited with an error: Exit code $exit_code"
     fi
 
     nmcli con down FxBlox
