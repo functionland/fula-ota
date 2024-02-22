@@ -34,16 +34,17 @@ services:
     restart: always
     depends_on:
       - fxsupport
+    privileged: true
     volumes:
       - shared-volume-external:/uniondrive:rw
       - /media/pi/:/storage:rw,shared
       - /home/pi/.internal/:/internal:rw,shared
-      - /usr/bin/fula/kubo:/container-init.d:rw,shared
-      - /home/pi/.internal/ipfs_data/config:/data/ipfs/config:rw
-      - /home/pi/.internal/ipfs_data/datastore_spec:/data/ipfs/datastore_spec:rw
-      - /home/pi/.internal/ipfs_data/version:/data/ipfs/version:rw
-      - /uniondrive/ipfs_staging:/export:rw,shared
-      - /uniondrive/ipfs_data:/data/ipfs:rw,shared
+      - /usr/bin/fula/kubo:/container-init.d:rw,shared,uid=1000,gid=1000
+      - /home/pi/.internal/ipfs_data/config:/data/ipfs/config:rw,uid=1000,gid=1000
+      - /home/pi/.internal/ipfs_data/datastore_spec:/data/ipfs/datastore_spec:rw,uid=1000,gid=1000
+      - /home/pi/.internal/ipfs_data/version:/data/ipfs/version:rw,uid=1000,gid=1000
+      - /uniondrive/ipfs_staging:/export:rw,shared,uid=1000,gid=1000
+      - /uniondrive/ipfs_data:/data/ipfs:rw,shared,uid=1000,gid=1000
     ports:
       - "4001:4001"
       - "4001:4001/udp"
