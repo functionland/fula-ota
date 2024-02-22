@@ -166,6 +166,16 @@ function install() {
   mkdir -p ${HOME_DIR}/.internal
   mkdir -p ${FULA_PATH}/kubo
   mkdir -p ${HOME_DIR}/.internal/ipfs_data
+
+  if [ -d "/uniondrive" ]; then
+    mkdir -p /uniondrive/ipfs_data 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory /uniondrive/ipfs_data" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+    mkdir -p /uniondrive/ipfs_staging 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error making directory /uniondrive/ipfs_staging" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+    sudo chown -R 1000:1000 /uniondrive/ipfs_data /uniondrive/ipfs_staging 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error changing chown for /uniondrive/ipfs_" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+    sudo chmod -R 775 /uniondrive/ipfs_data /uniondrive/ipfs_staging 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error changing chmod for /uniondrive/ipfs_" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  else
+      echo "/uniondrive does not exist so cannot create ipfs folders" | sudo tee -a $FULA_LOG_PATH
+  fi
+
   touch ${HOME_DIR}/.internal/ipfs_data/version
   touch ${HOME_DIR}/.internal/ipfs_data/datastore_spec
 
