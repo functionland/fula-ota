@@ -28,7 +28,7 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  ipfs-kubo:
+  kubo:
     image: ipfs/kubo:master-latest
     container_name: ipfs_host
     restart: always
