@@ -8,11 +8,19 @@ log() {
 }
 
 check_files_and_folders() {
-  [ -d "/internal" ] && [ -d "/uniondrive" ] && [ -f "/internal/config.yaml" ] && [ -f "/internal/.ipfs_setup" ]
+  if [ -d "/internal" ] && [ -d "/uniondrive" ] && [ -f "/internal/config.yaml" ] && [ -f "/internal/.ipfs_setup" ]; then
+    return 0 # Explicitly return success
+  else
+    return 1 # Explicitly return failure
+  fi
 }
 
 check_writable() {
-  touch "/uniondrive/.tmp2_write_check" && rm "/uniondrive/.tmp2_write_check"
+  if touch "/uniondrive/.tmp2_write_check" && rm "/uniondrive/.tmp2_write_check"; then
+    return 0 # Success
+  else
+    return 1 # Failure
+  fi
 }
 
 while ! check_files_and_folders || ! check_writable; do
