@@ -40,11 +40,7 @@ services:
       - /media/pi/:/storage:rw,shared
       - /home/pi/.internal/:/internal:rw,shared
       - /usr/bin/fula/kubo:/container-init.d:rw,shared,uid=1000,gid=1000
-      - /home/pi/.internal/ipfs_data/config:/data/ipfs/config:rw,uid=1000,gid=1000
-      - /home/pi/.internal/ipfs_data/datastore_spec:/data/ipfs/datastore_spec:rw,uid=1000,gid=1000
-      - /home/pi/.internal/ipfs_data/version:/data/ipfs/version:rw,uid=1000,gid=1000
       - /uniondrive/ipfs_staging:/export:rw,shared,uid=1000,gid=1000
-      - /uniondrive/ipfs_data:/data/ipfs:rw,shared,uid=1000,gid=1000
     ports:
       - "4001:4001"
       - "4001:4001/udp"
@@ -52,11 +48,14 @@ services:
       - "127.0.0.1:5001:5001"  # Expose IPFS API on a different port to avoid conflict with other services
     environment:
       - IPFS_PROFILE=badgerds
+      - IPFS_PATH=/internal/ipfs_data
     dns:
       - 8.8.8.8
       - 8.8.4.4
     cap_add:
       - ALL
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     logging:
       driver: json-file
       options:
@@ -76,6 +75,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
+      - /usr/bin/fula/.env.cluster:/.env.cluster
     network_mode: "host"
     ports:
       - "4001:4001"

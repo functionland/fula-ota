@@ -35,7 +35,7 @@
     "HashOnRead": false,
     "Spec": {
       "child": {
-        "path": "badgerds",
+        "path": "/uniondrive/badgerds",
         "syncWrites": false,
         "truncate": true,
         "type": "badgerds"
