@@ -272,9 +272,6 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/kubo/kubo-container-init.d.sh $FULA_PATH/kubo/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file kubo-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    if [[ ! -f "${HOME_DIR}/.internal/ipfs_data/config" ]]; then
-      cp ${INSTALLATION_FULA_DIR}/kubo/config "${HOME_DIR}/.internal/ipfs_data/config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config" | sudo tee -a $FULA_LOG_PATH; } || true
-    fi
 
     cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -287,6 +284,18 @@ function install() {
   sudo mv ${FULA_PATH}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  if [[ -d "${HOME_DIR}/.internal/ipfs_data/config" ]]; then
+    echo "Config exists as a directory, deleting..." | sudo tee -a $FULA_LOG_PATH
+    sudo rm -rf "${HOME_DIR}/.internal/ipfs_data/config" || { echo "Error deleting directory config" | sudo tee -a $FULA_LOG_PATH; exit 1; }
+  fi
+  if [[ ! -f "${HOME_DIR}/.internal/ipfs_data/config" ]]; then
+    cp ${INSTALLATION_FULA_DIR}/kubo/config "${HOME_DIR}/.internal/ipfs_data/config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+  if [[ ! -f "${HOME_DIR}/.internal/ipfs_config" ]]; then
+    # Below is to have a copy of config in the root avaialbe to gi-fula docker for copying if needed as a failsafe
+    cp ${INSTALLATION_FULA_DIR}/kubo/config "${HOME_DIR}/.internal/ipfs_config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config to internal root" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
 
   if [ -f "$FULA_PATH/docker.env" ]; then 
     sudo rm ${FULA_PATH}/docker.env 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing $FULA_PATH/docker.env" | sudo tee -a $FULA_LOG_PATH; } || true
