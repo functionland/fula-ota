@@ -44,7 +44,7 @@ services:
     ports:
       - "4001:4001"
       - "4001:4001/udp"
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
       - "127.0.0.1:5001:5001"
     environment:
       - IPFS_PROFILE=badgerds
@@ -78,8 +78,8 @@ services:
       - /usr/bin/fula/.env.cluster:/.env.cluster
     network_mode: "host"
     ports:
-      - "4001:4001"
-      - "8001:8080"
+      - "40001:40001" #libp2p port
+      - "3500:3500" #Wap http server
     devices:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:
@@ -113,11 +113,14 @@ services:
       - /home/pi/:/home:rw,rshared
       - /media/pi/:/storage:rw,rshared
       - /var/run/dbus:/var/run/dbus
-    network_mode: "host"
     dns:
       - 8.8.8.8
       - 8.8.4.4
     privileged: true
+    ports:
+      - "127.0.0.1:4000:4000" # API port
+      - "9945:9945" # Node Rpc Port
+      - "30335:30335" #Node Port
     devices:
        - /dev/fuse:/dev/fuse:rwm 
     cap_add:

@@ -30,7 +30,5 @@ done
 
 log "Both /internal and /uniondrive are available and writable."
 mkdir -p /internal/ipfs_data/
-mkdir -p /uniondrive/ipfs_data/
-mkdir -p /uniondrive/ipfs_staging
 
 log "Initialization complete."
