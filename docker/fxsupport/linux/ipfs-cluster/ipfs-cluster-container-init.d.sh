@@ -31,6 +31,9 @@ done
 fula_file_path="/internal/config.yaml"
 
 poolName=""
+# URL to check
+cluster_url="https://api.node3.functionyard.fula.network" #This can be changed to blockchain api if we add metadata to each pool with 'creator_clusterpeerid' for example
+
 
 # Wait for CLUSTER_SECRET to be set
 while [ -z "$poolName" ] || [ "$poolName" = "0" ]; do
@@ -41,11 +44,33 @@ while [ -z "$poolName" ] || [ "$poolName" = "0" ]; do
     sleep 60
 done
 
+get_poolcreator_peerid() {
+  # Step 1: Call the URL to fetch pool data and save it to a temporary file
+  wget -qO "/uniondrive/.tmp/pool_data.json" --post-data '{"pool_id": '"$CLUSTER_CLUSTERNAME"'}' "$cluster_url/fula/pool/all"
+
+  # Step 2: Check if the request was successful (200 OK)
+  response_code=$(head -n 1 "/uniondrive/.tmp/pool_data.json" | cut -d$' ' -f2)
+  if [ "$response_code" = "200" ]; then
+      # Step 3: Parse the creator_clusterpeerid from the JSON response
+      creator_clusterpeerid=$(grep -o '"creator": "[^"]*"' "/uniondrive/.tmp/pool_data.json" | cut -d'"' -f4)
+
+      # Step 4: Call the URL to fetch user data and save it to a temporary file
+      wget -qO "/uniondrive/.tmp/pool_users.json" --post-data '{"pool_id": '"$CLUSTER_CLUSTERNAME"'}' "$cluster_url/fula/pool/users"
+
+      # Step 5: Find the peer_id corresponding to the creator account from the response
+      peer_id=$(grep -o '"account": "'"$creator_clusterpeerid"'"[^}]*"peer_id": "[^"]*"' "/uniondrive/.tmp/pool_users.json" | grep -o '"peer_id": "[^"]*"' | cut -d'"' -f4)
+
+      # Step 6: Set CLUSTER_CRDT_TRUSTEDPEERS
+      export CLUSTER_CRDT_TRUSTEDPEERS="$peer_id"
+  else
+      echo "Failed to fetch pool data. Response code: $response_code"
+      exit 1
+  fi
+}
+
 export CLUSTER_CLUSTERNAME="${poolName}"
 echo "CLUSTER_CLUSTERNAME=${CLUSTER_CLUSTERNAME}" >> /.env.cluster
 
-# URL to check
-cluster_url="https://pools.functionyard.fula.network/${CLUSTER_CLUSTERNAME}" #This can be changed to blockchain api if we add metadata to each pool with 'creator_clusterpeerid' for example
 
 echo "CLUSTER_CLUSTERNAME is set."
 secret=$(printf "%s" "${CLUSTER_CLUSTERNAME}" | sha256sum | cut -d' ' -f1)
@@ -80,7 +105,7 @@ if echo "$response" | grep -q 'HTTP/.* 200 OK'; then
         # Execute the command to bootstrap using the provided CLUSTER_CRDT_TRUSTEDPEERS
         export CLUSTER_FOLLOWERMODE=true
         echo "CLUSTER_FOLLOWERMODE=${CLUSTER_FOLLOWERMODE}" >> /.env.cluster
-        exec ipfs-cluster-service daemon --upgrade --bootstrap "${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
+        exec ipfs-cluster-service daemon --upgrade --bootstrap "/dnsaddr/${CLUSTER_CRDT_TRUSTEDPEERS}.functionyard.fula.network/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
     else
         exec ipfs-cluster-service daemon --upgrade
     fi
