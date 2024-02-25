@@ -61,6 +61,38 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+  
+  ipfs-cluster:
+    image: ipfs/ipfs-cluster:stable
+    container_name: ipfs_cluster
+    restart: always
+    depends_on:
+      - kubo
+    volumes:
+      - shared-volume-external:/uniondrive:rw
+      - /home/pi/.internal:/internal:rw,shared
+      - /usr/bin/fula/ipfs-cluster:/container-init.d:rw,shared,uid=1000,gid=1000
+      - /usr/bin/fula/.env.cluster:/.env.cluster
+    entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
+    ports:
+      - "9094:9094" # API port
+      - "9095:9095" # Proxy API port
+      - "9096:9096" # Cluster swarm port
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    privileged: true
+    env_file:
+      - .env.cluster
+    cap_add:
+      - ALL
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   go-fula:
     image: $GO_FULA
