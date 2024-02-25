@@ -11,6 +11,7 @@ COPY ./go-fula/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app ./cmd/blox 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /wap ./wap/cmd
 RUN CGO_ENABLED=0 GOOS=linux go build -o /initipfs ./modules/initipfs
+RUN CGO_ENABLED=0 GOOS=linux go build -o /initipfscluster ./modules/initipfscluster
 
 FROM alpine:3.17
 
@@ -21,6 +22,7 @@ WORKDIR /
 COPY --from=BuildStage /app /app
 COPY --from=BuildStage /wap /wap
 COPY --from=BuildStage /initipfs /initipfs
+COPY --from=BuildStage /initipfscluster /initipfscluster
 
 
 COPY ./go-fula.sh /go-fula.sh

@@ -178,6 +178,9 @@ function install() {
     connectwifi
   fi
 
+  sudo sysctl -w net.core.rmem_max=2500000
+  sudo sysctl -w net.core.wmem_max=2500000
+
   if check_internet; then
     echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     sudo apt-get update || { echo "Could not update before install" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
