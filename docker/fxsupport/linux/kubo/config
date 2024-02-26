@@ -54,8 +54,8 @@
   "Experimental": {
     "FilestoreEnabled": false,
     "Libp2pStreamMounting": false,
-    "OptimisticProvide": false,
-    "OptimisticProvideJobsPoolSize": 0,
+    "OptimisticProvide": true,
+    "OptimisticProvideJobsPoolSize": 60,
     "P2pHttpProxy": false,
     "StrategicProviding": false,
     "UrlstoreEnabled": false
