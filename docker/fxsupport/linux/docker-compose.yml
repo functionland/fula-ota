@@ -37,8 +37,8 @@ services:
     privileged: true
     volumes:
       - shared-volume-external:/uniondrive:rw
-      - /media/pi/:/storage:rw,shared
-      - /home/pi/.internal/:/internal:rw,shared
+      - /media/pi:/storage:rw,shared
+      - /home/pi/.internal:/internal:rw,shared
       - /usr/bin/fula/kubo:/container-init.d:rw,shared,uid=1000,gid=1000
       - /uniondrive/ipfs_staging:/export:rw,shared,uid=1000,gid=1000
     ports:
@@ -66,6 +66,8 @@ services:
     image: ipfs/ipfs-cluster:stable
     container_name: ipfs_cluster
     restart: always
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
     depends_on:
       - kubo
     volumes:
@@ -149,6 +151,8 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     privileged: true
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:4000:4000" # API port
       - "9945:9945" # Node Rpc Port

@@ -3,12 +3,15 @@
 # This scripts runs before ipfs container
 set -ex
 
+fula_file_path="/internal/config.yaml"
+temp_file="/internal/.env.cluster.tmp"
+
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
 }
 
 check_files_and_folders() {
-  if [ -d "/internal" ] && [ -d "/uniondrive" ] && [ -f "/internal/config.yaml" ] && [ -f "/internal/.ipfscluster_setup" ]; then
+  if [ -d "/internal" ] && [ -d "/uniondrive" ] && [ -f "/internal/config.yaml" ] && [ -f "/internal/.ipfscluster_setup" ] && [ -f "/internal/ipfs-cluster/identity.json" ]; then
     return 0 # Explicitly return success
   else
     return 1 # Explicitly return failure
@@ -23,12 +26,14 @@ check_writable() {
   fi
 }
 
+append_or_replace() {
+    return 0
+}
+
 while ! check_files_and_folders || ! check_writable; do
   log "Waiting for /internal and /uniondrive to become available and writable..."
   sleep 5
 done
-
-fula_file_path="/internal/config.yaml"
 
 poolName=""
 # URL to check
@@ -69,17 +74,17 @@ get_poolcreator_peerid() {
 }
 
 export CLUSTER_CLUSTERNAME="${poolName}"
-echo "CLUSTER_CLUSTERNAME=${CLUSTER_CLUSTERNAME}" >> /.env.cluster
+append_or_replace "/.env.cluster" "CLUSTER_CLUSTERNAME" "${CLUSTER_CLUSTERNAME}"
 
 
 echo "CLUSTER_CLUSTERNAME is set."
 secret=$(printf "%s" "${CLUSTER_CLUSTERNAME}" | sha256sum | cut -d' ' -f1)
 export CLUSTER_SECRET="${secret}"
-echo "CLUSTER_SECRET=${CLUSTER_SECRET}" >> /.env.cluster
+append_or_replace "/.env.cluster" "CLUSTER_SECRET" "${CLUSTER_SECRET}"
 
 node_account=$(cat "/internal/.secrets/account.txt")
 export CLUSTER_PEERNAME="${node_account}" #This is the node Aura account id
-echo "CLUSTER_PEERNAME=${CLUSTER_PEERNAME}" >> /.env.cluster
+append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
 
 # Perform a HEAD request to check the response code
 response=$(wget --spider -S "$cluster_url" 2>&1)
@@ -92,7 +97,7 @@ if echo "$response" | grep -q 'HTTP/.* 200 OK'; then
     wget -O "/uniondrive/.tmp/pool_creator.json" "${cluster_url}"
     creator_clusterpeerid=$(grep 'creator_clusterpeerid:' "/uniondrive/.tmp/pool_creator.json" | cut -d':' -f2 | tr -d ' "')
     export CLUSTER_CRDT_TRUSTEDPEERS="${creator_clusterpeerid}"
-    echo "CLUSTER_CRDT_TRUSTEDPEERS=${CLUSTER_CRDT_TRUSTEDPEERS}" >> /.env.cluster
+    append_or_replace "/.env.cluster" "CLUSTER_CRDT_TRUSTEDPEERS" "${CLUSTER_CRDT_TRUSTEDPEERS}"
     # Initialize ipfs-cluster-service if the configuration does not exist
     if [ ! -f /uniondrive/ipfs-cluster/service.json ]; then
         echo "Initializing ipfs-cluster-service..."
@@ -104,7 +109,8 @@ if echo "$response" | grep -q 'HTTP/.* 200 OK'; then
         echo "CLUSTER_CRDT_TRUSTEDPEERS is set to ${CLUSTER_CRDT_TRUSTEDPEERS}. Bootstrapping..."
         # Execute the command to bootstrap using the provided CLUSTER_CRDT_TRUSTEDPEERS
         export CLUSTER_FOLLOWERMODE=true
-        echo "CLUSTER_FOLLOWERMODE=${CLUSTER_FOLLOWERMODE}" >> /.env.cluster
+        append_or_replace "/.env.cluster" "CLUSTER_FOLLOWERMODE" "${CLUSTER_FOLLOWERMODE}"
+
         exec ipfs-cluster-service daemon --upgrade --bootstrap "/dnsaddr/${CLUSTER_CRDT_TRUSTEDPEERS}.functionyard.fula.network/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
     else
         exec ipfs-cluster-service daemon --upgrade
