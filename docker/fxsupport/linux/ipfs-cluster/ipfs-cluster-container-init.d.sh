@@ -114,3 +114,5 @@ else
     exit 1
 fi
 rm /uniondrive/.tmp/pool_creator.json
+rm /uniondrive/.tmp/pool_users.json
+rm /uniondrive/.tmp/pool_data.json
