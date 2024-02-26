@@ -30,7 +30,7 @@
     "Resolvers": {}
   },
   "Datastore": {
-    "BloomFilterSize": 0,
+    "BloomFilterSize": 1048576,
     "GCPeriod": "1h",
     "HashOnRead": false,
     "Spec": {
@@ -113,7 +113,11 @@
   },
   "Swarm": {
     "AddrFilters": null,
-    "ConnMgr": {},
+    "ConnMgr": {
+      "HighWater": 200,
+      "LowWater": 50,
+      "GracePeriod": "20s"
+    },
     "DisableBandwidthMetrics": false,
     "DisableNatPortMap": false,
     "RelayClient": {},
