@@ -187,6 +187,9 @@ while true; do
       log "The initipfs exited with an error: Exit code $exit_code"
     fi
 
+    /initipfscluster
+    touch /internal/.ipfscluster_setup
+
     nmcli con down FxBlox
     /app --config /internal/config.yaml
     break

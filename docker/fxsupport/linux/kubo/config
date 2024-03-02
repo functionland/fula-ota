@@ -30,7 +30,7 @@
     "Resolvers": {}
   },
   "Datastore": {
-    "BloomFilterSize": 0,
+    "BloomFilterSize": 1048576,
     "GCPeriod": "1h",
     "HashOnRead": false,
     "Spec": {
@@ -54,8 +54,8 @@
   "Experimental": {
     "FilestoreEnabled": false,
     "Libp2pStreamMounting": false,
-    "OptimisticProvide": false,
-    "OptimisticProvideJobsPoolSize": 0,
+    "OptimisticProvide": true,
+    "OptimisticProvideJobsPoolSize": 60,
     "P2pHttpProxy": false,
     "StrategicProviding": false,
     "UrlstoreEnabled": false
@@ -113,7 +113,11 @@
   },
   "Swarm": {
     "AddrFilters": null,
-    "ConnMgr": {},
+    "ConnMgr": {
+      "HighWater": 200,
+      "LowWater": 50,
+      "GracePeriod": "20s"
+    },
     "DisableBandwidthMetrics": false,
     "DisableNatPortMap": false,
     "RelayClient": {},

@@ -37,8 +37,8 @@ services:
     privileged: true
     volumes:
       - shared-volume-external:/uniondrive:rw
-      - /media/pi/:/storage:rw,shared
-      - /home/pi/.internal/:/internal:rw,shared
+      - /media/pi:/storage:rw,shared
+      - /home/pi/.internal:/internal:rw,shared
       - /usr/bin/fula/kubo:/container-init.d:rw,shared,uid=1000,gid=1000
       - /uniondrive/ipfs_staging:/export:rw,shared,uid=1000,gid=1000
     ports:
@@ -52,6 +52,40 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    cap_add:
+      - ALL
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+  
+  ipfs-cluster:
+    image: ipfs/ipfs-cluster:stable
+    container_name: ipfs_cluster
+    restart: always
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    depends_on:
+      - kubo
+    volumes:
+      - shared-volume-external:/uniondrive:rw
+      - /home/pi/.internal:/internal:rw,shared
+      - /usr/bin/fula/ipfs-cluster:/container-init.d:rw,shared,uid=1000,gid=1000
+      - /usr/bin/fula/.env.cluster:/.env.cluster
+    entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
+    ports:
+      - "9094:9094" # API port
+      - "9095:9095" # Proxy API port
+      - "9096:9096" # Cluster swarm port
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    privileged: true
+    env_file:
+      - .env.cluster
     cap_add:
       - ALL
     labels:
@@ -117,6 +151,8 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     privileged: true
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:4000:4000" # API port
       - "9945:9945" # Node Rpc Port
