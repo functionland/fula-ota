@@ -111,7 +111,7 @@ if echo "$response" | grep -q 'HTTP/.* 200 OK'; then
         export CLUSTER_FOLLOWERMODE=true
         append_or_replace "/.env.cluster" "CLUSTER_FOLLOWERMODE" "${CLUSTER_FOLLOWERMODE}"
 
-        exec ipfs-cluster-service daemon --upgrade --bootstrap "/dns4/${CLUSTER_CRDT_TRUSTEDPEERS}.functionyard.fula.network/tcp/9096/ipfs/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
+        exec ipfs-cluster-service daemon --upgrade --bootstrap "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
     else
         exec ipfs-cluster-service daemon --upgrade
     fi
