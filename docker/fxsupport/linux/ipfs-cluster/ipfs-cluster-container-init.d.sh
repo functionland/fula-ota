@@ -51,7 +51,7 @@ done
 
 get_poolcreator_peerid() {
   # Step 1: Call the URL to fetch pool data and save it to a temporary file
-  wget -qO "/uniondrive/.tmp/pool_data.json" --post-data '{"pool_id": '"$CLUSTER_CLUSTERNAME"'}' "$cluster_url/fula/pool/all"
+  wget -qO "/uniondrive/.tmp/pool_data.json" --post-data '{"pool_id": '"$CLUSTER_CLUSTERNAME"'}' "$cluster_url/fula/pool"
 
   # Step 2: Check if the request was successful (200 OK)
   response_code=$(head -n 1 "/uniondrive/.tmp/pool_data.json" | cut -d$' ' -f2)
