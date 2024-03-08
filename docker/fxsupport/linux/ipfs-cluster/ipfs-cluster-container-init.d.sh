@@ -112,6 +112,7 @@ if echo "$response" | grep -q 'HTTP/.* 200 OK'; then
         append_or_replace "/.env.cluster" "CLUSTER_FOLLOWERMODE" "${CLUSTER_FOLLOWERMODE}"
 
         exec ipfs-cluster-service daemon --upgrade --bootstrap "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
+        echo "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" > /internal/ipfs-cluster/peerstore
     else
         exec ipfs-cluster-service daemon --upgrade
     fi
