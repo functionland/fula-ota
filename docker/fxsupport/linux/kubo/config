@@ -34,14 +34,30 @@
     "GCPeriod": "1h",
     "HashOnRead": false,
     "Spec": {
-      "child": {
-        "path": "/uniondrive/badgerds",
-        "syncWrites": false,
-        "truncate": true,
-        "type": "badgerds"
-      },
-      "prefix": "badger.datastore",
-      "type": "measure"
+      "mounts": [
+        {
+          "child": {
+            "path": "/uniondrive/ipfs_datastore/blocks",
+            "shardFunc": "/repo/flatfs/shard/v1/next-to-last/2",
+            "sync": true,
+            "type": "flatfs"
+          },
+          "mountpoint": "/blocks",
+          "prefix": "flatfs.datastore",
+          "type": "measure"
+        },
+        {
+          "child": {
+            "compression": "none",
+            "path": "/uniondrive/ipfs_datastore/datastore",
+            "type": "levelds"
+          },
+          "mountpoint": "/",
+          "prefix": "leveldb.datastore",
+          "type": "measure"
+        }
+      ],
+      "type": "mount"
     },
     "StorageGCWatermark": 90,
     "StorageMax": "10GB"

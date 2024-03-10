@@ -47,7 +47,7 @@ services:
       - "127.0.0.1:8081:8081"
       - "127.0.0.1:5001:5001"
     environment:
-      - IPFS_PROFILE=badgerds
+      - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data
     dns:
       - 8.8.8.8
