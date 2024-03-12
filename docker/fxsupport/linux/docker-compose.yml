@@ -76,8 +76,6 @@ services:
       - /usr/bin/fula/ipfs-cluster:/container-init.d:rw,shared,uid=1000,gid=1000
       - /usr/bin/fula/.env.cluster:/.env.cluster
     entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
-    # TODO: Correct ipfs inside node to accept localhost as parameter instead of using 127.0.0.1 to remove host mode
-    network_mode: "host"
     ports:
       - "9094:9094" # API port
       - "9095:9095" # Proxy API port
@@ -153,8 +151,10 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     privileged: true
-    extra_hosts:
-    - "host.docker.internal:host-gateway"
+    # TODO: Correct ipfs inside node to accept localhost as parameter instead of using 127.0.0.1 to remove host mode and use host.docker.internal:5001
+    network_mode: "host"
+    # extra_hosts:
+    # - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:4000:4000" # API port
       - "9945:9945" # Node Rpc Port
