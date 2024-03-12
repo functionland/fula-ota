@@ -359,6 +359,22 @@ function install() {
     fi 
   fi
 
+  if [ -f "$FULA_PATH/ipfs-cluster/ipfs-cluster-container-init.d.sh" ]; then 
+    # Check if fula.sh is executable 
+    if [ ! -x "$FULA_PATH/ipfs-cluster/ipfs-cluster-container-init.d.sh" ]; then 
+      echo "$FULA_PATH/ipfs-cluster/ipfs-cluster-container-init.d.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/ipfs-cluster/ipfs-cluster-container-init.d.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file ipfs-cluster-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/kubo/kubo-container-init.d.sh" ]; then 
+    # Check if fula.sh is executable 
+    if [ ! -x "$FULA_PATH/kubo/kubo-container-init.d.sh" ]; then 
+      echo "$FULA_PATH/kubo/kubo-container-init.d.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/kubo/kubo-container-init.d.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file kubo-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
   echo "Installing Fula ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "Pulling Images..." 2>&1 | sudo tee -a $FULA_LOG_PATH
   dockerPull || { echo "Error while dockerPull" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
