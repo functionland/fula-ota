@@ -178,8 +178,8 @@ function install() {
     connectwifi
   fi
 
-  sudo sysctl -w net.core.rmem_max=2500000
-  sudo sysctl -w net.core.wmem_max=2500000
+  sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
   if check_internet; then
     echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
