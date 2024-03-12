@@ -597,6 +597,12 @@ function dockerPrune() {
 }
 
 function restart() {
+  if [ -d ${FULA_PATH}/kubo ]; then
+    sudo chmod -R 755 ${FULA_PATH}/kubo
+  fi
+  if [ -d ${FULA_PATH}/ipfs-cluster ];then
+    sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
+  fi
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
     # Proceed only if the cron job exists
