@@ -270,6 +270,9 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/kubo $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/ipfs-cluster $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying ipfs-cluster folder" | sudo tee -a $FULA_LOG_PATH; } || true
 
+    sudo chmod -R 755 ${FULA_LOG_PATH}/kubo
+    sudo chmod -R 755 ${FULA_LOG_PATH}/ipfs-cluster
+
     cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/uniondrive.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
