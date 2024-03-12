@@ -290,11 +290,11 @@ function install() {
     sudo rm -rf "${HOME_DIR}/.internal/ipfs_data/config" || { echo "Error deleting directory config" | sudo tee -a $FULA_LOG_PATH; exit 1; }
   fi
   if [[ ! -f "${HOME_DIR}/.internal/ipfs_data/config" ]]; then
-    cp ${INSTALLATION_FULA_DIR}/kubo/config "${HOME_DIR}/.internal/ipfs_data/config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${FULA_PATH}/kubo/config "${HOME_DIR}/.internal/ipfs_data/config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
   if [[ ! -f "${HOME_DIR}/.internal/ipfs_config" ]]; then
     # Below is to have a copy of config in the root avaialbe to gi-fula docker for copying if needed as a failsafe
-    cp ${INSTALLATION_FULA_DIR}/kubo/config "${HOME_DIR}/.internal/ipfs_config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config to internal root" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${FULA_PATH}/kubo/config "${HOME_DIR}/.internal/ipfs_config" 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file config to internal root" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   if [ -f "$FULA_PATH/docker.env" ]; then 
