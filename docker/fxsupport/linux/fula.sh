@@ -531,7 +531,9 @@ function dockerComposeUp() {
     fi
 
     # Check if a tar file for the service exists and load it
-    if [ -f "$tar_path" ] && [ "$pullFailed" -eq 1 ]; then
+    # Check if the specified service image exists locally
+    current_image=$(docker images -q $image)
+    if [ -f "$tar_path" ] && [ "$pullFailed" -eq 1 ] && [ -z "$current_image" ]; then
       echo "Loading $image from local file $tar_path"
       docker load -i "$tar_path" || echo "Failed to load $image from $tar_path"
     fi
@@ -600,9 +602,15 @@ function dockerPrune() {
 function restart() {
   if [ -d ${FULA_PATH}/kubo ]; then
     sudo chmod -R 755 ${FULA_PATH}/kubo
+    if [ -f ${FULA_PATH}/kubo/kubo-container-init.d.sh ]; then
+      sudo chmod 755 ${FULA_PATH}/kubo/kubo-container-init.d.sh
+    fi
   fi
   if [ -d ${FULA_PATH}/ipfs-cluster ];then
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
+    if [ -f ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh ]; then
+      sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh
+    fi
   fi
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
@@ -778,10 +786,6 @@ case $1 in
   arch=${2:-RK1}
   echo "ran start V6 at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
 
-  if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
-    echo "restart command failed, but continuing..." | sudo tee -a $FULA_LOG_PATH
-  fi
-  echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
   if [ -z "$ENV_FILE" ]; then
     echo "ENV_FILE variable is not set" | sudo tee -a $FULA_LOG_PATH
   elif [ ! -f "$ENV_FILE" ]; then
@@ -795,7 +799,7 @@ case $1 in
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
   # Get the creation time of the Docker image "functionland/fxsupport:release"
-  last_pull_time_docker=$(docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  last_pull_time_docker=$(sudo docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
@@ -807,6 +811,10 @@ case $1 in
   fi
   sync
   echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
+  if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+    echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
+  fi
+  echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
   ;;
 "stop")
   arch=${2:-RK1}
