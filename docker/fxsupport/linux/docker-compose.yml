@@ -110,6 +110,7 @@ services:
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
       - /usr/bin/fula/.env.cluster:/.env.cluster
+      - /usr/bin/fula/.env.gofula:/.env
     network_mode: "host"
     ports:
       - "40001:40001" #libp2p port
