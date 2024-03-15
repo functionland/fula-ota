@@ -612,6 +612,18 @@ function restart() {
       sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh
     fi
   fi
+  # TODO: Find a better solution than opening the permission
+  if [ -d /uniondrive ];then
+    sudo chmod -R 777 ${FULA_PATH}/uniondrive
+    sudo mkdir -p /uniondrive/ipfs_datastore
+    if [ -d /uniondrive/ipfs_datastore ]; then
+      sudo chmod 777 /uniondrive/ipfs_datastore
+      sudo mkdir -p /uniondrive/ipfs_datastore/blocks
+      if [ -d /uniondrive/ipfs_datastore/blocks ]; then
+        sudo chmod 777 /uniondrive/ipfs_datastore/blocks
+      fi
+    fi
+  fi
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
     # Proceed only if the cron job exists
