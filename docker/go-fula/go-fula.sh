@@ -156,7 +156,7 @@ while true; do
     mkdir -p /internal/.secrets
 
     # Generate the node key
-    new_key=$(/app --generateNodeKey | grep -E '^[a-f0-9]{64}$')
+    new_key=$(/app --generateNodeKey --config /internal/config.yaml | grep -E '^[a-f0-9]{64}$')
     # Check if the node_key file exists and has different content
     if [ ! -f "$node_key_file" ] || [ "$new_key" != "$(cat $node_key_file)" ]; then
       printf "%s" "$new_key" > "$node_key_file"
@@ -166,7 +166,7 @@ while true; do
     fi
 
     # Generate the 12-word secret phrase
-    new_secret_phrase=$(/app --generateSecretPhrase)
+    new_secret_phrase=$(/app --generateSecretPhrase --config /internal/config.yaml)
     # Check if the secret_phrase file exists and has different content
     if [ ! -f "$secret_phrase_file" ] || [ "$new_secret_phrase" != "$(cat $secret_phrase_file)" ]; then
       printf "%s" "$new_secret_phrase" > "$secret_phrase_file"
