@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /ipfs-cluster-ctl ./cmd/ipfs-cluster-ct
 
 FROM alpine:3.17
 
-RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkmanager-cli jq dhcp iptables curl --no-cache>
+RUN apk update && apk add hostapd iw wireless-tools networkmanager-wifi networkmanager-cli jq dhcp iptables curl --no-cache
 
 WORKDIR /
 COPY --from=BuildStage /ipfs-cluster-service /usr/local/bin/ipfs-cluster-service
