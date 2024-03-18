@@ -63,11 +63,11 @@ services:
         max-file: "5"
   
   ipfs-cluster:
-    image: ipfs/ipfs-cluster:stable
+    image: functionland/ipfs-cluster:release
     container_name: ipfs_cluster
     restart: always
-    extra_hosts:
-    - "host.docker.internal:host-gateway"
+    #extra_hosts:
+    #- "host.docker.internal:host-gateway"
     depends_on:
       - kubo
     volumes:
@@ -76,6 +76,7 @@ services:
       - /usr/bin/fula/ipfs-cluster:/container-init.d:rw,shared,uid=1000,gid=1000
       - /usr/bin/fula/.env.cluster:/.env.cluster
     entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
+    network_mode: "host"
     ports:
       - "9094:9094" # API port
       - "9095:9095" # Proxy API port

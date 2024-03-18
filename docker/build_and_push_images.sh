@@ -18,6 +18,10 @@ cd ${SCRIPTS_DIR}/fxsupport/ && bash ./build.sh
 echo "Building $GO_FULA_IMAGE ..."
 cd ${SCRIPTS_DIR}/go-fula/ && bash ./build.sh
 
+#build ipfs-cluster
+echo "Building $IPFS_CLUSTER_IMAGE ..."
+cd ${SCRIPTS_DIR}/ipfs-cluster/ && bash ./build.sh
+
 #build node and node-api
 echo "Building $SUGARFUNGE_NODE_IMAGE ..."
 cd ${SCRIPTS_DIR}/sugarfunge-node/ && bash ./build.sh
