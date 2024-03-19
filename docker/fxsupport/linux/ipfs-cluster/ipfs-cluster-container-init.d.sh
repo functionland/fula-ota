@@ -129,8 +129,8 @@ echo "Request to pool succeeded with response 200"
         export CLUSTER_FOLLOWERMODE=true
         append_or_replace "/.env.cluster" "CLUSTER_FOLLOWERMODE" "${CLUSTER_FOLLOWERMODE}"
         
-        /usr/local/bin/ipfs-cluster-service daemon --upgrade --bootstrap "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
         echo "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" > "${IPFS_CLUSTER_PATH}/peerstore"
+        /usr/local/bin/ipfs-cluster-service daemon --upgrade --bootstrap "/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}" --leave
     else
         /usr/local/bin/ipfs-cluster-service daemon --upgrade
     fi
