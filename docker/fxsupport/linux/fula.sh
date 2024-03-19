@@ -499,7 +499,7 @@ function connectwifi() {
     if ! check_internet; then
       echo "connectwifi: Waiting for Wi-Fi adapter to be ready..." | sudo tee -a $FULA_LOG_PATH
       sleep 15
-      bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" | sudo tee -a $FULA_LOG_PATH; }
+      bash $WIFI_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Wifi setup failed" | sudo tee -a $FULA_LOG_PATH; } || true
       sleep 15
     else
       echo "connectwifi: Already has internet..." | sudo tee -a $FULA_LOG_PATH
@@ -591,7 +591,7 @@ function dockerComposeBuild() {
 function createDir() {
   if [ ! -d "${DATA_DIR}/$1" ]; then
     echo "Creating directory for docker volume $DATA_DIR/$1" | sudo tee -a $FULA_LOG_PATH
-    mkdir -p $DATA_DIR/$1 2>&1 | sudo tee -a $FULA_LOG_PATH
+    mkdir -p $DATA_DIR/$1 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "mkdir directory for docker volume failed" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 }
 
@@ -601,26 +601,26 @@ function dockerPrune() {
 
 function restart() {
   if [ -d ${FULA_PATH}/kubo ]; then
-    sudo chmod -R 755 ${FULA_PATH}/kubo
+    sudo chmod -R 755 ${FULA_PATH}/kubo || { echo "chmod /kubo" | sudo tee -a $FULA_LOG_PATH; } || true
     if [ -f ${FULA_PATH}/kubo/kubo-container-init.d.sh ]; then
-      sudo chmod 755 ${FULA_PATH}/kubo/kubo-container-init.d.sh
+      sudo chmod 755 ${FULA_PATH}/kubo/kubo-container-init.d.sh || { echo "chmod kubo/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
   fi
   if [ -d ${FULA_PATH}/ipfs-cluster ];then
-    sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
+    sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster || { echo "chmod ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
     if [ -f ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh ]; then
-      sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh
+      sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh || { echo "chmod ipfs-cluster/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
   fi
   # TODO: Find a better solution than opening the permission
   if [ -d /uniondrive ];then
-    sudo chmod -R 777 ${FULA_PATH}/uniondrive
-    sudo mkdir -p /uniondrive/ipfs_datastore
+    sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
     if [ -d /uniondrive/ipfs_datastore ]; then
-      sudo chmod 777 /uniondrive/ipfs_datastore
-      sudo mkdir -p /uniondrive/ipfs_datastore/blocks
+      sudo chmod 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      sudo mkdir -p /uniondrive/ipfs_datastore/blocks || { echo "mkdir uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
       if [ -d /uniondrive/ipfs_datastore/blocks ]; then
-        sudo chmod 777 /uniondrive/ipfs_datastore/blocks
+        sudo chmod 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
       fi
     fi
   fi
