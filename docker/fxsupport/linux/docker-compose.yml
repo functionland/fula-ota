@@ -140,7 +140,7 @@ services:
     container_name: fula_node
     depends_on:
       - fxsupport
-      - go-fula
+      - kubo
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
