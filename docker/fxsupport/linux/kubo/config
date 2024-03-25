@@ -31,7 +31,7 @@
   },
   "Datastore": {
     "BloomFilterSize": 1048576,
-    "GCPeriod": "1h",
+    "GCPeriod": "24h",
     "HashOnRead": false,
     "Spec": {
       "mounts": [
@@ -60,7 +60,7 @@
       "type": "mount"
     },
     "StorageGCWatermark": 90,
-    "StorageMax": "10GB"
+    "StorageMax": "20GB"
   },
   "Discovery": {
     "MDNS": {
