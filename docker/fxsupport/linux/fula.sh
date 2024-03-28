@@ -613,6 +613,9 @@ function restart() {
     fi
   fi
   # TODO: Find a better solution than opening the permission
+  while [ ! -d /uniondrive ]; do
+    sleep 5  # Wait for 1 second before checking again
+  done
   if [ -d /uniondrive ];then
     sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
     sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
