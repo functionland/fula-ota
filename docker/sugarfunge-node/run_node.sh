@@ -31,6 +31,23 @@ check_writable() {
   return 0
 }
 
+check_chain_synced() {
+  # POST request to the health endpoint
+  response=$(curl -s -X POST http://127.0.0.1:4000/health)
+
+  # Extract the is_syncing value
+  is_syncing=$(echo "$response" | jq -r '.is_syncing')
+
+  # Determine if the chain is synced based on the is_syncing value
+  if [ "$is_syncing" = "false" ]; then
+    echo "Chain is synced."
+    return 0
+  else
+    echo "Chain is syncing."
+    return 1
+  fi
+}
+
 
 # Loop until /internal and /uniondrive are verified to exist and be writable
 while ! check_writable; do
@@ -185,6 +202,13 @@ while :; do
         echo "Waiting for account to exist. Current response code: $response_code"
         sleep 10
     fi
+done
+
+
+# Wait for the chain to be fully synced
+until check_chain_synced; do
+  echo "Waiting for the chain to sync..."
+  sleep 30 # Wait 30 seconds before checking again
 done
 
 secret_seed=$(xargs < '/internal/.secrets/secret_seed.txt')
