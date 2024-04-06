@@ -620,10 +620,22 @@ function restart() {
     sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
     sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
     if [ -d /uniondrive/ipfs_datastore ]; then
-      sudo chmod 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      sudo chmod -R 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
       sudo mkdir -p /uniondrive/ipfs_datastore/blocks || { echo "mkdir uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
       if [ -d /uniondrive/ipfs_datastore/blocks ]; then
-        sudo chmod 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
+        sudo chmod -R 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs_datastore/datastore || { echo "mkdir uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs_datastore/datastore ]; then
+        sudo chmod -R 777 /uniondrive/ipfs_datastore/datastore || { echo "chmod uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs_staging || { echo "mkdir uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs_staging ]; then
+        sudo chmod -R 777 /uniondrive/ipfs_staging || { echo "chmod uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs-cluster || { echo "mkdir uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs-cluster ]; then
+        sudo chmod -R 777 /uniondrive/ipfs-cluster || { echo "chmod uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
       fi
     fi
   fi
