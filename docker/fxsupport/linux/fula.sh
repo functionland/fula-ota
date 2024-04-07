@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v6.0.4
+# fula-ota v6.0.5
 
 set -e
 
@@ -600,6 +600,7 @@ function dockerPrune() {
 }
 
 function restart() {
+  # Moved while loop to after installation
   if [ -d ${FULA_PATH}/kubo ]; then
     sudo chmod -R 755 ${FULA_PATH}/kubo || { echo "chmod /kubo" | sudo tee -a $FULA_LOG_PATH; } || true
     if [ -f ${FULA_PATH}/kubo/kubo-container-init.d.sh ]; then
