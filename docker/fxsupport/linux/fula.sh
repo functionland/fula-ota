@@ -612,33 +612,7 @@ function restart() {
       sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh || { echo "chmod ipfs-cluster/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
   fi
-  # TODO: Find a better solution than opening the permission
-  while [ ! -d /uniondrive ]; do
-    sleep 5  # Wait for 1 second before checking again
-  done
-  if [ -d /uniondrive ];then
-    sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-    if [ -d /uniondrive/ipfs_datastore ]; then
-      sudo chmod -R 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      sudo mkdir -p /uniondrive/ipfs_datastore/blocks || { echo "mkdir uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_datastore/blocks ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs_datastore/datastore || { echo "mkdir uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_datastore/datastore ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_datastore/datastore || { echo "chmod uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs_staging || { echo "mkdir uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_staging ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_staging || { echo "chmod uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs-cluster || { echo "mkdir uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs-cluster ]; then
-        sudo chmod -R 777 /uniondrive/ipfs-cluster || { echo "chmod uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-    fi
-  fi
+  
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
     # Proceed only if the cron job exists
@@ -684,6 +658,34 @@ function restart() {
     sudo bash $UPDATE_SC 2>&1 | sudo tee -a $FULA_LOG_PATH > /dev/null &
     echo $! | sudo tee $HOME_DIR/update.pid > /dev/null
     echo "Ran $UPDATE_SC" | sudo tee -a $FULA_LOG_PATH
+  fi
+
+  # TODO: Find a better solution than opening the permission
+  while [ ! -d /uniondrive ]; do
+    sleep 5  # Wait for 1 second before checking again
+  done
+  if [ -d /uniondrive ];then
+    sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+    if [ -d /uniondrive/ipfs_datastore ]; then
+      sudo chmod -R 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      sudo mkdir -p /uniondrive/ipfs_datastore/blocks || { echo "mkdir uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs_datastore/blocks ]; then
+        sudo chmod -R 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs_datastore/datastore || { echo "mkdir uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs_datastore/datastore ]; then
+        sudo chmod -R 777 /uniondrive/ipfs_datastore/datastore || { echo "chmod uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs_staging || { echo "mkdir uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs_staging ]; then
+        sudo chmod -R 777 /uniondrive/ipfs_staging || { echo "chmod uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+      sudo mkdir -p /uniondrive/ipfs-cluster || { echo "mkdir uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      if [ -d /uniondrive/ipfs-cluster ]; then
+        sudo chmod -R 777 /uniondrive/ipfs-cluster || { echo "chmod uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+    fi
   fi
 
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
