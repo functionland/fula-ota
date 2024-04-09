@@ -828,23 +828,32 @@ case $1 in
   # Store the last modification time of the "stop_docker_copy.txt" file
   last_modification_time_stop_docker=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
 
-  # Get the creation time of the Docker image "functionland/fxsupport:release"
-  last_pull_time_docker=$(sudo docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
-  last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
-  echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
-  
-  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
-    sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
-    echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
-  else
-    echo "File stop_docker_copy.txt has been modified in the last 24 hours or docker image was not pulled after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
-  fi
   sync
   echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
   if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
     echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
   fi
   echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
+
+  sleep 15
+  # Get the creation time of the Docker image "functionland/fxsupport:release"
+  last_pull_time_docker=$(sudo docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
+  echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
+  
+  container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
+  while [ "$container_status" != "running" ]; do
+      echo "Waiting for fula_fxsupport container to be up..." | sudo tee -a $FULA_LOG_PATH
+      sleep 5  # Wait for 5 seconds before checking again
+      container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
+  done
+  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
+    sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
+  else
+    echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
+  fi
+  sync
   ;;
 "stop")
   arch=${2:-RK1}
