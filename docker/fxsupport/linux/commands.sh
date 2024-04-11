@@ -34,7 +34,7 @@ do
                 # Delete the flag and run the script
                 echo "Deleting .partition_flg and running resize.sh..."
                 if [ -f "/usr/bin/fula/.partition_flg" ]; then
-                    rm "/usr/bin/fula/.partition_flg"
+                    sudo rm "/usr/bin/fula/.partition_flg"
                 fi
                 sudo bash "/usr/bin/fula/resize.sh" 1
                 ;;

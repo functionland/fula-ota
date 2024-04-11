@@ -209,14 +209,16 @@ resize_rootfs () {
 partition_fs () {
   force_format="$1"
   if [ -d "/sys/module/rockchipdrm" ]; then
-    format_storage_devices "sd" "$force_format" || { echo "Failed to format nvme"; } || true
+    format_storage_devices "sd" "$force_format" || { echo "Failed to format sd"; } || true
     format_storage_devices "nvme" "$force_format" || { echo "Failed to format nvme"; } || true
     trap - EXIT
     sudo touch "${partition_flag}"
     exit 0
   else
-    sudo touch "${partition_flag}"
+    format_storage_devices "sd" "$force_format" || { echo "Failed to format sd"; } || true
+    format_storage_devices "nvme" "$force_format" || { echo "Failed to format nvme"; } || true
     trap - EXIT
+    sudo touch "${partition_flag}"
     exit 0
   fi
 }
