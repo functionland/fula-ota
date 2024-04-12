@@ -149,6 +149,7 @@ format_storage_devices() {
             fi
             echo "The device $DEVICE is not formatted. Formatting now..." 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo sfdisk --delete "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo parted "$DEVICE" mklabel gpt 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted -a optimal "$DEVICE" mkpart primary ext4 "0%" "100%" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo mkfs.ext4 -F "${DEVICE}${PARTITION_SUFFIX}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             echo "The device $DEVICE has been formatted."
