@@ -147,19 +147,21 @@ format_storage_devices() {
                     sudo sync
                 done
             fi
+            DEVICE_PATH=$(basename "${DEVICE}${PARTITION_SUFFIX}")
             echo "The device $DEVICE is not formatted. Formatting now..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo umount "/media/pi${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
             sudo sfdisk --delete "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted --script "$DEVICE" mklabel gpt 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted -a optimal "$DEVICE" mkpart primary ext4 "0%" "100%" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo umount "/media/pi${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
             sudo mkfs.ext4 -F "${DEVICE}${PARTITION_SUFFIX}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             echo "The device $DEVICE has been formatted."
 
             # Create a mount point, mount the partition, create a test file
-            DEVICE_PATH=$(basename "${DEVICE}1")
             sudo mkdir -p "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo chown pi:pi "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo chmod 777 "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            sudo mount "${DEVICE}1" "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            sudo mount "${DEVICE}${PARTITION_SUFFIX}" "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo touch "/media/pi/${DEVICE_PATH}/formatted${DEVICE_PATH}.txt" 2>&1 | sudo tee -a $FULA_LOG_PATH
             trap - EXIT
             start_services 0
