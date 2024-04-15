@@ -103,6 +103,10 @@ format_storage_devices() {
             echo "The device $DEVICE does not exist." 2>&1 | sudo tee -a $FULA_LOG_PATH
             continue  # Skip to the next device
         fi
+        sudo docker stop fula_go 2>&1 | sudo tee -a $FULA_LOG_PATH | true
+        sudo docker stop fula_node 2>&1 | sudo tee -a $FULA_LOG_PATH | true
+        sudo docker stop ipfs_cluster 2>&1 | sudo tee -a $FULA_LOG_PATH | true
+        sudo docker stop ipfs_host 2>&1 | sudo tee -a $FULA_LOG_PATH | true
         PARTITIONS=$(sudo fdisk -l "$DEVICE" | grep "^${DEVICE}[0-9]*")
         if [ -z "$PARTITIONS" ] || [ "$force" -eq 1 ]; then
             echo "The device $DEVICE is not formatted or force format is requested. Formatting now..." 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -149,11 +153,11 @@ format_storage_devices() {
             fi
             DEVICE_PATH=$(basename "${DEVICE}${PARTITION_SUFFIX}")
             echo "The device $DEVICE is not formatted. Formatting now..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-            sudo umount "/media/pi${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
+            sudo umount "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
             sudo sfdisk --delete "$DEVICE" 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted --script "$DEVICE" mklabel gpt 2>&1 | sudo tee -a $FULA_LOG_PATH
             sudo parted -a optimal "$DEVICE" mkpart primary ext4 "0%" "100%" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            sudo umount "/media/pi${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
+            sudo umount "/media/pi/${DEVICE_PATH}" 2>&1 | sudo tee -a $FULA_LOG_PATH | true
             sudo mkfs.ext4 -F "${DEVICE}${PARTITION_SUFFIX}" 2>&1 | sudo tee -a $FULA_LOG_PATH
             echo "The device $DEVICE has been formatted."
 
