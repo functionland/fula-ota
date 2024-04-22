@@ -11,7 +11,7 @@ MAX_DRIVES=20
 
 log()
 {
-  echo $1
+  echo "$1"
 }
 
 # New while loop to wait for at least one drive to be mounted under /media/pi
@@ -30,9 +30,9 @@ unionfs_fuse_mount_drives() {
 
 #create MAX_DRIVES empty directory for mapping drivers
 #all of them will be deleted after
- for d in `seq 0 $MAX_DRIVES` ; do
+ for d in $(seq 0 $MAX_DRIVES); do
    DISK_PATH=${MOUNT_LINKS}/disk-${d}
-   mkdir -p $DISK_PATH;
+   mkdir -p "$DISK_PATH";
    MOUNT_ARG="${MOUNT_ARG}${FIRST}${DISK_PATH}=RW"
    FIRST=":"
  done 
@@ -50,9 +50,19 @@ umount_drives() {
   if [ -z "$MOUNT_PATH" ]; then
    echo "MOUNT_PATH is unset or empty, exiting..."
   else
-   sudo rm -r "${MOUNT_PATH:?}"
+   sudo rm -rf "${MOUNT_PATH:?}"
   fi
 }
+
+cleanup_mounts() {
+    for dir in "${MOUNT_USB_PATH:?}"/*; do
+        if ! mountpoint -q "$dir"; then
+            echo "Removing unmounted directory $dir"
+            rm -rf "$dir"
+        fi
+    done
+}
+
 
 hash_map=","
 # map(map_name,key,value) table for storing links
@@ -67,20 +77,22 @@ hget() {
 
 DISK_INDEX=0
 
-create_disk_link(){
-   #log "create_disk_link start for $1" 
-   DISK_INDEX=$((DISK_INDEX+1))
-   LINK_NAME="disk-$DISK_INDEX"
-   ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
-   hput "$1" "$LINK_NAME"
-   #log "create_disk_link end for $1 in $MOUNT_LINKS/$LINK_NAME" 
+create_disk_link() {
+    if mountpoint -q "$1"; then
+        DISK_INDEX=$((DISK_INDEX+1))
+        LINK_NAME="disk-$DISK_INDEX"
+        ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
+        hput "$1" "$LINK_NAME"
+    else
+        echo "Skipping $1, not a mount point."
+    fi
 }
 
 umount_drives
 
-#delete previous symbolic files
-for d in $MOUNT_LINKS/* ; do
-   rm $d
+#delete previous symbolic folders
+for d in "${MOUNT_LINKS:?}"/*; do
+   rm -rf "$d"
 done 
 
 mkdir -p $MOUNT_LINKS
@@ -98,9 +110,9 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         log "Mount successful"
 
         # Try to write a temporary file to check if the filesystem is read-write
-        if touch "$MOUNT_PATH/.test_rw" &>/dev/null; then
+        if touch "$MOUNT_PATH/.test_rw" > /dev/null 2>&1; then
             log "Filesystem is read-write"
-            rm -f "$MOUNT_PATH/.test_rw" &>/dev/null # Clean up the test file
+            rm -f "$MOUNT_PATH/.test_rw" > /dev/null 2>&1  # Clean up the test file
             systemd-notify --ready
             break
         else
@@ -124,23 +136,23 @@ if [ $ELAPSED -ge $TIMEOUT ]; then
 fi
 
 #remove to create new one
-rm -r $MOUNT_LINKS/*
+rm -rf "${MOUNT_LINKS:?}"/*
 
 #mount current drives
-for d in $MOUNT_USB_PATH/* ; do
+for d in "${MOUNT_USB_PATH:?}"/* ; do
    create_disk_link "$d"
 done 
 #log $hash_map
 
 while true; do
    systemd-notify WATCHDOG=1
-   cat /proc/mounts | grep "$MOUNT_USB_PATH" |
+   grep "$MOUNT_USB_PATH" /proc/mounts |
     while IFS= read -r line; do
         if [ ! -s "$line" ]; then
-		value=$(echo $line | cut -d ' ' -f 2)
-		if [ -z $value ]; then
-			 create_disk_link "$value"
-		fi
+            mount_path=$(echo "$line" | cut -d ' ' -f 2)
+            if [ -n "$mount_path" ] && mountpoint -q "$mount_path"; then
+                create_disk_link "$mount_path"
+            fi
         fi
     done 
     sleep 20
