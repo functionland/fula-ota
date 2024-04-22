@@ -79,10 +79,17 @@ DISK_INDEX=0
 
 create_disk_link() {
     if mountpoint -q "$1"; then
+        existing_link=$(hget "$1")
+        if [ -n "$existing_link" ]; then
+            echo "Link already exists for $1: $MOUNT_LINKS/$existing_link"
+            return 0
+        fi
+        
         DISK_INDEX=$((DISK_INDEX+1))
         LINK_NAME="disk-$DISK_INDEX"
-        ln -s "$1" "$MOUNT_LINKS/$LINK_NAME" 
+        ln -s "$1" "$MOUNT_LINKS/$LINK_NAME"
         hput "$1" "$LINK_NAME"
+        echo "Created link $LINK_NAME for $1"
     else
         echo "Skipping $1, not a mount point."
     fi
@@ -146,14 +153,15 @@ done
 
 while true; do
    systemd-notify WATCHDOG=1
+   cleanup_mounts
    grep "$MOUNT_USB_PATH" /proc/mounts |
     while IFS= read -r line; do
         if [ ! -s "$line" ]; then
             mount_path=$(echo "$line" | cut -d ' ' -f 2)
-            if [ -n "$mount_path" ] && mountpoint -q "$mount_path"; then
+            if [ -d "$mount_path" ] && mountpoint -q "$mount_path"; then
                 create_disk_link "$mount_path"
             fi
         fi
     done 
-    sleep 20
+    sleep 10
 done

@@ -19,10 +19,18 @@ check_files_and_folders() {
 }
 
 check_writable() {
-  if touch "/uniondrive/.tmp3_write_check" && rm "/uniondrive/.tmp3_write_check"; then
-    return 0 # Success
+  # Try to create a temporary file
+  touch "/uniondrive/.tmp3_write_check"
+  
+  # Check if the file exists after attempting to create it
+  if [ -f "/uniondrive/.tmp3_write_check" ]; then
+    # Attempt to remove the file regardless of the outcome
+    rm -f "/uniondrive/.tmp3_write_check"
+    # Return success even if 'rm' fails
+    return 0
   else
-    return 1 # Failure
+    # Return failure if the file could not be created
+    return 1
   fi
 }
 

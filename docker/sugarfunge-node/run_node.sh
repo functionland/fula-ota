@@ -5,31 +5,46 @@ export IPFS_PORT=5001
 export NODEAPI_PORT=4000
 
 check_writable() {
+  # Initialize success flag
+  success=0
+
   # Check if /internal exists and is writable
   if [ -d "/internal" ]; then
-    if ! touch /internal/.tmp_write || ! rm /internal/.tmp_write; then
+    touch "/internal/.tmp_write" 2>/dev/null
+    if [ -f "/internal/.tmp_write" ]; then
+      rm "/internal/.tmp_write" 2>/dev/null
+    else
       echo "/internal is not writable."
-      return 1
+      success=1
     fi
   else
     echo "/internal does not exist."
-    return 1
+    success=1
   fi
 
   # Check if /uniondrive exists and is writable
   if [ -d "/uniondrive" ]; then
-    if ! touch /uniondrive/.tmp_write || ! rm /uniondrive/.tmp_write; then
+    touch "/uniondrive/.tmp_write" 2>/dev/null
+    if [ -f "/uniondrive/.tmp_write" ]; then
+      rm "/uniondrive/.tmp_write" 2>/dev/null
+    else
       echo "/uniondrive is not writable."
-      return 1
+      success=1
     fi
   else
     echo "/uniondrive does not exist."
-    return 1
+    success=1
   fi
 
-  echo "Both /internal and /uniondrive exist and are writable."
-  return 0
+  # Final status check
+  if [ $success -eq 0 ]; then
+    echo "Both /internal and /uniondrive exist and are writable."
+    return 0
+  else
+    return 1
+  fi
 }
+
 
 check_chain_synced() {
   # POST request to the health endpoint

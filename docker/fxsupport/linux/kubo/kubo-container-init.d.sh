@@ -16,10 +16,19 @@ check_files_and_folders() {
 }
 
 check_writable() {
-  if touch "/uniondrive/.tmp2_write_check" && rm "/uniondrive/.tmp2_write_check"; then
-    return 0 # Success
+  # Try to create a temporary file
+  touch "/uniondrive/.tmp2_write_check"
+
+  # Check if the file was created successfully
+  if [ -f "/uniondrive/.tmp2_write_check" ]; then
+    # Attempt to remove the file, ignoring whether removal is successful
+    rm -f "/uniondrive/.tmp2_write_check" 2>/dev/null
+
+    # Return success since the file was created (indicating the drive is writable)
+    return 0
   else
-    return 1 # Failure
+    # Return failure if the file could not be created
+    return 1
   fi
 }
 

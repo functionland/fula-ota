@@ -50,31 +50,44 @@ wait_for_ipfs() {
 
 
 check_writable() {
+  is_writable=0  # Assume both directories are writable initially
+
   # Check if /internal exists and is writable
   if [ -d "/internal" ]; then
-    if ! touch /internal/.tmp_write || ! rm /internal/.tmp_write; then
+    touch /internal/.tmp_write 2>/dev/null
+    if [ -f /internal/.tmp_write ]; then
+      rm /internal/.tmp_write 2>/dev/null
+    else
       log "/internal is not writable."
-      return 1
+      is_writable=1
     fi
   else
     log "/internal does not exist."
-    return 1
+    is_writable=1
   fi
 
   # Check if /uniondrive exists and is writable
   if [ -d "/uniondrive" ]; then
-    if ! touch /uniondrive/.tmp_write || ! rm /uniondrive/.tmp_write; then
+    touch /uniondrive/.tmp_write 2>/dev/null
+    if [ -f /uniondrive/.tmp_write ]; then
+      rm /uniondrive/.tmp_write 2>/dev/null
+    else
       log "/uniondrive is not writable."
-      return 1
+      is_writable=1
     fi
   else
     log "/uniondrive does not exist."
-    return 1
+    is_writable=1
   fi
 
-  log "Both /internal and /uniondrive exist and are writable."
-  return 0
+  if [ $is_writable -eq 0 ]; then
+    log "Both /internal and /uniondrive exist and are writable."
+    return 0
+  else
+    return 1
+  fi
 }
+
 
 check_interfaces() {
   # Check for required commands
