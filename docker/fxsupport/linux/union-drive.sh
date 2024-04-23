@@ -145,10 +145,6 @@ fi
 #remove to create new one
 rm -rf "${MOUNT_LINKS:?}"/*
 
-#mount current drives
-for d in "${MOUNT_USB_PATH:?}"/* ; do
-   create_disk_link "$d"
-done 
 #log $hash_map
 
 while true; do
