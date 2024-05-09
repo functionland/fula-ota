@@ -5,7 +5,7 @@ RUN rustup target add wasm32-unknown-unknown
 # OpenSSL1.1
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        perl gcc make zlib1g-dev libfindbin-libs-perl libasound2t64 netcat-openbsd \
+        perl gcc make zlib1g-dev libfindbin-libs-perl libasound2 netcat-openbsd \
         clang \
         libclang-dev \
         cmake \
