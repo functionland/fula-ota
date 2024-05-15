@@ -47,7 +47,7 @@ FROM ubuntu:latest
 
 # Install netcat
 RUN apt-get update \
-    && apt-get install -y libasound2 netcat-openbsd jq curl inetutils-ping \
+    && apt-get install -y libasound2t64 netcat-openbsd jq curl inetutils-ping \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
