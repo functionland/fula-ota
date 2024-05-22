@@ -131,6 +131,43 @@ echo "Request to pool succeeded with response 200"
         /usr/local/bin/ipfs-cluster-service init
     fi
 
+    if [ -f "${IPFS_CLUSTER_PATH}/service.json" ]; then
+        echo "Modifying service.json to replace allocator and informer sections..."
+
+        # Use jq to update the JSON file
+        jq '
+            .allocator = {
+                "balanced": {
+                    "allocate_by": [
+                        "tag:group",
+                        "pinqueue",
+                        "reposize"
+                    ]
+                }
+            } |
+            .informer = {
+                "disk": {
+                    "metric_ttl": "30s",
+                    "metric_type": "reposize"
+                },
+                "pinqueue": {
+                    "metric_ttl": "30s",
+                    "weight_bucket_size": 100000
+                },
+                "tags": {
+                    "metric_ttl": "30s",
+                    "tags": {
+                        "group": "default"
+                    }
+                }
+            }
+        ' "${IPFS_CLUSTER_PATH}/service.json" > "${IPFS_CLUSTER_PATH}/service_temp.json"
+
+        mv "${IPFS_CLUSTER_PATH}/service_temp.json" "${IPFS_CLUSTER_PATH}/service.json"
+
+        echo "Modification completed."
+    fi
+
     # Check if CLUSTER_CRDT_TRUSTEDPEERS is not empty
     if [ -n "${CLUSTER_CRDT_TRUSTEDPEERS}" ]; then
         echo "CLUSTER_CRDT_TRUSTEDPEERS is set to ${CLUSTER_CRDT_TRUSTEDPEERS}. Bootstrapping..."
