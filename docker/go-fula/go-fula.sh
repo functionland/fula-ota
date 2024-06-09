@@ -204,7 +204,7 @@ while true; do
     touch /internal/.ipfscluster_setup
 
     nmcli con down FxBlox
-    /app --config /internal/config.yaml --blockchainEndpoint "api.node2.functionyard.fula.network"
+    /app --config /internal/config.yaml --blockchainEndpoint "api.node3.functionyard.fula.network"
     break
   elif [ $wap_pid -eq 0 ]; then
     log "Either Internet not connected or necessary files missing. But wap is also not running. Reboot?"
