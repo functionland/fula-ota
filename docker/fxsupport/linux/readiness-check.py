@@ -6,6 +6,9 @@ import sys
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
+COMMAND_PARTITION_PATH = os.path.join(HOME_PATH, "commands/.command_partition")
+REBOOT_FLAG_PATH = os.path.join(HOME_PATH, ".reboot_flag")
+LED_PATH = os.path.join(FULA_PATH, "control_led.py")
 
 # Configure logging to write to standard output
 logging.basicConfig(
@@ -67,6 +70,57 @@ def attempt_wifi_connection():
 
     return None
 
+
+def monitor_docker_logs_and_restart():
+    containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
+    restart_attempts = 0
+
+    while restart_attempts < 3:
+        for container in containers_to_check:
+            container_running = container in subprocess.getoutput("docker ps --format '{{.Names}}'")
+            if container_running:
+                logs = subprocess.getoutput(f"docker logs --tail 15 {container} 2>&1")
+                if "ERROR:" in logs:
+                    logging.error(f"{container} logs contain ERROR:. Attempting to restart fula.service")
+                    container_running = False
+
+            if not container_running:
+                logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
+                subprocess.run(["python", LED_PATH, "yellow", "5"])
+                result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                if result.returncode == 0:
+                    logging.info(f"fula.service restarted successfully for {container}.")
+                    subprocess.run(["python", LED_PATH, "blue", "5"])
+                else:
+                    logging.error(f"Failed to restart fula.service for {container}.")
+                    subprocess.run(["python", LED_PATH, "red", "5"])
+                    if result.stderr:
+                        logging.error(f"Restart error: {result.stderr}")
+                restart_attempts += 1
+                time.sleep(60)  # Delay between restart attempts
+                break  # Break to re-check all containers after an attempt
+            else:
+                # If all containers are running and logs are clean, reset attempts and continue monitoring
+                restart_attempts = 0
+                subprocess.run(["python", LED_PATH, "green", "1"])
+                break
+        time.sleep(300)
+
+    if restart_attempts >= 3:
+        logging.error("Maximum restart attempts reached. Creating .reboot_flag and .command_partition files.")
+        if os.path.exists(REBOOT_FLAG_PATH):
+            # Issue persists even after reboot
+            logging.error("Issue persists after reboot. Flashing red and stopping further actions.")
+            while True:
+                subprocess.run(["python", LED_PATH, "red", "10"])
+                time.sleep(5)
+        else:
+            subprocess.run(["python", LED_PATH, "purple", "5"])
+            with open(REBOOT_FLAG_PATH, "w") as f:
+                f.write("")
+            with open(COMMAND_PARTITION_PATH, "w") as f:
+                f.write("")
+
 def main():
     logging.info("readiness check started")
     fula_restart_attempts = 0
@@ -77,11 +131,11 @@ def main():
             wifi_status = check_wifi_connection()
             if wifi_status == "FxBlox":
                 logging.info("wifi_status FxBlox")
-                subprocess.run(["python", os.path.join(FULA_PATH, "control_led.py"), "cyan", "5"])
+                subprocess.run(["python", LED_PATH, "cyan", "5"])
             elif wifi_status == "other":
                 logging.info("wifi_status other")
-                subprocess.run(["python", os.path.join(FULA_PATH, "control_led.py"), "green", "30"])
-                break  # Exit the loop as no further check is needed
+                subprocess.run(["python", LED_PATH, "green", "30"])
+                monitor_docker_logs_and_restart()
             else:
                 logging.info("wifi_status not connected")
                 if cycles_with_no_wifi == 6:
@@ -89,7 +143,7 @@ def main():
                     attempt_wifi_connection()
                     cycles_with_no_wifi = 0
 
-                subprocess.run(["python", os.path.join(FULA_PATH, "control_led.py"), "red", "10"])
+                subprocess.run(["python", LED_PATH, "red", "10"])
                 cycles_with_no_wifi += 1
         else:
             logging.info("check_conditions failed")
