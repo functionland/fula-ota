@@ -3,6 +3,7 @@ import subprocess
 import time
 import logging
 import sys
+import requests
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
@@ -71,11 +72,27 @@ def attempt_wifi_connection():
     return None
 
 
+def check_internet_connection():
+    try:
+        requests.head("https://www.google.com", timeout=5)
+        logging.info("Internet connection is available.")
+        return True
+    except requests.ConnectionError:
+        logging.error("No internet connection available.")
+        return False
+    
 def monitor_docker_logs_and_restart():
+    if not check_internet_connection():
+        logging.error("No internet connection. Skipping Docker log monitoring and restart.")
+        subprocess.run(["python", LED_PATH, "yellow", "5"])
+        time.sleep(500)
+        return
+    
     containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
     restart_attempts = 0
 
     while restart_attempts < 3:
+        time.sleep(500)
         for container in containers_to_check:
             container_running = container in subprocess.getoutput("docker ps --format '{{.Names}}'")
             if container_running:
@@ -104,7 +121,6 @@ def monitor_docker_logs_and_restart():
                 restart_attempts = 0
                 subprocess.run(["python", LED_PATH, "green", "1"])
                 break
-        time.sleep(300)
 
     if restart_attempts >= 3:
         logging.error("Maximum restart attempts reached. Creating .reboot_flag and .command_partition files.")
@@ -135,7 +151,8 @@ def main():
             elif wifi_status == "other":
                 logging.info("wifi_status other")
                 subprocess.run(["python", LED_PATH, "green", "30"])
-                monitor_docker_logs_and_restart()
+                while True:
+                    monitor_docker_logs_and_restart()
             else:
                 logging.info("wifi_status not connected")
                 if cycles_with_no_wifi == 6:
