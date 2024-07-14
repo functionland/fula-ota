@@ -221,6 +221,12 @@ function install() {
       pip install pexpect 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install pexpect" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
+    # Check if requests is installed
+    python -c "import requests" 2>/dev/null || {
+      echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      pip install requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+    }
+
     # Check if psutil is installed
     python -c "import psutil" 2>/dev/null || {
       echo "psutil not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -688,6 +694,11 @@ function restart() {
       fi
     fi
   fi
+  # Check if requests is installed
+  python -c "import requests" 2>/dev/null || {
+    echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo pip install requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
+  }
 
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
