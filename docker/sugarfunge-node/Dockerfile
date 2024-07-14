@@ -17,7 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Set PERL_MM_USE_DEFAULT to make module installation non-interactive
 ENV PERL_MM_USE_DEFAULT=1
-RUN wget https://ftp.openssl.org/source/old/1.1.1/openssl-1.1.1s.tar.gz && \
+RUN wget https://www.openssl.org/source/old/1.1.1/openssl-1.1.1s.tar.gz && \
     tar -xvzf openssl-1.1.1s.tar.gz && \
     cd openssl-1.1.1s/ && \
     ./Configure linux-aarch64 --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib && \
