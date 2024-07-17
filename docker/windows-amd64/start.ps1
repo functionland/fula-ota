@@ -2,6 +2,10 @@
 Write-Host "Starting Docker containers..."
 docker-compose up -d
 
+# Start the proxy server
+Write-Host "Starting the proxy server..."
+& .\start_node_server.ps1 -InstallationPath (Get-Location)
+
 # Path to the PID file
 $pidFilePath = Join-Path (Get-Location) "trayicon.pid"
 

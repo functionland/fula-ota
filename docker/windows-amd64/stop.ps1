@@ -2,6 +2,24 @@
 Write-Host "Stopping Docker containers..."
 docker-compose down
 
+# Path to the PID file for the Node.js server
+$nodePidFilePath = Join-Path (Get-Location) "node_server.pid"
+
+# Stop the proxy server using the PID file
+if (Test-Path $nodePidFilePath) {
+    $nodePid = Get-Content $nodePidFilePath
+    if (Get-Process -Id $nodePid -ErrorAction SilentlyContinue) {
+        Stop-Process -Id $nodePid -ErrorAction SilentlyContinue  # Suppress errors
+        Write-Host "Proxy server stopped successfully."
+        Remove-Item $nodePidFilePath -Force
+    } else {
+        Write-Host "Proxy server process not found."
+        Remove-Item $nodePidFilePath -Force
+    }
+} else {
+    Write-Host "Proxy server PID file not found."
+}
+
 # Path to the PID file
 $pidFilePath = Join-Path (Get-Location) "trayicon.pid"
 
