@@ -26,6 +26,17 @@ check_internet() {
   return 1
 }
 
+check_ping() {
+  # Ping a well-known website (Google's DNS) to check for connectivity
+  if ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
+    log "Ping to 8.8.8.8 successful."
+    return 0
+  else
+    log "Ping to 8.8.8.8 failed."
+    return 1
+  fi
+}
+
 check_files_exist() {
   [ -f "/internal/config.yaml" ]
   return $?
@@ -162,7 +173,7 @@ wap_pid=0
 wap_pid=$!
 
 while true; do
-  if check_internet && check_files_exist; then
+  if (check_internet || check_ping) && check_files_exist; then
     log "Internet connected and necessary files exist. Running /app."
     node_key_file="/internal/.secrets/node_key.txt"
     secret_phrase_file="/internal/.secrets/secret_phrase.txt"
