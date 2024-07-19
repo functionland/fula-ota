@@ -70,6 +70,34 @@ while ! check_writable; do
   sleep 5
 done
 
+# Function to clean the secret phrase file
+clean_secret_phrase() {
+  local file_path="$1"
+  
+  if [ -f "$file_path" ]; then
+    local content
+    content=$(cat "$file_path" | grep -v "Error loading .env file open .env: no such file or directory" | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')
+    printf "%s" "$content" > "$file_path"
+    log "Cleaned secret phrase saved to $file_path"
+  else
+    log "File $file_path does not exist."
+  fi
+}
+
+# Function to check if file is empty and delete it if true
+check_and_delete_if_empty() {
+  if [ -f "$1" ] && [ ! -s "$1" ]; then
+    sudo rm "$1"
+  fi
+}
+
+# Check if files are empty and delete if they are
+check_and_delete_if_empty "/internal/.secrets/secret_phrase.txt"
+check_and_delete_if_empty "/internal/.secrets/secret_seed.txt"
+check_and_delete_if_empty "/internal/.secrets/password.txt"
+check_and_delete_if_empty "/internal/.secrets/account.txt"
+check_and_delete_if_empty "/internal/.secrets/account_grandpa.txt"
+
 # Wait indefinitely until the password file and /uniondrive folder are available from go-fule docker
 while [ ! -f "/internal/box_props.json" ] || [ ! -d "/uniondrive" ] || [ ! -f "/internal/.secrets/node_key.txt" ] || [ ! -f "/internal/.secrets/secret_phrase.txt" ]; do
   [ ! -f "/internal/box_props.json" ] && echo "Waiting for /internal/box_props.json to become available..."
@@ -87,6 +115,15 @@ mkdir -p /internal/.secrets
 blox_seed_changed=0
 secret_phrase_changed=0
 
+# Check if files are empty and delete if they are
+check_and_delete_if_empty "/internal/.secrets/secret_phrase.txt"
+check_and_delete_if_empty "/internal/.secrets/secret_seed.txt"
+check_and_delete_if_empty "/internal/.secrets/password.txt"
+check_and_delete_if_empty "/internal/.secrets/account.txt"
+check_and_delete_if_empty "/internal/.secrets/account_grandpa.txt"
+
+clean_secret_phrase "/internal/.secrets/secret_phrase.txt"
+
 # Save blox_seed into password.txt
 # Check if /internal/.secrets/password.txt exists and has the same content as $blox_seed
 if [ ! -f "/internal/.secrets/password.txt" ] || [ "$blox_seed" != "$(xargs < '/internal/.secrets/password.txt')" ]; then
@@ -96,6 +133,7 @@ fi
 
 # create Aura and Grandpa keys
 # Generate the secret phrase only under specific conditions
+# TODO: Check if files are empty treat like they do not exist
 if { [ -f "/internal/.secrets/secret_phrase.txt" ] && [ ! -f "/internal/.secrets/secret_seed.txt" ]; } || [ "$blox_seed_changed" -ne 0 ]; then
   #output=$(/sugarfunge-node key generate --scheme Sr25519 --password="$(cat '/internal/.secrets/password.txt')" 2>&1)
   output=$(/sugarfunge-node key inspect "$(xargs < '/internal/.secrets/secret_phrase.txt')" --scheme Sr25519 --password="$(xargs < '/internal/.secrets/password.txt')" 2>&1)

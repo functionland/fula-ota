@@ -190,7 +190,11 @@ while true; do
     fi
 
     # Generate the 12-word secret phrase
-    new_secret_phrase=$(/app --generateSecretPhrase --config /internal/config.yaml)
+    untrimmed_secret_phrase=$(/app --generateSecretPhrase --config /internal/config.yaml)
+
+    # Process the new secret phrase
+    new_secret_phrase=$(echo "$untrimmed_secret_phrase" | grep -v "Error loading .env file open .env: no such file or directory" | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
     # Check if the secret_phrase file exists and has different content
     if [ ! -f "$secret_phrase_file" ] || [ "$new_secret_phrase" != "$(cat $secret_phrase_file)" ]; then
       printf "%s" "$new_secret_phrase" > "$secret_phrase_file"
