@@ -133,7 +133,6 @@ fi
 
 # create Aura and Grandpa keys
 # Generate the secret phrase only under specific conditions
-# TODO: Check if files are empty treat like they do not exist
 if { [ -f "/internal/.secrets/secret_phrase.txt" ] && [ ! -f "/internal/.secrets/secret_seed.txt" ]; } || [ "$blox_seed_changed" -ne 0 ]; then
   #output=$(/sugarfunge-node key generate --scheme Sr25519 --password="$(cat '/internal/.secrets/password.txt')" 2>&1)
   output=$(/sugarfunge-node key inspect "$(xargs < '/internal/.secrets/secret_phrase.txt')" --scheme Sr25519 --password="$(xargs < '/internal/.secrets/password.txt')" 2>&1)
