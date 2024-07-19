@@ -87,7 +87,7 @@ clean_secret_phrase() {
 # Function to check if file is empty and delete it if true
 check_and_delete_if_empty() {
   if [ -f "$1" ] && [ ! -s "$1" ]; then
-    sudo rm "$1"
+    rm "$1"
   fi
 }
 
