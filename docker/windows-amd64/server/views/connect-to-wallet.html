@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect to Wallet</title>
+    <link rel="stylesheet" href="/webui/public/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Set Identity</h1>
+        <div id="password-section">
+            <input type="password" id="password-input" placeholder="Password" autofocus>
+            <p class="warning-text">
+                Make sure to safeguard this password and the chain you used,
+                it's the key to decrypt your data from new devices
+            </p>
+            <div class="radio-buttons">
+                <label>
+                    <input type="checkbox" id="i-know-checkbox"> I understand the risk of losing my password
+                </label>
+                <label>
+                    <input type="checkbox" id="metamask-open-checkbox"> I already opened MetaMask app before clicking Sign
+                </label>
+            </div>
+        </div>
+        <!--<div id="identity-section" style="display: none;">
+            <h2>Your Identity</h2>
+            <p id="identity-text"></p>
+        </div>-->
+        <div id="buttons-section">
+            <button id="sign-metamask" class="button disabled" disabled>Sign with MetaMask</button>
+            <button id="sign-manually" class="button disabled" disabled>Sign Manually</button>
+            <button id="connect-blox" class="button" style="display: none;">Connect to Blox</button>
+            <!--<button id="reconnect-blox" class="button inverted" style="display: none;">Reconnect to existing Blox</button>
+            <button id="skip-manual-setup" class="button inverted" style="display: none;">Skip to manual setup</button>-->
+        </div>
+    </div>
+    <script src="/webui/public/js/bundle/wallet.bundle.js"></script>
+</body>
+</html>

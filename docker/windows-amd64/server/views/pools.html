@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join a Pool</title>
+    <link rel="stylesheet" href="/webui/public/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Join a Pool</h1>
+        <div id="sync-status-section">
+            <p id="sync-status-text">Chain is Syncing: <span id="sync-progress">0</span>%</p>
+            <progress id="sync-progress-bar" value="0" max="100"></progress>
+        </div>
+        <div id="search-section">
+            <input type="text" id="search-input" placeholder="Search pools...">
+            <button id="search-button">Search</button>
+        </div>
+        <div id="pools-list"></div>
+    </div>
+    <script src="/webui/public/js/bundle/pools.bundle.js"></script>
+</body>
+</html>

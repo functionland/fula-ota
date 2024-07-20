@@ -1,4 +1,17 @@
 # start.ps1
+# Check if Docker Desktop is running
+$dockerDesktopProcess = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
+
+if (-not $dockerDesktopProcess) {
+    Write-Host "Docker Desktop is not running. Attempting to start it..."
+    Start-Process -FilePath "C:\Program Files\Docker\Docker\Docker Desktop.exe" -NoNewWindow
+    # Wait for Docker Desktop to start
+    Start-Sleep -Seconds 15
+    Write-Host "Docker Desktop started successfully."
+} else {
+    Write-Host "Docker Desktop is already running."
+}
+
 Write-Host "Starting Docker containers..."
 docker-compose up -d
 

@@ -1,0 +1,125 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.button-container {
+    text-align: center;
+}
+
+button {
+    padding: 10px 20px;
+    margin: 5px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+/* For Connet to Wallet */
+
+h1, h2 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 20px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.warning-text {
+    color: #ff9800;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.radio-buttons {
+    margin-bottom: 20px;
+}
+
+.radio-buttons label {
+    display: block;
+    margin-bottom: 10px;
+}
+
+.button {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    text-align: center;
+}
+
+.button.inverted {
+    background-color: #fff;
+    color: #4CAF50;
+    border: 1px solid #4CAF50;
+}
+
+.button.disabled {
+    background-color: #b1b1b1;
+    color: white;
+    border: 1px solid #b1b1b1;
+    cursor: not-allowed;
+}
+
+.button:hover {
+    background-color: #45a049;
+}
+
+.button.inverted:hover {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.button.disabled:hover {
+    background-color: #b1b1b1;
+    color: white;
+    border: 1px solid #b1b1b1;
+}
