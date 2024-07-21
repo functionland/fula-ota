@@ -10,6 +10,7 @@ const accountSeedRouter = require('./routes/account/seed');
 const dockerRestartRouter = require('./routes/docker/restart');
 const poolJoinRouter = require('./routes/pools/join.js');
 const chainStatusRouter = require('./routes/chain/status.js');
+const { exec } = require('child_process');
 
 const app = express();
 const port = 7000;
@@ -25,8 +26,8 @@ app.use('/webui/public', express.static(path.join(__dirname, 'public')));
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'html');
 
-app.get('/webui', (req, res) => {
-  res.sendFile(path.join(__dirname, 'views', 'index.html'));
+app.get('/webui/welcome', (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'welcome.html'));
 });
 
 app.get('/webui/connect-to-wallet', (req, res) => {
@@ -39,6 +40,15 @@ app.get('/webui/set-authorizer', (req, res) => {
 
 app.get('/webui/pools', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'pools.html'));
+});
+
+app.get('/webui/home', (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'home.html'));
+});
+
+// New route for handling /webui
+app.get('/webui', async (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'index.html'));
 });
 
 app.use('/api/properties', propertiesRouter);
@@ -62,6 +72,7 @@ app.post('/api/proxy/pool', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 app.post('/api/proxy/users', async (req, res) => {
   console.log("Proxy endpoint hit for users"); // Add this line
   try {
@@ -78,6 +89,32 @@ app.post('/api/proxy/users', async (req, res) => {
   }
 });
 
+app.get('/api/docker/status', (req, res) => {
+  const dockerName = req.query.name;
+
+  exec(`docker ps --filter "name=${dockerName}" --format "{{.Names}}"`, (err, stdout) => {
+      if (err) {
+          return res.status(500).json({ status: 'not running' });
+      }
+
+      if (!stdout.includes(dockerName)) {
+          return res.json({ status: 'not running' });
+      }
+
+      exec(`docker logs ${dockerName} --tail 20`, (err, logs) => {
+          if (err) {
+              return res.status(500).json({ status: 'Error', errorLine: err.message });
+          }
+
+          const errorLine = logs.split('\n').find(line => line.includes('ERROR'));
+          if (errorLine) {
+              return res.json({ status: 'Error', errorLine });
+          }
+
+          res.json({ status: 'Running' });
+      });
+  });
+});
 
 // Start the main server
 app.listen(port, '127.0.0.1', () => {

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { initApi, fetchUserPoolStatus } from './polkadot';
+import { initApi } from './polkadot';
 
 // Utility function to convert bytes to a more readable unit
 const convertByteToCapacityUnit = (bytes) => {
@@ -13,32 +13,49 @@ const convertByteToCapacityUnit = (bytes) => {
     return `${bytes.toFixed(2)} ${units[unitIndex]}`;
 };
 
-// Function to update hard disk information
-const updateHardDiskInfo = async (api) => {
-    const hardDiskCard = document.getElementById('hard-disk-card');
-    const capacityElem = hardDiskCard.querySelector('#capacity');
-    const fulaSizeElem = hardDiskCard.querySelector('#fula-size');
-    const chainSizeElem = hardDiskCard.querySelector('#chain-size');
-    const usedElem = hardDiskCard.querySelector('#used');
-    const freeElem = hardDiskCard.querySelector('#free');
-    const statusElem = hardDiskCard.querySelector('#status');
+// Function to check Docker status
+const checkDockerStatus = async (dockerName) => {
+    try {
+        const response = await axios.get(`/api/docker/status?name=${dockerName}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error checking status for ${dockerName}:`, error);
+        return { status: 'not running' };
+    }
+};
 
-    // Simulating data fetching
-    capacityElem.textContent = convertByteToCapacityUnit(1024 * 1024 * 500); // 500 MB
-    fulaSizeElem.textContent = convertByteToCapacityUnit(1024 * 1024 * 100); // 100 MB
-    chainSizeElem.textContent = convertByteToCapacityUnit(1024 * 1024 * 50); // 50 MB
-    usedElem.textContent = convertByteToCapacityUnit(1024 * 1024 * 300); // 300 MB
-    freeElem.textContent = convertByteToCapacityUnit(1024 * 1024 * 200); // 200 MB
-    statusElem.textContent = 'In Use';
+// Function to update Docker information
+const updateDockerInfo = async () => {
+    const dockerNames = ['fula_go', 'fula_node', 'ipfs_host', 'ipfs_cluster', 'fula_fxsupport'];
+    for (const dockerName of dockerNames) {
+        const statusElement = document.getElementById(`${dockerName}-status`);
+        const hintElement = document.getElementById(`${dockerName}-hint`);
+        statusElement.innerHTML = '<div class="loading-spinner"></div>'; // Show loading spinner
+        try {
+            const status = await checkDockerStatus(dockerName);
+            statusElement.textContent = status.status;
+            if (status.status === 'Error') {
+                hintElement.style.display = 'inline';
+                hintElement.setAttribute('title', status.errorLine);
+            } else {
+                hintElement.style.display = 'none';
+            }
+        } catch (error) {
+            statusElement.textContent = 'Error checking status';
+            hintElement.style.display = 'none';
+        }
+    }
 };
 
 // Function to update earnings information
 const updateEarningsInfo = async (api, accountId) => {
-    const earningsCard = document.getElementById('earnings-card');
-    const totalFulaElem = earningsCard.querySelector('#total-fula');
-
-    // Simulating data fetching
-    totalFulaElem.textContent = '123.456'; // Simulating total fula earnings
+    try {
+        const earnings = await api.query.asset.balances(accountId, 100, 100);
+        document.getElementById('total-fula').textContent = earnings.toHuman();
+    } catch (error) {
+        console.error('Error updating earnings info:', error);
+        document.getElementById('total-fula').textContent = '0';
+    }
 };
 
 const setupHomePage = async () => {
@@ -53,49 +70,20 @@ const setupHomePage = async () => {
         localStorage.setItem('bloxAccountId', accountId);
     }
 
-    await updateHardDiskInfo(api);
+    await updateDockerInfo();
     await updateEarningsInfo(api, accountId);
 
     document.getElementById('refresh-disk-button').addEventListener('click', async () => {
-        await updateHardDiskInfo(api);
+        await updateDockerInfo();
     });
 
     document.getElementById('refresh-earnings-button').addEventListener('click', async () => {
         await updateEarningsInfo(api, accountId);
     });
 
-    document.getElementById('go-home-button').addEventListener('click', () => {
-        window.location.href = '/home.html';
+    document.getElementById('go-pools-button').addEventListener('click', () => {
+        window.location.href = '/webui/pools';
     });
-
-    const refreshStatusButton = document.getElementById('refresh-status-button');
-    refreshStatusButton.disabled = true;
-
-    const goHomeButton = document.getElementById('go-home-button');
-    goHomeButton.disabled = true;
-    goHomeButton.classList.add('disabled');
-
-    const checkUserStatus = async () => {
-        const userStatus = await fetchUserPoolStatus(api, accountId);
-        console.log('User status after fetch:', userStatus); // Debug log
-        if (userStatus.poolID) {
-            goHomeButton.disabled = false;
-            goHomeButton.classList.remove('disabled');
-        } else {
-            goHomeButton.disabled = true;
-            goHomeButton.classList.add('disabled');
-        }
-    };
-
-    setInterval(async () => {
-        await checkUserStatus();
-    }, 300000); // Refresh status every 5 minutes
-
-    refreshStatusButton.addEventListener('click', async () => {
-        await checkUserStatus();
-    });
-
-    await checkUserStatus();
 };
 
 document.addEventListener('DOMContentLoaded', setupHomePage);

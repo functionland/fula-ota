@@ -69,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
             password = passwordInputValue;
             saveCredentials(password, signatureData);
             //identitySection.style.display = 'block';
+            localStorage.setItem('wallet_set', 'true');
             window.location.href = '/webui/set-authorizer';
         } catch (err) {
             console.error('Error:', err);
@@ -131,6 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
             signatureData = sig;
             saveCredentials(passwordInput.value, sig);
             //updateIdentity(passwordInput.value, sig);
+            localStorage.setItem('wallet_set', 'true');
             window.location.href = '/webui/set-blox-authorizer';
         }
     });

@@ -78,6 +78,7 @@ async function exchangeConfig(peerId, seed) {
 async function handleNext() {
     try {
         // Redirect to the setup complete page
+        localStorage.setItem('authorizer_set', 'true');
         window.location.href = '/webui/pools';
     } catch (error) {
         console.error('Error:', error);

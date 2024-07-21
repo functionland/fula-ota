@@ -47,9 +47,13 @@ async function updateUserStatus(api, accountId, pools) {
         renderPools(pools.pools, userStatus); // Accessing the pools array correctly
         goToHomeButton.classList.remove('disabled');
         goToHomeButton.disabled = false;
+        localStorage.setItem('pool_joined', 'true');
     } else if (userStatus?.requestPoolId) {
       console.log('User have a join request.');
       renderPools(pools.pools, userStatus);
+      goToHomeButton.classList.remove('disabled');
+      goToHomeButton.disabled = false;
+      localStorage.setItem('pool_joined', 'true');
     } else {
         console.log('User is not a member of any pool.');
         renderPools(pools.pools, {}); // Accessing the pools array correctly and passing an empty object
@@ -146,6 +150,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Error canceling join pool:', error);
         }
     };
+
+    document.getElementById('go-home-button').addEventListener('click', () => {
+      window.location.href = '/webui/home';
+    });
 
     setInterval(async () => {
         await updateUserStatus(api, accountId, pools);

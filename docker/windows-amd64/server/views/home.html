@@ -9,32 +9,33 @@
 <body>
     <div class="container">
         <h1>Home</h1>
-        <div id="hard-disk-card" class="card">
-            <h3>Hard Disks</h3>
+        <div id="docker-card" class="card">
+            <h3>Docker Status</h3>
             <div class="card-content">
                 <div class="row">
-                    <span class="title">Capacity:</span>
-                    <span id="capacity">-</span>
+                    <span class="title">fula_go:</span>
+                    <span id="fula_go-status"><div class="loading-spinner"></div></span>
+                    <span id="fula_go-hint" class="hint" style="display: none;">&#9432;</span>
                 </div>
                 <div class="row">
-                    <span class="title">Fula Size:</span>
-                    <span id="fula-size">-</span>
+                    <span class="title">fula_node:</span>
+                    <span id="fula_node-status"><div class="loading-spinner"></div></span>
+                    <span id="fula_node-hint" class="hint" style="display: none;">&#9432;</span>
                 </div>
                 <div class="row">
-                    <span class="title">Chain Size:</span>
-                    <span id="chain-size">-</span>
+                    <span class="title">ipfs_host:</span>
+                    <span id="ipfs_host-status"><div class="loading-spinner"></div></span>
+                    <span id="ipfs_host-hint" class="hint" style="display: none;">&#9432;</span>
                 </div>
                 <div class="row">
-                    <span class="title">Used:</span>
-                    <span id="used">-</span>
+                    <span class="title">ipfs_cluster:</span>
+                    <span id="ipfs_cluster-status"><div class="loading-spinner"></div></span>
+                    <span id="ipfs_cluster-hint" class="hint" style="display: none;">&#9432;</span>
                 </div>
                 <div class="row">
-                    <span class="title">Free:</span>
-                    <span id="free">-</span>
-                </div>
-                <div class="row">
-                    <span class="title">Status:</span>
-                    <span id="status">-</span>
+                    <span class="title">fula_fxsupport:</span>
+                    <span id="fula_fxsupport-status"><div class="loading-spinner"></div></span>
+                    <span id="fula_fxsupport-hint" class="hint" style="display: none;">&#9432;</span>
                 </div>
                 <button id="refresh-disk-button" class="button">Refresh</button>
             </div>
@@ -50,7 +51,7 @@
             </div>
         </div>
         <div class="button-container">
-            <button id="go-home-button" class="button disabled" disabled>Go to Home</button>
+            <button id="go-pools-button" class="button">Go to Pools</button>
         </div>
     </div>
     <script src="/webui/public/js/bundle/home.bundle.js"></script>
