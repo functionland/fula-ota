@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home</title>
+    <link rel="stylesheet" href="/webui/public/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Home</h1>
+        <div id="hard-disk-card" class="card">
+            <h3>Hard Disks</h3>
+            <div class="card-content">
+                <div class="row">
+                    <span class="title">Capacity:</span>
+                    <span id="capacity">-</span>
+                </div>
+                <div class="row">
+                    <span class="title">Fula Size:</span>
+                    <span id="fula-size">-</span>
+                </div>
+                <div class="row">
+                    <span class="title">Chain Size:</span>
+                    <span id="chain-size">-</span>
+                </div>
+                <div class="row">
+                    <span class="title">Used:</span>
+                    <span id="used">-</span>
+                </div>
+                <div class="row">
+                    <span class="title">Free:</span>
+                    <span id="free">-</span>
+                </div>
+                <div class="row">
+                    <span class="title">Status:</span>
+                    <span id="status">-</span>
+                </div>
+                <button id="refresh-disk-button" class="button">Refresh</button>
+            </div>
+        </div>
+        <div id="earnings-card" class="card">
+            <h3>Rewards</h3>
+            <div class="card-content">
+                <div class="row">
+                    <span class="title">Total Fula:</span>
+                    <span id="total-fula">-</span>
+                </div>
+                <button id="refresh-earnings-button" class="button">Refresh</button>
+            </div>
+        </div>
+        <div class="button-container">
+            <button id="go-home-button" class="button disabled" disabled>Go to Home</button>
+        </div>
+    </div>
+    <script src="/webui/public/js/bundle/home.bundle.js"></script>
+</body>
+</html>

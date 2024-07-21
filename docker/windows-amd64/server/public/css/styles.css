@@ -18,30 +18,21 @@ h1 {
     margin-bottom: 20px;
 }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
+#search-section {
+    text-align: center;
     margin-bottom: 20px;
 }
 
-th, td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
+#search-input {
+    width: 70%;
+    padding: 10px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
 }
 
-th {
-    background-color: #4CAF50;
-    color: white;
-}
-
-.button-container {
-    text-align: center;
-}
-
-button {
+#search-button {
     padding: 10px 20px;
-    margin: 5px;
     background-color: #4CAF50;
     color: white;
     border: none;
@@ -49,25 +40,65 @@ button {
     border-radius: 5px;
 }
 
-button:hover {
+#search-button:hover {
     background-color: #45a049;
 }
 
-/* For Connet to Wallet */
-
-h1, h2 {
+#sync-status-section {
     text-align: center;
     margin-bottom: 20px;
 }
 
-input[type="password"] {
-    width: 100%;
-    padding: 10px;
+.pool {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     margin-bottom: 20px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
 }
 
+.pool h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.pool p {
+    color: #666;
+}
+
+.pool button {
+    padding: 10px 20px;
+    margin-top: 10px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.pool button:hover {
+    background-color: #45a049;
+}
+
+/* General styles for the buttons */
+.button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    margin: 5px;
+    display: inline-block;
+}
+
+.button:hover {
+    background-color: #45a049;
+}
+
+/* Additional styles for better UX */
 .warning-text {
     color: #ff9800;
     text-align: center;
@@ -83,19 +114,6 @@ input[type="password"] {
     margin-bottom: 10px;
 }
 
-.button {
-    display: block;
-    width: 100%;
-    padding: 10px;
-    margin-bottom: 10px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-    text-align: center;
-}
-
 .button.inverted {
     background-color: #fff;
     color: #4CAF50;
@@ -109,10 +127,6 @@ input[type="password"] {
     cursor: not-allowed;
 }
 
-.button:hover {
-    background-color: #45a049;
-}
-
 .button.inverted:hover {
     background-color: #4CAF50;
     color: white;
@@ -122,4 +136,30 @@ input[type="password"] {
     background-color: #b1b1b1;
     color: white;
     border: 1px solid #b1b1b1;
+}
+
+.button-container {
+    text-align: center;
+}
+
+.card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+    background-color: #fff;
+}
+
+.card h3 {
+    margin-top: 0;
+}
+
+.card .row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.card .row .title {
+    font-weight: bold;
 }
