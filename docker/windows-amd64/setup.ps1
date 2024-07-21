@@ -73,10 +73,6 @@ Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp
 Write-Host "Installing Node.js dependencies..."
 Start-Process "npm" -ArgumentList "install express http-proxy body-parser" -WorkingDirectory $InstallationPath -NoNewWindow -Wait
 
-# Start the proxy server
-Write-Host "Starting the proxy server..."
-Start-Process "node" -ArgumentList "proxy-server.js" -WorkingDirectory $InstallationPath -NoNewWindow -PassThru
-
 # Run docker-compose
 Write-Host "Running docker-compose..."
 docker-compose --env-file "$env:envDir\.env" -f "$env:envDir\docker-compose.yml" -p fula up -d

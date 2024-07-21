@@ -15,7 +15,6 @@ Source: "..\fxsupport\linux\kubo\*"; DestDir: "{app}\kubo"; Flags: recursesubdir
 Source: "..\fxsupport\linux\ipfs-cluster\*"; DestDir: "{app}\ipfs-cluster"; Flags: recursesubdirs ignoreversion
 Source: "*"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "proxy-server.js"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start_node_server.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
