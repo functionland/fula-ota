@@ -13,7 +13,19 @@ Source: "..\fxsupport\linux\.env.cluster"; DestDir: "{app}"; Flags: ignoreversio
 Source: "..\fxsupport\linux\.env.gofula"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\fxsupport\linux\kubo\*"; DestDir: "{app}\kubo"; Flags: recursesubdirs ignoreversion
 Source: "..\fxsupport\linux\ipfs-cluster\*"; DestDir: "{app}\ipfs-cluster"; Flags: recursesubdirs ignoreversion
+Source: "docker-compose.yml"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "install_docker.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "setup.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "start_node_server.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "start.ico"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "start.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "status.ico"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "status.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "stop.ico"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "stop.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "trayicon.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "server\out\fula-webui-win32-x64\fula-webui.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
