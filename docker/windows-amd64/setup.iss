@@ -1,7 +1,7 @@
 [Setup]
 AppName=Fula
 AppVersion=1.0
-DefaultDirName={userdocs}\Fula
+DefaultDirName={commonpf}\Fula
 DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename=FulaSetup
@@ -27,7 +27,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; StatusMsg: "Setting up tray icon..."; Flags: shellexec runhidden
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallationPath ""{app}"""; StatusMsg: "Removing Docker containers and volumes..."; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallationPath ""{app}"""; StatusMsg: "Removing Docker containers and volumes..."; Flags: runhidden; RunOnceId: "RemoveDocker"
 
 [Code]
 const
@@ -51,7 +51,6 @@ function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: PAnsiChar): DWOR
 
 procedure InitializeWizard;
 var
-  I: Integer;
   DriveBuffer: AnsiString;
   Drive: string;
   P, BufLen: Integer;
