@@ -1,12 +1,13 @@
 [Setup]
 AppName=Fula
 AppVersion=1.0
-DefaultDirName={commonpf}\Fula
+DefaultDirName={userdocs}\Fula
 DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename=FulaSetup
 Compression=lzma
 SolidCompression=yes
+PrivilegesRequired=admin
 
 [Files]
 Source: "..\fxsupport\linux\.env.cluster"; DestDir: "{app}"; Flags: ignoreversion
@@ -26,7 +27,7 @@ Source: "stop.ps1"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "server\out\fula-webui-win32-x64\fula-webui.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "server\out\fula-webui-win32-x64\*"; DestDir: "{app}\fula-webui-win32-x64"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Fula Status"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\status.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\status.ico"

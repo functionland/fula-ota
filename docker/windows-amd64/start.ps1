@@ -19,8 +19,8 @@ docker-compose up -d
 Write-Host "Starting the proxy server..."
 & .\start_node_server.ps1 -InstallationPath (Get-Location)
 
-# Path to the PID file
-$pidFilePath = Join-Path (Get-Location) "trayicon.pid"
+# Path to the PID file in the temp directory
+$pidFilePath = Join-Path $env:TEMP "trayicon.pid"
 
 # Check if the tray icon process is already running
 if (Test-Path $pidFilePath) {
@@ -34,7 +34,7 @@ if (Test-Path $pidFilePath) {
 }
 
 # Start tray icon in a hidden PowerShell window
-$trayIconProcess = Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File .\trayicon.ps1" -PassThru
-$trayIconProcess.Id | Out-File $pidFilePath
+$trayIconProcess = Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `".\trayicon.ps1`"" -PassThru
+$trayIconProcess.Id | Out-File -FilePath $pidFilePath -Force
 
 Write-Host "Tray icon process started."

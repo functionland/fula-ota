@@ -2,8 +2,8 @@
 Write-Host "Stopping Docker containers..."
 docker-compose down
 
-# Path to the PID file for the Node.js server
-$nodePidFilePath = Join-Path (Get-Location) "node_server.pid"
+# Path to the PID file in the temp directory for the Node.js server
+$nodePidFilePath = Join-Path $env:TEMP "node_server.pid"
 
 # Stop the proxy server using the PID file
 if (Test-Path $nodePidFilePath) {
@@ -20,8 +20,19 @@ if (Test-Path $nodePidFilePath) {
     Write-Host "Proxy server PID file not found."
 }
 
-# Path to the PID file
-$pidFilePath = Join-Path (Get-Location) "trayicon.pid"
+# Terminate any process named "fula-webui"
+$fulaWebuiProcesses = Get-Process -Name "fula-webui" -ErrorAction SilentlyContinue
+if ($fulaWebuiProcesses) {
+    $fulaWebuiProcesses | ForEach-Object {
+        Stop-Process -Id $_.Id -ErrorAction SilentlyContinue  # Suppress errors
+        Write-Host "Terminated process 'fula-webui' with PID $($_.Id)."
+    }
+} else {
+    Write-Host "No 'fula-webui' processes found."
+}
+
+# Path to the PID file in the temp directory for the tray icon
+$pidFilePath = Join-Path $env:TEMP "trayicon.pid"
 
 # Stop the tray icon process using the PID file
 if (Test-Path $pidFilePath) {
