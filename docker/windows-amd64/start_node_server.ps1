@@ -4,7 +4,7 @@ param (
 )
 
 # Start the proxy server using the packaged executable
-$executablePath = Join-Path $InstallationPath "fula-webui-win32-x64/fula-webui.exe"
+$executablePath = Join-Path $InstallationPath "server\fula-webui-win32-x64\fula-webui.exe"
 $nodeProcess = Start-Process "cmd.exe" -ArgumentList "/c `"$executablePath`"" -WorkingDirectory $InstallationPath -NoNewWindow -PassThru
 
 # Path to the PID file in the temp directory

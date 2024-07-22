@@ -61,7 +61,7 @@ $trayIcon.ContextMenu = $contextMenu
 $trayIcon.add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-        Start-Process "http://localhost:7000/webui"
+        Start-Process "http://localhost:7000/webui/"
     }
 })
 
