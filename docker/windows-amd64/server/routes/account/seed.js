@@ -14,8 +14,16 @@ router.get('/', (req, res) => {
             console.error(`Stderr: ${stderr}`);
             return res.status(500).send(`Server error: ${stderr}`);
         }
-        const response = JSON.parse(stdout);
-        const accountSeed = response.accountSeed.trim();
+
+        let response;
+        try {
+            response = JSON.parse(stdout);
+        } catch (parseError) {
+            console.error(`Parse Error: ${parseError.message}`);
+            return res.json({ accountSeed: null });
+        }
+
+        const accountSeed = response.accountSeed ? response.accountSeed.trim() : null;
         res.json({ accountSeed });
     });
 });

@@ -7,3 +7,9 @@ Then in another window run:
 ```
 node app.js
 ```
+
+package:
+```
+npm i
+pkg .
+```

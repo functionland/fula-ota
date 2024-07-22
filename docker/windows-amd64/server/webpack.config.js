@@ -2,11 +2,13 @@ const path = require('path');
 
 module.exports = {
   entry: {
+    app: './app.js',
     wallet: './public/js/wallet.js',
     setAuthorizer: './public/js/set-authorizer.js',
     pools: './public/js/pools.js',
     home: './public/js/home.js',
-    index: './public/js/index.js'
+    index: './public/js/index.js',
+    welcome: './public/js/welcome.js'
   },
   output: {
     filename: '[name].bundle.js',

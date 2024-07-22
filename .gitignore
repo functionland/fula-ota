@@ -2,3 +2,5 @@ docker/go-fula/go-fula
 docker/sugarfunge-node/sugarfunge-api
 docker/sugarfunge-node/sugarfunge-node
 .history/*
+docker/windows-amd64/server/node_modules/*
+docker/windows-amd64/server/out/*

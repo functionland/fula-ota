@@ -13,8 +13,8 @@ Source: "..\fxsupport\linux\.env.cluster"; DestDir: "{app}"; Flags: ignoreversio
 Source: "..\fxsupport\linux\.env.gofula"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\fxsupport\linux\kubo\*"; DestDir: "{app}\kubo"; Flags: recursesubdirs ignoreversion
 Source: "..\fxsupport\linux\ipfs-cluster\*"; DestDir: "{app}\ipfs-cluster"; Flags: recursesubdirs ignoreversion
-Source: "*"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "server\out\fula-webui-win32-x64\fula-webui.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Fula Status"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\status.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\status.ico"
@@ -151,4 +151,14 @@ begin
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:envDir}', UnixStylePath);
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:ExternalDrive}', StringReplace(UnixStyleExternalDrive, '/', ''));
   end;
+end;
+
+procedure BeforeInstall;
+var
+  ResultCode: Integer;
+begin
+  // Run npm install, build, and make commands
+  Exec(ExpandConstant('{cmd}'), '/C npm install', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{cmd}'), '/C npm run build', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{cmd}'), '/C npm run make', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
 end;

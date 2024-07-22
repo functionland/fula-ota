@@ -14,7 +14,6 @@ const { exec } = require('child_process');
 
 const app = express();
 const port = 7000;
-const proxyPort = 7001;
 
 // Use CORS middleware
 app.use(cors());
