@@ -169,9 +169,19 @@ end;
 procedure BeforeInstall;
 var
   ResultCode: Integer;
+  SourcePath, DestPath: string;
 begin
   // Run npm install, build, and make commands
   Exec(ExpandConstant('{cmd}'), '/C npm install', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'), '/C npm run build', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'), '/C npm run make', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+
+  // Copy files after npm commands
+  SourcePath := ExpandConstant('{src}\server\out\fula-webui-win32-x64\*');
+  DestPath := ExpandConstant('{app}\server\fula-webui-win32-x64');
+  Exec(ExpandConstant('{cmd}'), Format('/C xcopy "%s" "%s" /E /I /Y', [SourcePath, DestPath]), '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+
+  SourcePath := ExpandConstant('{src}\server\out\make\*');
+  DestPath := ExpandConstant('{app}\server\make');
+  Exec(ExpandConstant('{cmd}'), Format('/C xcopy "%s" "%s" /E /I /Y', [SourcePath, DestPath]), '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
 end;

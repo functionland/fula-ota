@@ -19,12 +19,13 @@ router.get('/', (req, res) => {
         try {
             response = JSON.parse(stdout);
         } catch (parseError) {
-            console.error(`Parse Error: ${parseError.message}`);
-            return res.json({ accountSeed: null });
+            console.error(`JSON Parse Error: ${parseError.message}`);
+            // Return a 200 status with an empty account seed
+            return res.status(200).json({ accountSeed: '' });
         }
 
-        const accountSeed = response.accountSeed ? response.accountSeed.trim() : null;
-        res.json({ accountSeed });
+        const accountSeed = response.accountSeed ? response.accountSeed.trim() : '';
+        res.status(200).json({ accountSeed });
     });
 });
 

@@ -14,9 +14,18 @@ router.get('/', (req, res) => {
             console.error(`Stderr: ${stderr}`);
             return res.status(500).send(`Server error: ${stderr}`);
         }
-        const response = JSON.parse(stdout);
-        const accountId = response.accountId.trim();
-        res.json({ accountId });
+
+        let response;
+        try {
+            response = JSON.parse(stdout);
+        } catch (parseError) {
+            console.error(`JSON Parse Error: ${parseError.message}`);
+            // Return a 200 status with an empty account ID
+            return res.status(200).json({ accountId: '' });
+        }
+
+        const accountId = response.accountId ? response.accountId.trim() : '';
+        res.status(200).json({ accountId });
     });
 });
 
