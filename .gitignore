@@ -4,3 +4,4 @@ docker/sugarfunge-node/sugarfunge-node
 .history/*
 docker/windows-amd64/server/node_modules/*
 docker/windows-amd64/server/out/*
+docker/windows-amd64/FulaSetup.exe
