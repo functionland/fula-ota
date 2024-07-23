@@ -28,7 +28,7 @@ Source: "trayicon.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "server\out\fula-webui-win32-x64\*"; DestDir: "{app}\server\fula-webui-win32-x64"; Flags: ignoreversion
-Source: "server\out\make\squirrel.windows\x64\*"; DestDir: "{app}\server\make"; Flags: ignoreversion
+Source: "server\out\make\*"; DestDir: "{app}\server\make"; Flags: recursesubdirs
 
 [Icons]
 Name: "{group}\Fula Status"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\status.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\status.ico"
@@ -63,8 +63,34 @@ function GetDriveType(lpRootPathName: string): UINT;
 function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: PAnsiChar): DWORD;
   external 'GetLogicalDriveStringsA@kernel32.dll stdcall';
 
+function GetExternalDrive(Param: string): string;
+begin
+  Result := externalDrive;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  Log('CurPageChanged: CurPageID = ' + IntToStr(CurPageID));
+  if (CurPageID = DiskPage.ID) or (CurPageID = 10) then
+  begin
+    if DiskComboBox.ItemIndex <> -1 then
+    begin
+      externalDrive := DiskComboBox.Text;
+      Log('CurPageChanged: DiskComboBox.Text = ' + DiskComboBox.Text);
+      Log('CurPageChanged: externalDrive = ' + externalDrive);
+    end
+    else
+    begin
+      externalDrive := 'C:'; // Default to C: if not set
+      Log('CurPageChanged: externalDrive defaulted to C:');
+    end;
+  end;
+end;
+
+
 procedure InitializeWizard;
 var
+  I: Integer;
   DriveBuffer: AnsiString;
   Drive: string;
   P, BufLen: Integer;
@@ -76,6 +102,9 @@ begin
   DiskComboBox.Left := ScaleX(10);
   DiskComboBox.Top := ScaleY(10);
   DiskComboBox.Width := ScaleX(300);
+
+  // Log the DiskPage ID for debugging
+  Log('InitializeWizard: DiskPage.ID = ' + IntToStr(DiskPage.ID));
 
   // Initialize DriveBuffer
   SetLength(DriveBuffer, 255);
@@ -109,19 +138,6 @@ begin
     MsgBox('No external drives found.', mbInformation, MB_OK);
 end;
 
-function GetExternalDrive(Param: string): string;
-begin
-  Result := externalDrive;
-end;
-
-procedure CurPageChanged(CurPageID: Integer);
-begin
-  if CurPageID = DiskPage.ID then
-  begin
-    externalDrive := DiskComboBox.Text;
-  end;
-end;
-
 function StringReplace(const S, OldPattern, NewPattern: string): string;
 var
   ResultString: string;
@@ -141,10 +157,13 @@ end;
 procedure ReplaceInFile(const FileName, SearchString, ReplaceString: string);
 var
   FileContent: AnsiString;
+  SafeReplaceString: string;
 begin
   if LoadStringFromFile(FileName, FileContent) then
   begin
-    FileContent := StringReplace(FileContent, SearchString, ReplaceString);
+    // Escape backslashes in the replacement string
+    SafeReplaceString := StringReplace(ReplaceString, '\', '\\');
+    FileContent := StringReplace(FileContent, SearchString, SafeReplaceString);
     SaveStringToFile(FileName, FileContent, False);
   end;
 end;
@@ -158,11 +177,15 @@ begin
     // Convert the installation path to Unix-style path
     UnixStylePath := StringReplace(ExpandConstant('{app}'), '\', '/');
     UnixStyleExternalDrive := StringReplace(externalDrive, '\', '/');
-    
+
+    // Ensure single forward slashes
+    UnixStylePath := StringReplace(UnixStylePath, '//', '/');
+    UnixStyleExternalDrive := StringReplace(UnixStyleExternalDrive, '/', '');
+
     // Perform the replacements in docker-compose.yml
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:InstallationPath}', UnixStylePath);
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:envDir}', UnixStylePath);
-    ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:ExternalDrive}', StringReplace(UnixStyleExternalDrive, '/', ''));
+    ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:ExternalDrive}', UnixStyleExternalDrive);
   end;
 end;
 
