@@ -1,6 +1,10 @@
 [Setup]
 AppName=Fula
-AppVersion=1.0
+AppVersion=1.1
+AppPublisher=Functionland
+AppPublisherURL=https://fx.land
+AppSupportURL=https://t.me/functionlanders
+AppUpdatesURL=https://t.me/functionland
 DefaultDirName={userdocs}\Fula
 DisableProgramGroupPage=yes
 OutputDir=.
@@ -8,6 +12,16 @@ OutputBaseFilename=FulaSetup
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
+LicenseFile=license.txt
+VersionInfoVersion=1.1
+VersionInfoCompany=Functionland
+VersionInfoDescription=Fula Setup
+VersionInfoCopyright=© 2023 Functionland
+; Uncomment the following line once you have a code signing certificate
+; SignTool=signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a $f
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "..\fxsupport\linux\.env.cluster"; DestDir: "{app}"; Flags: ignoreversion
