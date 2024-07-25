@@ -10,6 +10,7 @@ node app.js
 
 package:
 ```
-npm i
-pkg .
+npm install
+npm run build
+npm run make
 ```

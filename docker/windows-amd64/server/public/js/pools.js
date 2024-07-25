@@ -39,6 +39,24 @@ function renderPools(pools, userStatus) {
     });
 }
 
+function renderInfoBox(accountId) {
+    const infoBox = document.getElementById('info-box');
+    const accountIdElement = document.getElementById('blox-account-id');
+    accountIdElement.textContent = accountId;
+    infoBox.style.display = 'block';
+
+    accountIdElement.addEventListener('click', () => {
+        navigator.clipboard.writeText(accountId)
+            .then(() => {
+                alert('Account ID copied to clipboard');
+            })
+            .catch(err => {
+                console.error('Could not copy text: ', err);
+            });
+    });
+}
+
+
 async function updateUserStatus(api, accountId, pools) {
     const userStatus = await fetchUserPoolStatus(api, accountId);
     console.log('User status after fetch:', userStatus); // Debug log
@@ -60,6 +78,7 @@ async function updateUserStatus(api, accountId, pools) {
         goToHomeButton.classList.add('disabled');
         goToHomeButton.disabled = true;
     }
+    renderInfoBox(accountId);
 }
 
 // Document ready event listener

@@ -271,3 +271,37 @@ input {
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     margin-bottom: 20px;
 }
+
+.info-box {
+    padding: 20px;
+    background-color: #f0f8ff;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.info-box p {
+    margin: 10px 0;
+}
+
+.info-box a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+.info-box a:hover {
+    text-decoration: underline;
+}
+
+.clickable {
+    color: #333;
+    background-color: #e7e7e7;
+    padding: 5px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.clickable:hover {
+    background-color: #ccc;
+}

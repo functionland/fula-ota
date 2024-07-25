@@ -1,5 +1,26 @@
 # install_docker.ps1
 
+# Check for admin rights
+if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
+{
+    Write-Warning "You do not have Administrator rights to run this script!`nPlease re-run this script as an Administrator!"
+    Exit 1
+}
+
+Write-Host "Checking if WSL is installed..."
+$wsl = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
+
+if ($wsl.State -ne "Enabled") {
+    Write-Host "WSL is not installed. Attempting to install WSL..."
+    try {
+        Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart
+        Write-Host "WSL has been successfully installed. A system restart may be required."
+    } catch {
+        Write-Host "Error: Failed to install WSL. Please install it manually before proceeding with Docker installation."
+        exit 1
+    }
+}
+
 Write-Host "Checking if Docker is installed..."
 
 $docker = Get-Command docker -ErrorAction SilentlyContinue

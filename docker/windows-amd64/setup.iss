@@ -36,7 +36,7 @@ Name: "{group}\Fula Start"; Filename: "powershell.exe"; Parameters: "-NoProfile 
 Name: "{group}\Fula Stop"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\stop.ico"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; StatusMsg: "Installing Docker..."; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; StatusMsg: "Installing Docker..."; Flags: runhidden runascurrentuser
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; StatusMsg: "Setting up Fula..."; Flags: runhidden
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; StatusMsg: "Setting up tray icon..."; Flags: shellexec runhidden
 
