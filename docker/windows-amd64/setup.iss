@@ -1,6 +1,6 @@
 [Setup]
 AppName=Fula
-AppVersion=1.1
+AppVersion=1.2
 AppPublisher=Functionland
 AppPublisherURL=https://fx.land
 AppSupportURL=https://t.me/functionlanders
@@ -17,8 +17,6 @@ VersionInfoVersion=1.1
 VersionInfoCompany=Functionland
 VersionInfoDescription=Fula Setup
 VersionInfoCopyright=© 2023 Functionland
-; Uncomment the following line once you have a code signing certificate
-; SignTool=signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a $f
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

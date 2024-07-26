@@ -6,8 +6,27 @@ if (-not $dockerDesktopProcess) {
     Write-Host "Docker Desktop is not running. Attempting to start it..."
     Start-Process -FilePath "C:\Program Files\Docker\Docker\Docker Desktop.exe" -NoNewWindow
     # Wait for Docker Desktop to start
-    Start-Sleep -Seconds 15
-    Write-Host "Docker Desktop started successfully."
+    Start-Sleep -Seconds 45
+    $timeout = New-TimeSpan -Minutes 5
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $dockerReady = $false
+
+    while (-not $dockerReady -and $sw.Elapsed -lt $timeout) {
+        try {
+            $null = docker info
+            $dockerReady = $true
+            Write-Host "Docker Desktop is now ready."
+        }
+        catch {
+            Write-Host "Waiting for Docker Desktop to be ready..."
+            Start-Sleep -Seconds 10
+        }
+    }
+
+    if (-not $dockerReady) {
+        Write-Host "Docker Desktop did not become ready within the timeout period."
+        exit 1
+    }
 } else {
     Write-Host "Docker Desktop is already running."
 }
@@ -33,8 +52,15 @@ $stopwatch = [diagnostics.stopwatch]::StartNew()
 
 while (-not (Test-AllContainersRunning)) {
     if ($stopwatch.Elapsed -gt $timeout) {
-        Write-Host "Error: Not all containers are running after 2 minutes. Please check Docker logs for more information."
-        exit 1
+        Write-Host "Not all Docker containers are running. Attempting to start them..."
+        docker-compose start
+        Start-Sleep -Seconds 10
+        if (!(Test-AllContainersRunning)) {
+            Write-Host "Failed to start all Docker containers. Please check the container status."
+            exit 1
+        } else {
+            Write-Host "All Docker containers started successfully."
+        }
     }
     Write-Host "Waiting for all containers to start..."
     Start-Sleep -Seconds 10

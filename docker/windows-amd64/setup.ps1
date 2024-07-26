@@ -72,6 +72,9 @@ Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp
 Write-Host "Opening port 8181..."
 Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp startport=8181 numberofports=1 store=persistent" -Verb RunAs
 
+Write-Host "Opening port 9094..."
+Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp startport=9094 numberofports=1 store=persistent" -Verb RunAs
+
 # Run docker-compose
 Write-Host "Running docker-compose..."
 docker-compose --env-file "$env:envDir\.env" -f "$env:envDir\docker-compose.yml" -p fula up -d
