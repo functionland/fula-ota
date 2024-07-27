@@ -1,5 +1,40 @@
+import { createWeb3Modal, defaultWagmiConfig } from '@web3modal/wagmi'
+import { createConfig, getAccount, reconnect, signMessage } from '@wagmi/core'
+import { mainnet, arbitrum } from 'viem/chains'
+import { metaMask } from '@wagmi/connectors'
+import { http } from 'viem'
 import { HDKEY } from '@functionland/fula-sec-web';
-import Web3 from 'web3';
+
+// WalletConnect project ID
+const projectId = '94a4ca39db88ee0be8f6df95fdfb560a';
+const metadata = {
+    name: 'FxBlox',
+    description: 'Application to set up FxBlox, designed to run as a Decentralized Physical Infrastructure node (DePIN)',
+    url: 'https://web3modal.com', // origin must match your domain & subdomain
+    icons: ['https://imagedelivery.net/_aTEfDRm7z3tKgu9JhfeKA/1f36e0e1-df9a-4bdc-799b-8631ab1eb000/sm']
+};
+
+const chains = [mainnet, arbitrum];
+const metaMaskConnector = metaMask({ chains });
+
+const config = defaultWagmiConfig({
+    chains,
+    projectId,
+    metadata,
+    connectors: [metaMaskConnector],
+    transports: {
+        [mainnet.id]: http(),
+        [arbitrum.id]: http(),
+    },
+});
+//await reconnect(config);
+// Create Web3Modal
+const modal = createWeb3Modal({
+    wagmiConfig: config,
+    projectId,
+    enableAnalytics: true, // Optional - defaults to your Cloud configuration
+    enableOnramp: true // Optional - false as default
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     const passwordInput = document.getElementById('password-input');
@@ -8,43 +43,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const signMetamaskButton = document.getElementById('sign-metamask');
     const signManuallyButton = document.getElementById('sign-manually');
     const connectBloxButton = document.getElementById('connect-blox');
-    //const reconnectBloxButton = document.getElementById('reconnect-blox');
-    //const skipManualSetupButton = document.getElementById('skip-manual-setup');
-    //const identitySection = document.getElementById('identity-section');
-    //const identityText = document.getElementById('identity-text');
     
     let linking = false;
     let signatureData = '';
     let password = '';
-    let signiture = '';
 
-    // Utility function to update button states
     function updateButtonStates() {
         const isFormValid = passwordInput.value && iKnowCheckbox.checked && metamaskOpenCheckbox.checked;
         signMetamaskButton.disabled = !isFormValid;
         signManuallyButton.disabled = !isFormValid;
         signMetamaskButton.classList.toggle('disabled', !isFormValid);
         signManuallyButton.classList.toggle('disabled', !isFormValid);
-    }
-
-    async function personalSign(web3, msg) {
-        console.log('personalSign');
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-
-        console.log(accounts);
-        console.log('getAccounts');
-        if (!accounts || accounts.length === 0) {
-            throw new Error('No accounts found. Please ensure MetaMask is connected.');
-        }
-        const account = accounts[0];
-        console.log(`Signing message with account: ${account}`);
-        const sign = await window.ethereum // Or window.ethereum if you don't support EIP-6963.
-        .request({
-            method: "personal_sign",
-            params: [msg, account],
-        });
-        console.log(sign);
-        return sign;
     }
 
     async function handleLinkPassword() {
@@ -59,67 +68,71 @@ document.addEventListener('DOMContentLoaded', () => {
             const ed = new HDKEY(passwordInputValue);
             const chainCode = ed.chainCode;
             const msg = `Sign this message to link your wallet with the chain code: ${chainCode}`;
-            const web3 = new Web3();
-            const sig = await personalSign(web3, msg);
-            if (!sig) {
+
+            const signature = await signMessage(config, { message: msg });
+
+            if (!signature) {
                 throw new Error('Sign failed');
             }
-            console.log(sig);
-            signatureData = sig;
+            console.log(signature);
+            signatureData = signature;
             password = passwordInputValue;
             saveCredentials(password, signatureData);
-            //identitySection.style.display = 'block';
             localStorage.setItem('wallet_set', 'true');
             window.location.href = '/webui/set-authorizer';
         } catch (err) {
             console.error('Error:', err);
-            alert('Unable to sign the wallet address! Make sure MetaMask is connected and you have an account selected.');
+            alert('Unable to sign the message! Make sure your wallet is connected and you have an account selected.');
         } finally {
             linking = false;
         }
     }
 
-    // Save credentials securely
     function saveCredentials(password, signatureData) {
-        const credentials = {
-            password,
-            signatureData
-        };
+        const credentials = { password, signatureData };
         localStorage.setItem('credentials', JSON.stringify(credentials));
     }
 
-    // Retrieve credentials securely
     function getCredentials() {
         const credentials = localStorage.getItem('credentials');
-        if (credentials) {
-            return JSON.parse(credentials);
-        }
-        return null;
+        return credentials ? JSON.parse(credentials) : null;
     }
-
-    /*function updateIdentity(password, signatureData) {
-        const did = getMyDID(password, signatureData);
-        identityText.textContent = did;
-        connectBloxButton.style.display = 'block';
-        reconnectBloxButton.style.display = 'block';
-        skipManualSetupButton.style.display = 'block';
-    }*/
-
-    /*function getMyDID(password, signature) {
-        // Dummy function, replace with actual logic to generate DID
-        return `DID:${password}:${signature}`;
-    }*/
 
     passwordInput.addEventListener('input', updateButtonStates);
     iKnowCheckbox.addEventListener('change', updateButtonStates);
     metamaskOpenCheckbox.addEventListener('change', updateButtonStates);
 
+    modal.subscribeEvents(event => {
+        console.log(event.data.event);
+        const state = event?.data?.event;
+        if (state == "CONNECT_SUCCESS") {
+            console.log('connectd to wallet');
+            const account = getAccount(config);
+            const address = account?.address;
+            console.log('logged in with address: ' + address);
+            if (address) {
+                handleLinkPassword();
+            }
+        }
+    
+    });
     signMetamaskButton.addEventListener('click', async () => {
         if (!passwordInput.value || !iKnowCheckbox.checked || !metamaskOpenCheckbox.checked) {
             alert('Please complete all required fields and checkboxes.');
             return;
         }
-        await handleLinkPassword();
+        
+        try {
+            console.log('connect');
+            modal.close();
+            modal.open({ view: 'Connect' }).then((res) => {
+                console.log('res received');
+                console.log(res);
+            });
+        } catch (error) {
+            console.error('Connection error:', error);
+            alert('Failed to connect wallet. Please try again.');
+        }
     });
 
     signManuallyButton.addEventListener('click', () => {
@@ -131,7 +144,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sig) {
             signatureData = sig;
             saveCredentials(passwordInput.value, sig);
-            //updateIdentity(passwordInput.value, sig);
             localStorage.setItem('wallet_set', 'true');
             window.location.href = '/webui/set-blox-authorizer';
         }
@@ -141,14 +153,5 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/webui/connect-to-blox';
     });
 
-    /*reconnectBloxButton.addEventListener('click', () => {
-        window.location.href = '/webui/connect-to-existing-blox';
-    });
-
-    skipManualSetupButton.addEventListener('click', () => {
-        window.location.href = '/webui/set-blox-authorizer';
-    });*/
-
-    // Initial button state update
     updateButtonStates();
 });
