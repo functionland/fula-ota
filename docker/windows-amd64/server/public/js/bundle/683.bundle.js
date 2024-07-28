@@ -1,1 +1,1 @@
-(self.webpackChunkfula_webui=self.webpackChunkfula_webui||[]).push([[683],{9683:()=>{}}]);
+(self.webpackChunkfula_webui=self.webpackChunkfula_webui||[]).push([[683],{69683:()=>{}}]);
