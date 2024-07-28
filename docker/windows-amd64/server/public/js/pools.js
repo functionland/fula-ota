@@ -24,9 +24,9 @@ function renderPools(pools, userStatus) {
     pools.forEach(pool => {
         const poolElement = document.createElement('div');
         poolElement.className = 'pool';
-        const isMember = userStatus && userStatus.poolID == pool.poolID;
+        const isMember = userStatus && userStatus.poolId == pool.poolID;
         const hasRequested = userStatus && userStatus.requestPoolId == pool.poolID;
-        console.log({"userStatus.requestPoolId":userStatus.requestPoolId, "pool.poolID": pool.poolID, "hasRequested": hasRequested});
+        console.log({"userStatus.requestPoolId":userStatus.requestPoolId, "userStatus.poolID":userStatus.poolID, "pool.poolID": pool.poolID, "hasRequested": hasRequested, "isMember": isMember});
 
         poolElement.innerHTML = `
             <h3>${pool.name}</h3>
@@ -69,7 +69,7 @@ async function updateUserStatus(api, accountId, pools) {
     globalUserStatus = userStatus;
     console.log('User status after fetch:', userStatus); // Debug log
     const goToHomeButton = document.getElementById('go-home-button');
-    if (userStatus?.poolID) {
+    if (userStatus?.poolId) {
         renderPools(pools.pools, userStatus); // Accessing the pools array correctly
         goToHomeButton.classList.remove('disabled');
         goToHomeButton.disabled = false;
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.joinPoolAction = async (poolID) => {
         try {
             const userStatus = await fetchUserPoolStatus(api, accountId);
-            if (userStatus?.poolID) {
+            if (userStatus?.poolId) {
                 alert("You are already a member of a pool. Please leave your current pool before joining a new one.");
                 return;
             }
@@ -140,6 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 window.location.href = '/webui/set-authorizer';
                 return;
             }
+            console.log('blox peerId:'+peerId);
                 
             const seed = await getSeed();
             if (!seed) {
@@ -151,7 +152,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const allButtons = document.querySelectorAll('.button');
             
             // Disable all buttons
-            allButtons.forEach(button => button.disabled = true);
+            allButtons.forEach(button => {
+                button.disabled = true;
+                //button.className.add('disabled');
+            });
             
             // Change text of the clicked button
             joinButton.textContent = 'Joining...';
@@ -167,7 +171,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         } finally {
             // Re-enable all buttons and revert text
             const allButtons = document.querySelectorAll('.button');
-            allButtons.forEach(button => button.disabled = false);
+            allButtons.forEach(button => {
+                button.disabled = false;
+                //button.className.remove('disabled');
+            });
             const joinButton = document.getElementById(`join-pool-${poolID}`);
             if (joinButton) {
                 joinButton.textContent = 'Join';

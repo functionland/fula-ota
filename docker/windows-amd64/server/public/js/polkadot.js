@@ -41,7 +41,7 @@ const getSeed = async () => {
 };
 
 const joinPool = async (api, seed, poolID, peerId) => {
-    console.log('joinPool in polkadotjs');
+    console.log('joinPool in polkadotjs with poolID=' + poolID + ' & peerId=' + peerId);
     const keyring = new Keyring({ type: 'sr25519' });
     console.log('keyring generated');
     const userKey = keyring.addFromUri(seed, { name: 'account' }, 'sr25519');
@@ -49,8 +49,10 @@ const joinPool = async (api, seed, poolID, peerId) => {
     const balance = await api.query.system.account(userKey.address);
     console.log({ balance: balance });
     if (balance.data.free > 999999999999) {
+        console.log('gas balance is: ' + balance.data.free);
         const extrinsic = api.tx.pool.join(poolID, peerId);
         await extrinsic.signAndSend(userKey);
+        console.log('join transaction submitted');
     } else {
         alert('You need to first join the testnet. Your balance is below the required threshold.');
     }
