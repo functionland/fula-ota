@@ -1,6 +1,6 @@
 [Setup]
 AppName=Fula
-AppVersion=1.3
+AppVersion=1.4
 AppPublisher=Functionland
 AppPublisherURL=https://fx.land
 AppSupportURL=https://t.me/functionlanders
@@ -69,6 +69,7 @@ var
   DiskPage: TWizardPage;
   DiskComboBox: TComboBox;
   externalDrive: string;
+  IsSilentInstall: Boolean;
 
 function GetDriveType(lpRootPathName: string): UINT;
   external 'GetDriveTypeA@kernel32.dll stdcall';
@@ -77,24 +78,30 @@ function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: PAnsiChar): DWOR
 
 function GetExternalDrive(Param: string): string;
 begin
-  Result := externalDrive;
+  if IsSilentInstall then
+    Result := 'C:'
+  else
+    Result := externalDrive;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  Log('CurPageChanged: CurPageID = ' + IntToStr(CurPageID));
-  if (CurPageID = DiskPage.ID) or (CurPageID = 10) then
+  if not IsSilentInstall then
   begin
-    if DiskComboBox.ItemIndex <> -1 then
+    Log('CurPageChanged: CurPageID = ' + IntToStr(CurPageID));
+    if (CurPageID = DiskPage.ID) or (CurPageID = 10) then
     begin
-      externalDrive := DiskComboBox.Text;
-      Log('CurPageChanged: DiskComboBox.Text = ' + DiskComboBox.Text);
-      Log('CurPageChanged: externalDrive = ' + externalDrive);
-    end
-    else
-    begin
-      externalDrive := 'C:'; // Default to C: if not set
-      Log('CurPageChanged: externalDrive defaulted to C:');
+      if DiskComboBox.ItemIndex <> -1 then
+      begin
+        externalDrive := DiskComboBox.Text;
+        Log('CurPageChanged: DiskComboBox.Text = ' + DiskComboBox.Text);
+        Log('CurPageChanged: externalDrive = ' + externalDrive);
+      end
+      else
+      begin
+        externalDrive := 'C:'; // Default to C: if not set
+        Log('CurPageChanged: externalDrive defaulted to C:');
+      end;
     end;
   end;
 end;
@@ -107,47 +114,43 @@ var
   Drive: string;
   P, BufLen: Integer;
 begin
-  // Create the custom page
-  DiskPage := CreateCustomPage(wpSelectDir, 'Select External Storage Drive', 'Please select an external storage drive from the list below.');
-  DiskComboBox := TComboBox.Create(WizardForm);
-  DiskComboBox.Parent := DiskPage.Surface;
-  DiskComboBox.Left := ScaleX(10);
-  DiskComboBox.Top := ScaleY(10);
-  DiskComboBox.Width := ScaleX(300);
+  IsSilentInstall := (Pos('/VERYSILENT', UpperCase(GetCmdTail)) > 0) or (Pos('/SILENT', UpperCase(GetCmdTail)) > 0);
 
-  // Log the DiskPage ID for debugging
-  Log('InitializeWizard: DiskPage.ID = ' + IntToStr(DiskPage.ID));
-
-  // Initialize DriveBuffer
-  SetLength(DriveBuffer, 255);
-
-  // Get logical drive strings
-  BufLen := GetLogicalDriveStrings(255, PAnsiChar(DriveBuffer));
-  if BufLen = 0 then
+  if not IsSilentInstall then
   begin
-    MsgBox('Error retrieving drive information.', mbError, IDOK);
-    // Handle the error (e.g., continue without external drive selection)
-  end;
+    DiskPage := CreateCustomPage(wpSelectDir, 'Select External Storage Drive', 'Please select an external storage drive from the list below.');
+    DiskComboBox := TComboBox.Create(WizardForm);
+    DiskComboBox.Parent := DiskPage.Surface;
+    DiskComboBox.Left := ScaleX(10);
+    DiskComboBox.Top := ScaleY(10);
+    DiskComboBox.Width := ScaleX(300);
 
-  if BufLen > 0 then
-  begin
-    P := 1;
-    while P <= BufLen do
+    SetLength(DriveBuffer, 255);
+    BufLen := GetLogicalDriveStrings(255, PAnsiChar(DriveBuffer));
+
+    if BufLen > 0 then
     begin
-      Drive := Copy(DriveBuffer, P, 3);
-      if GetDriveType(PAnsiChar(Drive)) <> DRIVE_REMOTE then
+      P := 1;
+      while P <= BufLen do
       begin
-        DiskComboBox.Items.Add(Drive);
+        Drive := Copy(DriveBuffer, P, 3);
+        if GetDriveType(PAnsiChar(Drive)) <> DRIVE_REMOTE then
+        begin
+          DiskComboBox.Items.Add(Drive);
+        end;
+        P := P + 4;
       end;
-      P := P + 4;
     end;
-  end;
 
-  if DiskComboBox.Items.Count > 0 then
-    DiskComboBox.ItemIndex := 0
+    if DiskComboBox.Items.Count > 0 then
+      DiskComboBox.ItemIndex := 0
+    else
+      MsgBox('No external drives found.', mbInformation, MB_OK);
+  end
   else
-    // Handle empty drive list (optional: display message)
-    MsgBox('No external drives found.', mbInformation, MB_OK);
+  begin
+    externalDrive := 'C:';
+  end;
 end;
 
 function StringReplace(const S, OldPattern, NewPattern: string): string;

@@ -305,3 +305,19 @@ input {
 .clickable:hover {
     background-color: #ccc;
 }
+
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #f5f5f5;
+    color: #888;
+    text-align: center;
+    padding: 10px 0;
+    font-size: 14px;
+}
+
+.footer p {
+    margin: 0;
+}

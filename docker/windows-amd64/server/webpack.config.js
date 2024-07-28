@@ -7,7 +7,8 @@ module.exports = {
     pools: './public/js/pools.js',
     home: './public/js/home.js',
     index: './public/js/index.js',
-    welcome: './public/js/welcome.js'
+    welcome: './public/js/welcome.js',
+    common: './public/js/common.js'
   },
   output: {
     filename: '[name].bundle.js',
