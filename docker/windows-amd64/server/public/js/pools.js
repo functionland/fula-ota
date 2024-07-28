@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { initApi, fetchPools, fetchUserPoolStatus, getSeed, joinPool, leavePool, cancelJoinPool } from './polkadot';
 
+let globalUserStatus;
+
 // Function to restart Docker containers
 async function restartDockerContainers() {
     const containers = ['ipfs_host', 'ipfs_cluster', 'fula_go', 'fula_node'];
@@ -16,7 +18,7 @@ async function restartDockerContainers() {
 
 // Function to render the list of pools
 function renderPools(pools, userStatus) {
-    console.log('Rendering pools:', pools, 'User status:', userStatus); // Debug log
+    console.log('Rendering pools:', pools, 'User status:', userStatus);
     const poolsList = document.getElementById('pools-list');
     poolsList.innerHTML = '';
     pools.forEach(pool => {
@@ -31,9 +33,9 @@ function renderPools(pools, userStatus) {
             <p>ID: ${pool.poolID}</p>
             <p>Location: ${pool.region}</p>
             <p id="status-${pool.poolID}" class="status-text"></p>
-            ${isMember ? `<button class="button" onclick="leavePoolAction('${pool.poolID}')">Leave</button>` : ''}
-            ${hasRequested ? `<button class="button" onclick="cancelJoinPoolAction('${pool.poolID}')">Cancel Join Request</button>` : ''}
-            ${!isMember && !hasRequested ? `<button class="button" onclick="joinPoolAction('${pool.poolID}', '${pool.peerId}')">Join</button>` : ''}
+            ${isMember ? `<button class="button" id="leave-pool-${pool.poolID}" onclick="leavePoolAction('${pool.poolID}')">Leave</button>` : ''}
+            ${hasRequested ? `<button class="button" id="cancel-join-${pool.poolID}" onclick="cancelJoinPoolAction('${pool.poolID}')">Cancel Join Request</button>` : ''}
+            ${!isMember && !hasRequested ? `<button class="button" id="join-pool-${pool.poolID}" onclick="joinPoolAction('${pool.poolID}')">Join</button>` : ''}
         `;
         poolsList.appendChild(poolElement);
     });
@@ -45,20 +47,26 @@ function renderInfoBox(accountId) {
     accountIdElement.textContent = accountId;
     infoBox.style.display = 'block';
 
-    accountIdElement.addEventListener('click', () => {
-        navigator.clipboard.writeText(accountId)
-            .then(() => {
-                alert('Account ID copied to clipboard');
-            })
-            .catch(err => {
-                console.error('Could not copy text: ', err);
-            });
-    });
+    // Remove existing event listener before adding a new one
+    accountIdElement.removeEventListener('click', copyAccountId);
+    accountIdElement.addEventListener('click', copyAccountId);
+}
+
+function copyAccountId() {
+    const accountId = this.textContent;
+    navigator.clipboard.writeText(accountId)
+        .then(() => {
+            alert('Account ID copied to clipboard');
+        })
+        .catch(err => {
+            console.error('Could not copy text: ', err);
+        });
 }
 
 
 async function updateUserStatus(api, accountId, pools) {
     const userStatus = await fetchUserPoolStatus(api, accountId);
+    globalUserStatus = userStatus;
     console.log('User status after fetch:', userStatus); // Debug log
     const goToHomeButton = document.getElementById('go-home-button');
     if (userStatus?.poolID) {
@@ -116,57 +124,110 @@ document.addEventListener('DOMContentLoaded', async () => {
         await updateUserStatus(api, accountId, pools);
     });
 
-    window.joinPoolAction = async (poolID, peerId) => {
+    window.joinPoolAction = async (poolID) => {
         try {
+            const userStatus = await fetchUserPoolStatus(api, accountId);
+            if (userStatus?.poolID) {
+                alert("You are already a member of a pool. Please leave your current pool before joining a new one.");
+                return;
+            }
+            if (userStatus?.requestPoolId) {
+                alert("You already have an active join request. Please cancel it before joining a new pool.");
+                return;
+            }
+            const peerId = localStorage.getItem('bloxPeerId');
+            if (!peerId) {
+                window.location.href = '/webui/set-authorizer';
+                return;
+            }
+                
             const seed = await getSeed();
             if (!seed) {
                 alert("Could not get seed from backend");
                 return;
             }
-
-            const joinButton = document.querySelector(`button[onclick="joinPoolAction('${poolID}', '${peerId}')"]`);
-            const refreshButton = document.getElementById('refresh-status-button');
-            const statusText = document.getElementById(`status-${poolID}`);
-            joinButton.disabled = true;
-            joinButton.classList.add('disabled');
-            refreshButton.disabled = true;
-            statusText.textContent = 'Joining...';
-
+    
+            const joinButton = document.getElementById(`join-pool-${poolID}`);
+            const allButtons = document.querySelectorAll('.button');
+            
+            // Disable all buttons
+            allButtons.forEach(button => button.disabled = true);
+            
+            // Change text of the clicked button
+            joinButton.textContent = 'Joining...';
+    
             const response = await axios.post('/api/pools/join', { poolID, accountId });
             if (response.data.status === 'joined') {
                 await joinPool(api, seed, poolID, peerId);
                 await restartDockerContainers();
                 await updateUserStatus(api, accountId, pools);
-                statusText.textContent = 'Join request sent.';
             }
         } catch (error) {
             console.error('Error joining pool:', error);
         } finally {
-            joinButton.disabled = false;
-            joinButton.classList.remove('disabled');
-            refreshButton.disabled = false;
+            // Re-enable all buttons and revert text
+            const allButtons = document.querySelectorAll('.button');
+            allButtons.forEach(button => button.disabled = false);
+            const joinButton = document.getElementById(`join-pool-${poolID}`);
+            if (joinButton) {
+                joinButton.textContent = 'Join';
+            }
         }
     };
 
     window.leavePoolAction = async (poolID) => {
         try {
+            const leaveButton = document.getElementById(`leave-pool-${poolID}`);
+            const allButtons = document.querySelectorAll('.button');
+            
+            // Disable all buttons
+            allButtons.forEach(button => button.disabled = true);
+            
+            // Change text of the clicked button
+            leaveButton.textContent = 'Leaving pool...';
+            
             const seed = await getSeed();
             await leavePool(api, seed, poolID);
             await restartDockerContainers();
             await updateUserStatus(api, accountId, pools);
         } catch (error) {
             console.error('Error leaving pool:', error);
+        } finally {
+            // Re-enable all buttons and revert text
+            const allButtons = document.querySelectorAll('.button');
+            allButtons.forEach(button => button.disabled = false);
+            const leaveButton = document.getElementById(`leave-pool-${poolID}`);
+            if (leaveButton) {
+                leaveButton.textContent = 'Leave';
+            }
         }
     };
 
     window.cancelJoinPoolAction = async (poolID) => {
         try {
+            const cancelButton = document.getElementById(`cancel-join-${poolID}`);
+            const allButtons = document.querySelectorAll('.button');
+            
+            // Disable all buttons
+            allButtons.forEach(button => button.disabled = true);
+            
+            // Change text of the clicked button
+            cancelButton.textContent = 'Cancelling the request...';
+            
             const seed = await getSeed();
             await cancelJoinPool(api, seed, poolID);
             await restartDockerContainers();
             await updateUserStatus(api, accountId, pools);
         } catch (error) {
             console.error('Error canceling join pool:', error);
+        } finally {
+            // Re-enable all buttons and revert text
+            const allButtons = document.querySelectorAll('.button');
+            allButtons.forEach(button => button.disabled = false);
+            const cancelButton = document.getElementById(`cancel-join-${poolID}`);
+            if (cancelButton) {
+                cancelButton.textContent = 'Cancel Join Request';
+            }
         }
     };
 
