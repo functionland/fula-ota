@@ -24,6 +24,14 @@ New-Item -ItemType Directory -Force -Path $env:fulaDir
 New-Item -ItemType Directory -Force -Path $env:internalDir
 New-Item -ItemType Directory -Force -Path $env:ipfsDataDir
 
+New-Item -ItemType File -Force -Path "$env:ipfsDataDir\version"
+New-Item -ItemType File -Force -Path "$env:ipfsDataDir\datastore_spec"
+
+Write-Host "Setting network parameters..."
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpWindowSize" -Value 2500000
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpTimedWaitDelay" -Value 30
+
+
 # Resolve the shortcut path to the actual target path
 $WshShell = New-Object -ComObject WScript.Shell
 $ShortcutPath = Join-Path (Get-Location) "linux.lnk"
@@ -36,9 +44,12 @@ Copy-Item -Force "$TargetPath\.env.gofula" $env:envDir\.env.gofula
 Copy-Item -Recurse -Force "$TargetPath\kubo" $env:fulaDir\kubo\
 Copy-Item -Recurse -Force "$TargetPath\ipfs-cluster" $env:fulaDir\ipfs-cluster\
 
-# Update .env.cluster file
-Write-Host "Updating .env.cluster file..."
-(Get-Content $env:envDir\.env.cluster) -replace 'IPFS_CLUSTER_PATH=.*', "IPFS_CLUSTER_PATH=$env:EXTERNAL_DRIVE_PATH\ipfs-cluster" | Set-Content $env:envDir\.env.cluster
+if (!(Test-Path "$env:ipfsDataDir\config")) {
+    Copy-Item -Force "$env:fulaDir\kubo\config" "$env:ipfsDataDir\config"
+}
+if (!(Test-Path "$env:internalDir\ipfs_config")) {
+    Copy-Item -Force "$env:fulaDir\kubo\config" "$env:internalDir\ipfs_config"
+}
 
 # Convert Windows path to Unix path for Docker
 function Convert-PathToUnix ($path) {

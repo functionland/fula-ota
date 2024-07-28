@@ -71,7 +71,7 @@ services:
       - ${env:ExternalDrive}/uniondrive:/uniondrive:rw,shared
       - ${env:InstallationPath}/.internal:/internal:rw,shared
       - ${env:InstallationPath}/ipfs-cluster:/container-init.d:rw,shared
-      - ${env:envDir}\.env.cluster:/env.cluster
+      - ${env:envDir}/.env.cluster:/.env.cluster
     entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
     network_mode: "host"
     ports:
@@ -83,7 +83,7 @@ services:
       - 8.8.4.4
     privileged: true
     env_file:
-      - ${env:envDir}\.env.cluster
+      - ${env:envDir}/.env.cluster
     cap_add:
       - ALL
     labels:
@@ -103,8 +103,8 @@ services:
       - ${env:InstallationPath}/.internal:/internal:rw,shared
       - ${env:ExternalDrive}/uniondrive:/uniondrive:rw,shared
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${env:envDir}\.env.cluster:/env.cluster
-      - ${env:envDir}\.env.gofula:/env
+      - ${env:envDir}/.env.cluster:/.env.cluster
+      - ${env:envDir}/.env.gofula:/.env
     network_mode: "host"
     ports:
       - "40001:40001" #libp2p port

@@ -1,6 +1,6 @@
 [Setup]
 AppName=Fula
-AppVersion=1.2
+AppVersion=1.3
 AppPublisher=Functionland
 AppPublisherURL=https://fx.land
 AppSupportURL=https://t.me/functionlanders
@@ -16,7 +16,7 @@ LicenseFile=license.txt
 VersionInfoVersion=1.1
 VersionInfoCompany=Functionland
 VersionInfoDescription=Fula Setup
-VersionInfoCopyright=© 2023 Functionland
+VersionInfoCopyright=2023 Functionland
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
