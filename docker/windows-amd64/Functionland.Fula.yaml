@@ -1,0 +1,24 @@
+# MSIX Conversion Accelerator
+
+PackageName: Fula
+
+PublisherName: Functionland
+
+PackageVersion: 1.4.1.0
+
+EligibleForConversion: Yes
+
+ConversionStatus: Package Created. Need Validation
+
+Edition: Microsoft Windows 11 Pro
+
+MinimumOSVersion: 23H2
+
+MinimumOSBuild: 22631.3958
+
+Architecture: 64
+
+MSIXConversionToolVersion: 1.2024.405.0
+
+AcceleratorVersion: 1.0.0
+

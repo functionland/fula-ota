@@ -1,7 +1,8 @@
 # setup.ps1
 
 param (
-    [string]$InstallationPath = "C:\Users\$env:USERNAME\fula"
+    [string]$InstallationPath,
+    [string]$ExternalDrive
 )
 
 Write-Host "Setting up the environment..."
@@ -10,7 +11,7 @@ Write-Host "Setting up the environment..."
 $env:ARCH_SUPPORT = "linux/amd64"
 $env:DOCKER_REPO = "functionland"
 $env:DEFAULT_TAG = "release_amd64"
-$env:EXTERNAL_DRIVE_PATH = "D:/fula"
+$env:EXTERNAL_DRIVE_PATH = "$ExternalDrive/fula"
 
 # Set installation directories
 $env:envDir = "$InstallationPath"
@@ -31,18 +32,12 @@ Write-Host "Setting network parameters..."
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpWindowSize" -Value 2500000
 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpTimedWaitDelay" -Value 30
 
-
-# Resolve the shortcut path to the actual target path
-$WshShell = New-Object -ComObject WScript.Shell
-$ShortcutPath = Join-Path (Get-Location) "linux.lnk"
-$TargetPath = $WshShell.CreateShortcut($ShortcutPath).TargetPath
-
 # Copy necessary files
 Write-Host "Copying necessary files..."
-Copy-Item -Force "$TargetPath\.env.cluster" $env:envDir\.env.cluster
-Copy-Item -Force "$TargetPath\.env.gofula" $env:envDir\.env.gofula
-Copy-Item -Recurse -Force "$TargetPath\kubo" $env:fulaDir\kubo\
-Copy-Item -Recurse -Force "$TargetPath\ipfs-cluster" $env:fulaDir\ipfs-cluster\
+Copy-Item -Force "$InstallationPath\.env.cluster" $env:envDir\.env.cluster
+Copy-Item -Force "$InstallationPath\.env.gofula" $env:envDir\.env.gofula
+Copy-Item -Recurse -Force "$InstallationPath\kubo" $env:fulaDir\kubo\
+Copy-Item -Recurse -Force "$InstallationPath\ipfs-cluster" $env:fulaDir\ipfs-cluster\
 
 if (!(Test-Path "$env:ipfsDataDir\config")) {
     Copy-Item -Force "$env:fulaDir\kubo\config" "$env:ipfsDataDir\config"
@@ -71,10 +66,11 @@ $envContent | Set-Content $env:envDir\.env
 
 # Replace placeholders in docker-compose.yml with Unix-style paths
 Write-Host "Replacing paths in docker-compose.yml..."
-$dockerComposePath = Join-Path (Get-Location) "docker-compose.yml"
+$dockerComposePath = Join-Path $InstallationPath "docker-compose.yml"
 $unixInstallationPath = Convert-PathToUnix $InstallationPath
 $unixEnvDirPath = Convert-PathToUnix $env:envDir
-(Get-Content $dockerComposePath) -replace '\${env:InstallationPath}', $unixInstallationPath -replace '\${env:envDir}', $unixEnvDirPath | Set-Content "$env:envDir\docker-compose.yml"
+$unixExternalDrivePath = Convert-PathToUnix $ExternalDrive
+(Get-Content $dockerComposePath) -replace '\${env:InstallationPath}', $unixInstallationPath -replace '\${env:envDir}', $unixEnvDirPath -replace '\${env:ExternalDrive}', $unixExternalDrivePath | Set-Content "$env:envDir\docker-compose.yml"
 
 # Open port 4000
 Write-Host "Opening port 4000..."
@@ -85,9 +81,5 @@ Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp
 
 Write-Host "Opening port 9094..."
 Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp startport=9094 numberofports=1 store=persistent" -Verb RunAs
-
-# Run docker-compose
-Write-Host "Running docker-compose..."
-docker-compose --env-file "$env:envDir\.env" -f "$env:envDir\docker-compose.yml" -p fula up -d
 
 Write-Host "Setup complete."

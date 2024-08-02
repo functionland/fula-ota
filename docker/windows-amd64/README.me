@@ -1,14 +1,5 @@
 # Build
 
 ```
-cd server
-npm run build
-npm run make
-```
-
-Then open `Inno Setup Compiler` and compile the `setup.iss`
-
-## silent mode
-```
-FulaSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+.\build_msix.ps1 -NoServerBuild
 ```

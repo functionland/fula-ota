@@ -6,7 +6,6 @@ AppPublisherURL=https://fx.land
 AppSupportURL=https://t.me/functionlanders
 AppUpdatesURL=https://t.me/functionland
 DefaultDirName={userdocs}\Fula
-DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename=FulaSetup
 Compression=lzma
@@ -17,6 +16,10 @@ VersionInfoVersion=1.1
 VersionInfoCompany=Functionland
 VersionInfoDescription=Fula Setup
 VersionInfoCopyright=2023 Functionland
+DisableWelcomePage=yes
+DisableProgramGroupPage=yes
+DisableReadyPage=yes
+DisableFinishedPage=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -48,9 +51,14 @@ Name: "{group}\Fula Start"; Filename: "powershell.exe"; Parameters: "-NoProfile 
 Name: "{group}\Fula Stop"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\stop.ico"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; StatusMsg: "Installing Docker..."; Flags: runhidden runascurrentuser
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; StatusMsg: "Setting up Fula..."; Flags: runhidden
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; StatusMsg: "Setting up tray icon..."; Flags: shellexec runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; StatusMsg: "Installing Docker..."; Flags: runhidden runascurrentuser; Check: not IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; StatusMsg: "Setting up Fula..."; Flags: runhidden; Check: not IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; StatusMsg: "Setting up tray icon..."; Flags: shellexec runhidden; Check: not IsSilentInstall
+
+; Silent installation commands
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; Flags: runhidden; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""C:"""; Flags: runhidden; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; Flags: runhidden; Check: IsSilentInstall
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallationPath ""{app}"""; StatusMsg: "Removing Docker containers and volumes..."; Flags: runhidden; RunOnceId: "RemoveDocker"
@@ -69,7 +77,11 @@ var
   DiskPage: TWizardPage;
   DiskComboBox: TComboBox;
   externalDrive: string;
-  IsSilentInstall: Boolean;
+
+  function IsSilentInstall: Boolean;
+begin
+  Result := (Pos('/VERYSILENT', UpperCase(GetCmdTail)) > 0) or (Pos('/SILENT', UpperCase(GetCmdTail)) > 0);
+end;
 
 function GetDriveType(lpRootPathName: string): UINT;
   external 'GetDriveTypeA@kernel32.dll stdcall';
@@ -114,7 +126,6 @@ var
   Drive: string;
   P, BufLen: Integer;
 begin
-  IsSilentInstall := (Pos('/VERYSILENT', UpperCase(GetCmdTail)) > 0) or (Pos('/SILENT', UpperCase(GetCmdTail)) > 0);
 
   if not IsSilentInstall then
   begin
@@ -151,6 +162,11 @@ begin
   begin
     externalDrive := 'C:';
   end;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := IsSilentInstall;
 end;
 
 function StringReplace(const S, OldPattern, NewPattern: string): string;
