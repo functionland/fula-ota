@@ -98,6 +98,10 @@ function Start-FulaServices {
 
 if ($Install) {
     # Run setup.ps1 with the correct parameters
+    # Check if Docker is installed
+    if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\install_docker.ps1`"" -Verb RunAs -Wait
+    }
     & "$PSScriptRoot\setup.ps1" -InstallationPath $PSScriptRoot -ExternalDrive "C:"
 } else {
     Start-FulaServices
