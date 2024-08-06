@@ -29,6 +29,8 @@ if (-not $docker) {
     Invoke-WebRequest -Uri "https://desktop.docker.com/win/stable/Docker%20Desktop%20Installer.exe" -OutFile "$env:TEMP\DockerInstaller.exe"
     Start-Process -FilePath "$env:TEMP\DockerInstaller.exe" -ArgumentList "install", "--quiet" -Wait
     Remove-Item -Force "$env:TEMP\DockerInstaller.exe"
+    exit 0
 } else {
     Write-Host "Docker is already installed."
+    exit 0
 }

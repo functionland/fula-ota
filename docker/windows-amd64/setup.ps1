@@ -91,3 +91,4 @@ Write-Host "Running docker-compose..."
 docker-compose --env-file "$env:envDir\.env" -f "$env:envDir\docker-compose.yml" -p fula up -d
 
 Write-Host "Setup complete."
+exit 0

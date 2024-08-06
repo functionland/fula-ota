@@ -39,6 +39,7 @@ Source: "stop.ps1"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "mark_installation_complete.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "server\out\fula-webui-win32-x64\*"; DestDir: "{app}\server\fula-webui-win32-x64"; Flags: ignoreversion
 Source: "server\out\make\*"; DestDir: "{app}\server\make"; Flags: recursesubdirs
 
@@ -48,14 +49,29 @@ Name: "{group}\Fula Start"; Filename: "powershell.exe"; Parameters: "-NoProfile 
 Name: "{group}\Fula Stop"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\stop.ico"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; StatusMsg: "Installing Docker..."; Flags: runhidden runascurrentuser
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; StatusMsg: "Setting up Fula..."; Flags: runhidden
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; StatusMsg: "Setting up tray icon..."; Flags: shellexec runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; Flags: runhidden runascurrentuser; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; Flags: runhidden; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; Flags: shellexec runhidden; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\mark_installation_complete.ps1"""; Flags: runhidden waituntilterminated; Check: IsSilentInstall
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallationPath ""{app}"""; StatusMsg: "Removing Docker containers and volumes..."; Flags: runhidden; RunOnceId: "RemoveDocker"
 
 [Code]
+type
+  WPARAM = UINT_PTR;
+  LPARAM = UINT_PTR;
+  LRESULT = UINT_PTR;
+
+  TMsg = record
+    hwnd: HWND;
+    message: UINT;
+    wParam: WPARAM;
+    lParam: LPARAM;
+    time: DWORD;
+    pt: TPoint;
+  end;
+  
 const
   DRIVE_UNKNOWN = 0;
   DRIVE_NO_ROOT_DIR = 1;
@@ -64,17 +80,22 @@ const
   DRIVE_REMOTE = 4;
   DRIVE_CDROM = 5;
   DRIVE_RAMDISK = 6;
+  PM_REMOVE = 1;
 
 var
   DiskPage: TWizardPage;
   DiskComboBox: TComboBox;
   externalDrive: string;
-  IsSilentInstall: Boolean;
 
 function GetDriveType(lpRootPathName: string): UINT;
   external 'GetDriveTypeA@kernel32.dll stdcall';
 function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: PAnsiChar): DWORD;
   external 'GetLogicalDriveStringsA@kernel32.dll stdcall';
+
+function IsSilentInstall: Boolean;
+begin
+  Result := (Pos('/VERYSILENT', UpperCase(GetCmdTail)) > 0) or (Pos('/SILENT', UpperCase(GetCmdTail)) > 0);
+end;
 
 function GetExternalDrive(Param: string): string;
 begin
@@ -82,6 +103,49 @@ begin
     Result := 'C:'
   else
     Result := externalDrive;
+end;
+
+function IsInstallationComplete: Boolean;
+begin
+  Result := FileExists(GetTempDir + '\fula_installation_complete.flag');
+end;
+
+function PeekMessage(var lpMsg: TMsg; hWnd: HWND; wMsgFilterMin, wMsgFilterMax, wRemoveMsg: UINT): BOOL;
+  external 'PeekMessageA@user32.dll stdcall';
+function TranslateMessage(const lpMsg: TMsg): BOOL;
+  external 'TranslateMessage@user32.dll stdcall';
+function DispatchMessage(const lpMsg: TMsg): Longint;
+  external 'DispatchMessageA@user32.dll stdcall';
+  
+procedure ProcessMessages;
+var
+  Msg: TMsg;
+begin
+  while PeekMessage(Msg, 0, 0, 0, PM_REMOVE) do
+  begin
+    TranslateMessage(Msg);
+    DispatchMessage(Msg);
+  end;
+end;
+
+procedure DeleteInstallationCompleteFlag;
+var
+  FilePath: string;
+  Retries: Integer;
+begin
+  FilePath := ExpandConstant(GetTempDir + '\fula_installation_complete.flag');
+  Log('Deleting file: ' + FilePath);
+  Retries := 0;
+  while not DeleteFile(FilePath) and (Retries < 3) do
+  begin
+    Log('Failed to delete the installation complete flag file. Retrying...');
+    Sleep(1000); // Wait for 1 second before retrying
+    Inc(Retries);
+  end;
+  if Retries >= 3 then
+  begin
+    Log('Failed to delete the installation complete flag file after multiple attempts: ' + FilePath);
+  end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
@@ -114,7 +178,6 @@ var
   Drive: string;
   P, BufLen: Integer;
 begin
-  IsSilentInstall := (Pos('/VERYSILENT', UpperCase(GetCmdTail)) > 0) or (Pos('/SILENT', UpperCase(GetCmdTail)) > 0);
 
   if not IsSilentInstall then
   begin
@@ -186,6 +249,8 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   UnixStylePath, UnixStyleExternalDrive: string;
+  WaitCount: Integer;
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -201,6 +266,34 @@ begin
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:InstallationPath}', UnixStylePath);
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:envDir}', UnixStylePath);
     ReplaceInFile(ExpandConstant('{app}\docker-compose.yml'), '${env:ExternalDrive}', UnixStyleExternalDrive);
+    
+    if IsSilentInstall then
+    begin
+      // Run the mark_installation_complete.ps1 script asynchronously
+      Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+           '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\mark_installation_complete.ps1') + '"',
+           '', SW_HIDE, ewNoWait, ResultCode);
+
+      // Wait for a maximum of 5 minutes (300 seconds)
+      WaitCount := 0;
+      while (not IsInstallationComplete) and (WaitCount < 300) do
+      begin
+        Sleep(1000);
+        Inc(WaitCount);
+        // Process Windows messages to keep the installer responsive
+        ProcessMessages;
+      end;
+      
+      DeleteInstallationCompleteFlag;
+
+      if not IsInstallationComplete then
+      begin
+        Log('Silent installation did not complete within 5 minutes.');
+        Abort;
+        // Optionally, you can show a message to the user or take other actions
+      end;
+      
+    end;
   end;
 end;
 
