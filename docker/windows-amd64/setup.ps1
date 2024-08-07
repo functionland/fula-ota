@@ -1,7 +1,8 @@
 # setup.ps1
 
 param (
-    [string]$InstallationPath = "C:\Users\$env:USERNAME\fula"
+    [string]$InstallationPath,
+    [string]$ExternalDrive
 )
 
 Write-Host "Setting up the environment..."
@@ -10,10 +11,12 @@ Write-Host "Setting up the environment..."
 $env:ARCH_SUPPORT = "linux/amd64"
 $env:DOCKER_REPO = "functionland"
 $env:DEFAULT_TAG = "release_amd64"
-$env:EXTERNAL_DRIVE_PATH = "D:/fula"
+$env:EXTERNAL_DRIVE_PATH = "$ExternalDrive\uniondrive"
 
 # Set installation directories
 $env:envDir = "$InstallationPath"
+Write-Host "Installation Path: $InstallationPath"
+Write-Host "Environment Directory: $env:envDir"
 $env:fulaDir = "$InstallationPath"
 $env:internalDir = "$InstallationPath\.internal"
 $env:ipfsDataDir = "$InstallationPath\.internal\ipfs_data"
@@ -85,6 +88,9 @@ Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp
 
 Write-Host "Opening port 9094..."
 Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp startport=9094 numberofports=1 store=persistent" -Verb RunAs
+
+Write-Host "Opening port 7000..."
+Start-Process "netsh" -ArgumentList "int ipv4 add excludedportrange protocol=tcp startport=7000 numberofports=1 store=persistent" -Verb RunAs
 
 # Run docker-compose
 Write-Host "Running docker-compose..."

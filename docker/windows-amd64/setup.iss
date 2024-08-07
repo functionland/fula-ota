@@ -49,10 +49,10 @@ Name: "{group}\Fula Start"; Filename: "powershell.exe"; Parameters: "-NoProfile 
 Name: "{group}\Fula Stop"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\stop.ico"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"""; Flags: runhidden runascurrentuser; Check: IsSilentInstall
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"""; Flags: runhidden; Check: IsSilentInstall
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"""; Flags: shellexec runhidden; Check: IsSilentInstall
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\mark_installation_complete.ps1"""; Flags: runhidden waituntilterminated; Check: IsSilentInstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_docker.ps1"" > ""{app}\install_docker.log"""; Flags: runhidden runasoriginaluser
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup.ps1"" -InstallationPath ""{app}"" -ExternalDrive ""{code:GetExternalDrive}"" > ""{app}\setup.log"""; Flags: runhidden runasoriginaluser
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\trayicon.ps1"" > ""{app}\trayicon.log"""; Flags: shellexec runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\mark_installation_complete.ps1"""; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallationPath ""{app}"""; StatusMsg: "Removing Docker containers and volumes..."; Flags: runhidden; RunOnceId: "RemoveDocker"
@@ -86,6 +86,7 @@ var
   DiskPage: TWizardPage;
   DiskComboBox: TComboBox;
   externalDrive: string;
+  OutputPage: TOutputMsgMemoWizardPage;
 
 function GetDriveType(lpRootPathName: string): UINT;
   external 'GetDriveTypeA@kernel32.dll stdcall';
@@ -116,7 +117,32 @@ function TranslateMessage(const lpMsg: TMsg): BOOL;
   external 'TranslateMessage@user32.dll stdcall';
 function DispatchMessage(const lpMsg: TMsg): Longint;
   external 'DispatchMessageA@user32.dll stdcall';
+
+procedure DisplayScriptOutput;
+var
+  SetupLog, InstallDockerLog, TrayIconLog: AnsiString;
+begin
+  if FileExists(ExpandConstant('{app}\install_docker.log')) then
+  begin
+    LoadStringFromFile(ExpandConstant('{app}\install_docker.log'), InstallDockerLog);
+    OutputPage.RichEditViewer.Lines.Text := InstallDockerLog;
+  end;
   
+  if FileExists(ExpandConstant('{app}\setup.log')) then
+  begin
+    LoadStringFromFile(ExpandConstant('{app}\setup.log'), SetupLog);
+    OutputPage.RichEditViewer.Lines.Text := SetupLog;
+  end;
+
+  if FileExists(ExpandConstant('{app}\trayicon.log')) then
+  begin
+    LoadStringFromFile(ExpandConstant('{app}\trayicon.log'), TrayIconLog);
+    OutputPage.RichEditViewer.Lines.Add('');
+    OutputPage.RichEditViewer.Lines.Add('Tray Icon Script Output:');
+    OutputPage.RichEditViewer.Lines.Add(TrayIconLog);
+  end;
+end;
+
 procedure ProcessMessages;
 var
   Msg: TMsg;
@@ -153,6 +179,10 @@ begin
   if not IsSilentInstall then
   begin
     Log('CurPageChanged: CurPageID = ' + IntToStr(CurPageID));
+    if (CurPageID = OutputPage.ID) or (CurPageID = 101) then
+    begin
+      DisplayScriptOutput;
+    end;
     if (CurPageID = DiskPage.ID) or (CurPageID = 10) then
     begin
       if DiskComboBox.ItemIndex <> -1 then
@@ -182,6 +212,7 @@ begin
   if not IsSilentInstall then
   begin
     DiskPage := CreateCustomPage(wpSelectDir, 'Select External Storage Drive', 'Please select an external storage drive from the list below.');
+    OutputPage := CreateOutputMsgMemoPage(wpInfoAfter, 'Script Output', 'The following is the output from the setup scripts:', '', '');
     DiskComboBox := TComboBox.Create(WizardForm);
     DiskComboBox.Parent := DiskPage.Surface;
     DiskComboBox.Left := ScaleX(10);
