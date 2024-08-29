@@ -22,6 +22,7 @@ UPDATE_SC=$FULA_PATH/update.sh
 RM_DUP_NETWORK_SC=$FULA_PATH/docker_rm_duplicate_network.py
 resize_flag=$FULA_PATH/.resize_flg
 partition_flag=$FULA_PATH/.partition_flg
+VERSION_FILE="${HOME_DIR}/.internal/ipfs_data/version"
 
 DATA_DIR=$FULA_PATH
 if [ $# -gt 1 ]; then
@@ -666,6 +667,15 @@ function restart() {
     echo $! | sudo tee $HOME_DIR/update.pid > /dev/null
     echo "Ran $UPDATE_SC" | sudo tee -a $FULA_LOG_PATH
   fi
+
+  # Check if the directory exists and the version file contains '15'
+    if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
+        # Use sed to replace '15' with '16' in the version file
+        if grep -q '^15$' "$VERSION_FILE"; then
+            sed -i 's/^15$/16/' "$VERSION_FILE"
+            echo "Updated version from 15 to 16 in $VERSION_FILE"
+        fi
+    fi
 
   # TODO: Find a better solution than opening the permission
   while [ ! -d /uniondrive ]; do
