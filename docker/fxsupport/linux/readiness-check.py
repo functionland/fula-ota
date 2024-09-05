@@ -26,6 +26,7 @@ def check_conditions():
         os.path.exists(os.path.join(HOME_PATH, "V6.info")),
         "fula_go" in subprocess.getoutput("docker ps --format '{{.Names}}'"),
         os.path.exists("/uniondrive"),  # Check if /uniondrive directory exists
+        "active" in subprocess.getoutput("systemctl is-active docker.service"),
         "active" in subprocess.getoutput("systemctl is-active fula.service"),
         "active" in subprocess.getoutput("systemctl is-active uniondrive.service")  # Check if uniondrive service is running
     ]
@@ -93,6 +94,19 @@ def monitor_docker_logs_and_restart():
 
     while restart_attempts < 3:
         time.sleep(500)
+        # Check if Docker service is running
+        docker_service_status = subprocess.getoutput("systemctl is-active docker.service")
+        while "active" not in docker_service_status and restart_attempts < 3:
+            logging.error("Docker service is not running. Attempting to restart Docker service.")
+            subprocess.run(["python", LED_PATH, "yellow", "5"])
+            subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True)
+            # Wait a moment to let Docker restart
+            time.sleep(15)
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+            time.sleep(25)
+            restart_attempts += 1
+            docker_service_status = subprocess.getoutput("systemctl is-active docker.service")
+
         for container in containers_to_check:
             container_running = container in subprocess.getoutput("docker ps --format '{{.Names}}'")
             if container_running:
