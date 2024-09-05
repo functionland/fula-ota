@@ -24,17 +24,17 @@ def check_conditions():
         os.path.exists(os.path.join(FULA_PATH, ".partition_flg")),
         os.path.exists(os.path.join(FULA_PATH, ".resize_flg")),
         os.path.exists(os.path.join(HOME_PATH, "V6.info")),
-        "fula_go" in subprocess.getoutput("docker ps --format '{{.Names}}'"),
+        "fula_go" in subprocess.getoutput("sudo docker ps --format '{{.Names}}'"),
         os.path.exists("/uniondrive"),  # Check if /uniondrive directory exists
-        "active" in subprocess.getoutput("systemctl is-active docker.service"),
-        "active" in subprocess.getoutput("systemctl is-active fula.service"),
-        "active" in subprocess.getoutput("systemctl is-active uniondrive.service")  # Check if uniondrive service is running
+        "active" in subprocess.getoutput("sudo systemctl is-active docker.service"),
+        "active" in subprocess.getoutput("sudo systemctl is-active fula.service"),
+        "active" in subprocess.getoutput("sudo systemctl is-active uniondrive.service")  # Check if uniondrive service is running
     ]
     return all(conditions)
 
 def check_wifi_connection():
     # Check the active WiFi connection
-    output = subprocess.getoutput("nmcli con show --active")
+    output = subprocess.getoutput("sudo nmcli con show --active")
     logging.info(f"Active connections: {output}")  # Log the output for debugging
     if "FxBlox" in output:
         return "FxBlox"
@@ -46,7 +46,7 @@ def attempt_wifi_connection():
     config_yaml_path = os.path.join(HOME_PATH, ".internal", "config.yaml")
     if os.path.exists(config_yaml_path):
         logging.info("config.yaml exists, checking for non-FxBlox WiFi connections")
-        connections_output = subprocess.getoutput("nmcli con show | grep wifi")
+        connections_output = subprocess.getoutput("sudo nmcli con show | grep wifi")
         wifi_connections = [line.split()[0] for line in connections_output.split('\n') if "wifi" in line and "FxBlox" not in line]
 
         wifi_connected = False
@@ -95,7 +95,7 @@ def monitor_docker_logs_and_restart():
     while restart_attempts < 3:
         time.sleep(500)
         # Check if Docker service is running
-        docker_service_status = subprocess.getoutput("systemctl is-active docker.service")
+        docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         while "active" not in docker_service_status and restart_attempts < 3:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
             subprocess.run(["python", LED_PATH, "yellow", "5"])
@@ -105,12 +105,12 @@ def monitor_docker_logs_and_restart():
             subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
             time.sleep(25)
             restart_attempts += 1
-            docker_service_status = subprocess.getoutput("systemctl is-active docker.service")
+            docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
 
         for container in containers_to_check:
-            container_running = container in subprocess.getoutput("docker ps --format '{{.Names}}'")
+            container_running = container in subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
             if container_running:
-                logs = subprocess.getoutput(f"docker logs --tail 15 {container} 2>&1")
+                logs = subprocess.getoutput(f"sudo docker logs --tail 15 {container} 2>&1")
                 if "ERROR:" in logs:
                     logging.error(f"{container} logs contain ERROR:. Attempting to restart fula.service")
                     container_running = False
@@ -156,6 +156,7 @@ def main():
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
+        time.sleep(30)
         if check_conditions():
             logging.info("check_conditions passed")
             wifi_status = check_wifi_connection()
@@ -179,11 +180,11 @@ def main():
         else:
             logging.info("check_conditions failed")
             # Check if 'fula_go' exists in `docker ps -a`
-            docker_ps_a_output = subprocess.getoutput("docker ps -a --format '{{.Names}}'")
-            docker_ps_output = subprocess.getoutput("docker ps --format '{{.Names}}'")
+            docker_ps_a_output = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
+            docker_ps_output = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
 
             if "fula_go" in docker_ps_a_output and \
-                all(container in docker_ps_output for container in ["fula_node", "fula_fxsupport", "fula_updater"]) and \
+                all(container in docker_ps_output for container in ["fula_fxsupport", "fula_updater"]) and \
                 fula_restart_attempts < 4:
                     logging.info("fula_go container found but is not running. Attempting to restart fula.service")
                     result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
