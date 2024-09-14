@@ -18,6 +18,30 @@ log()
   echo "$1"
 }
 
+umount_drives() {
+  if mountpoint -q $MOUNT_PATH; then
+    umount $MOUNT_PATH
+  fi
+  if [ -z "$MOUNT_PATH" ]; then
+    echo "MOUNT_PATH is unset or empty, exiting..."
+  else
+    # Clear the contents of MOUNT_PATH, but don't remove the directory
+    rm -rf "${MOUNT_PATH:?}"/*
+  fi
+}
+
+cleanup_on_exit() {
+    echo "Cleaning up before exit..."
+    umount_drives
+    rm -rf "${MOUNT_LINKS:?}"/*
+    echo "Cleanup complete. Exiting."
+}
+
+trap cleanup_on_exit EXIT
+
+remove_exit_trap() {
+    trap - EXIT
+}
 
 check_mounted_drives() {
     local mounted_count=0
@@ -168,18 +192,6 @@ remove_recursive_pattern() {
     fi
 }
 
-umount_drives() {
-  if mountpoint -q $MOUNT_PATH; then
-    umount $MOUNT_PATH
-  fi
-  if [ -z "$MOUNT_PATH" ]; then
-    echo "MOUNT_PATH is unset or empty, exiting..."
-  else
-    # Clear the contents of MOUNT_PATH, but don't remove the directory
-    rm -rf "${MOUNT_PATH:?}"/*
-  fi
-}
-
 cleanup_mounts() {
     for dir in "${MOUNT_USB_PATH:?}"/*; do
         if [ -d "$dir" ] && ! mountpoint -q "$dir"; then
@@ -271,3 +283,4 @@ rm -rf "${MOUNT_LINKS:?}"/*
 #log $hash_map
 
 monitor_and_update_drives
+remove_exit_trap
