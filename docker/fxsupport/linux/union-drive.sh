@@ -30,6 +30,8 @@ umount_drives() {
   fi
 }
 
+umount_drives
+
 cleanup_on_exit() {
     echo "Cleaning up before exit..."
     umount_drives
@@ -97,7 +99,7 @@ echo "Drive(s) detected. Proceeding with the script..."
 mount_drives
 
 # Timeout for the mount to become available and to check if it's not read-only.
-TIMEOUT=60
+TIMEOUT=6000
 ELAPSED=0
 SLEEP_INTERVAL=5
 
@@ -142,7 +144,7 @@ monitor_and_update_drives() {
         inotifywait -q -e create,delete,move,unmount /media/pi
         
         # Wait a moment for the system to finish mounting/unmounting
-        sleep 2
+        sleep 7
         
         local current_mount_count=$(check_mounted_drives)
         echo "Current mounted drives: $current_mount_count"
