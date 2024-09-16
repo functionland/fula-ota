@@ -678,8 +678,16 @@ function restart() {
     fi
 
   # TODO: Find a better solution than opening the permission
-  while [ ! -d /uniondrive ]; do
-    sleep 5  # Wait for 1 second before checking again
+  MOUNT_PATH="/uniondrive"
+  SETUP_DONE_FILE="$MOUNT_PATH/setup.done"
+
+  while [ ! -d "$MOUNT_PATH" ] || [ ! -f "$SETUP_DONE_FILE" ]; do
+      if [ ! -d "$MOUNT_PATH" ]; then
+          echo "Waiting for $MOUNT_PATH directory to be created..."
+      elif [ ! -f "$SETUP_DONE_FILE" ]; then
+          echo "Waiting for $SETUP_DONE_FILE to be created..."
+      fi
+      sleep 20  # Wait for 5 seconds before checking again
   done
   if [ -d /uniondrive ];then
     sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true

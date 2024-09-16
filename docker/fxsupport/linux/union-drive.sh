@@ -8,6 +8,7 @@ export NOTIFY_SOCKET=/run/systemd/notify
 MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
+SETUP_DONE_FILE="$MOUNT_PATH/setup.done"
 mkdir -p $MOUNT_PATH
 
 rm -f "$MOUNT_LINKS"/disk-*
@@ -16,6 +17,16 @@ log()
 {
   echo "$1"
 }
+
+remove_unionready() {
+    if [ -d "$MOUNT_PATH" ] && [ -f "$SETUP_DONE_FILE" ]; then
+        echo "Removing $SETUP_DONE_FILE..."
+        rm -f "$SETUP_DONE_FILE" || true
+    else
+        echo "Either $MOUNT_PATH does not exist or $SETUP_DONE_FILE does not exist."
+    fi
+}
+remove_unionready
 
 umount_drives() {
   # Set a maximum number of attempts to prevent an infinite loop
@@ -50,14 +61,9 @@ umount_drives() {
     else
         echo "$MOUNT_PATH is not mounted"
     fi
-    if [ -z "$MOUNT_PATH" ]; then
-        echo "MOUNT_PATH is unset or empty, exiting..."
-    else
-        # Clear the contents of MOUNT_PATH, but don't remove the directory
-        rm -rf "${MOUNT_PATH:?}"/*
-    fi
 }
 
+remove_unionready
 umount_drives
 
 cleanup_on_exit() {
@@ -65,6 +71,7 @@ cleanup_on_exit() {
     umount_drives
     rm -rf "${MOUNT_LINKS:?}"/*
     echo "Cleanup complete. Exiting."
+    remove_unionready
 }
 
 trap cleanup_on_exit EXIT
@@ -74,7 +81,7 @@ remove_exit_trap() {
 }
 
 check_mounted_drives() {
-    local mounted_count=0
+    mounted_count=0
     for drive in /media/pi/*; do
         if mountpoint -q "$drive"; then
             mounted_count=$((mounted_count + 1))
@@ -105,6 +112,8 @@ unionfs_fuse_mount_drives() {
     
     if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,minfreespace=1G,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
         echo "MergerFS mounted successfully"
+        touch "$SETUP_DONE_FILE"
+        echo "Created setup done file"
     else
         echo "Failed to mount MergerFS"
         return 1
@@ -128,7 +137,7 @@ mount_drives
 
 # Now start monitoring for changes
 monitor_and_update_drives() {
-    local last_mount_count=$(check_mounted_drives)
+    last_mount_count=$(check_mounted_drives)
     
     while true; do
         systemd-notify WATCHDOG=1
@@ -139,12 +148,14 @@ monitor_and_update_drives() {
         # Wait a moment for the system to finish mounting/unmounting
         sleep 7
         
-        local current_mount_count=$(check_mounted_drives)
+        current_mount_count=$(check_mounted_drives)
         echo "Current mounted drives: $current_mount_count"
         echo "Last mounted drives: $last_mount_count"
         
         if [ "$current_mount_count" != "$last_mount_count" ]; then
             echo "Detected change in mounted drives. Updating mergerfs mount."
+            systemctl stop fula
+            echo "fula stoped"
             
             umount_drives
             rm -rf "${MOUNT_LINKS:?}"/*
@@ -168,6 +179,8 @@ monitor_and_update_drives() {
             fi
             
             last_mount_count=$current_mount_count
+            systemctl start fula
+            echo "fula started"
         fi
         
         cleanup_mounts
@@ -175,8 +188,8 @@ monitor_and_update_drives() {
 }
 
 remove_recursive_pattern() {
-    local base_path="$1"
-    local pattern="$2"
+    base_path="$1"
+    pattern="$2"
     if [ -d "$base_path" ]; then
         sudo find "$base_path" -maxdepth 1 -type d -name "$pattern" -print0 | while IFS= read -r -d '' dir; do
             echo "Removing recursive directory: $dir"
@@ -220,6 +233,8 @@ create_disk_link() {
         echo "Skipping $1, not a mount point."
     fi
 }
+
+remove_unionready
 
 umount_drives
 
