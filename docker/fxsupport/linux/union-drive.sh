@@ -9,7 +9,6 @@ MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 mkdir -p $MOUNT_PATH
-MAX_DRIVES=20
 
 rm -f "$MOUNT_LINKS"/disk-*
 
@@ -19,15 +18,36 @@ log()
 }
 
 umount_drives() {
-  if mountpoint -q $MOUNT_PATH; then
-    umount $MOUNT_PATH
-  fi
-  if [ -z "$MOUNT_PATH" ]; then
-    echo "MOUNT_PATH is unset or empty, exiting..."
-  else
-    # Clear the contents of MOUNT_PATH, but don't remove the directory
-    rm -rf "${MOUNT_PATH:?}"/*
-  fi
+  # Set a maximum number of attempts to prevent an infinite loop
+    MAX_ATTEMPTS=10
+    ATTEMPT=0
+
+    while mountpoint -q "$MOUNT_PATH" && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        echo "Attempting to unmount $MOUNT_PATH (Attempt $((ATTEMPT+1))/$MAX_ATTEMPTS)"
+        if umount "$MOUNT_PATH"; then
+            echo "$MOUNT_PATH successfully unmounted"
+            break
+        else
+            echo "Failed to unmount $MOUNT_PATH"
+            ATTEMPT=$((ATTEMPT+1))
+            # Wait for a short time before the next attempt
+            sleep 2
+        fi
+    done
+
+    if mountpoint -q "$MOUNT_PATH"; then
+        echo "Failed to unmount $MOUNT_PATH after $MAX_ATTEMPTS attempts"
+        # Optionally, you can add more aggressive unmounting methods here
+        # For example: umount -f "$MOUNT_PATH" or umount -l "$MOUNT_PATH"
+    else
+        echo "$MOUNT_PATH is not mounted"
+    fi
+    if [ -z "$MOUNT_PATH" ]; then
+        echo "MOUNT_PATH is unset or empty, exiting..."
+    else
+        # Clear the contents of MOUNT_PATH, but don't remove the directory
+        rm -rf "${MOUNT_PATH:?}"/*
+    fi
 }
 
 umount_drives
@@ -97,41 +117,6 @@ echo "Drive(s) detected. Proceeding with the script..."
 
 # Mount drives initially
 mount_drives
-
-# Timeout for the mount to become available and to check if it's not read-only.
-TIMEOUT=6000
-ELAPSED=0
-SLEEP_INTERVAL=5
-
-while [ $ELAPSED -lt $TIMEOUT ]; do
-    if mountpoint -q "$MOUNT_PATH"; then
-        log "Mount successful"
-
-        # Try to write a temporary file to check if the filesystem is read-write
-        if touch "$MOUNT_PATH/.test_rw" > /dev/null 2>&1; then
-            log "Filesystem is read-write"
-            rm -f "$MOUNT_PATH/.test_rw" > /dev/null 2>&1  # Clean up the test file
-            systemd-notify --ready
-            break
-        else
-            log "Filesystem is read-only. Attempting to remount as read-write."
-            if ! mount -o remount,rw "$MOUNT_PATH"; then
-                log "Failed to remount /uniondrive as read-write."
-                exit 1
-            fi
-        fi
-    else
-        log "Mount is not available yet. Waiting..."
-    fi
-
-    ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
-    sleep $SLEEP_INTERVAL
-done
-
-if [ $ELAPSED -ge $TIMEOUT ]; then
-    log "Mount did not become available or writable within the timeout period."
-    exit 1
-fi
 
 # Now start monitoring for changes
 monitor_and_update_drives() {
