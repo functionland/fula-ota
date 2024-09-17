@@ -49,6 +49,9 @@ umount_drives() {
         # For example: umount -f "$MOUNT_PATH" or umount -l "$MOUNT_PATH"
     else
         echo "$MOUNT_PATH is not mounted"
+        if [ -d "$MOUNT_PATH" ]; then
+            sudo rm -f "$MOUNT_PATH/*"
+        fi
     fi
 }
 
