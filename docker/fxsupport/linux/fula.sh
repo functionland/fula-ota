@@ -901,6 +901,7 @@ case $1 in
         if [ -n "$old_info" ] && [ "${new_size}:${new_mtime}" != "$old_info" ]; then
           if [ "$file" = "union-drive.sh" ]; then
             restart_uniondrive=true
+            restart_fula=true
           elif [ "$file" = "fula.sh" ]; then
             restart_fula=true
           fi
