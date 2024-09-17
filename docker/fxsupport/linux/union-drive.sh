@@ -33,25 +33,13 @@ umount_drives() {
     MAX_ATTEMPTS=10
     ATTEMPT=0
 
-    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        echo "Attempting to unmount $MOUNT_PATH (Attempt $((ATTEMPT+1))/$MAX_ATTEMPTS)"
-        if mountpoint -q "$MOUNT_PATH" || umount "$MOUNT_PATH"; then
-            echo "$MOUNT_PATH successfully unmounted or was not a mount point"
+    while umount "$MOUNT_PATH" 2>/dev/null; do
+        log "Successfully unmounted $MOUNT_PATH. Attempting again to ensure complete unmount."
+        if $ATTEMPT -gt $MAX_ATTEMPTS; then
+            umount -f "$MOUNT_PATH" || true
             break
-        else
-            echo "Failed to unmount $MOUNT_PATH"
-            ATTEMPT=$((ATTEMPT+1))
-            # Check if the transport endpoint is not connected
-            if ! mountpoint -q "$MOUNT_PATH"; then
-                echo "Transport endpoint is not connected"
-                # Attempt a lazy unmount
-                if umount -l "$MOUNT_PATH"; then
-                    echo "Lazy unmount of $MOUNT_PATH successful"
-                    break
-                fi
-            fi
-            sleep 2
         fi
+        sleep 5
     done
 
     if mountpoint -q "$MOUNT_PATH"; then
