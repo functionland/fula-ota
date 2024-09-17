@@ -9,6 +9,7 @@ MOUNT_USB_PATH=/media/pi
 MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 SETUP_DONE_FILE="$MOUNT_PATH/setup.done"
+FULA_PATH=/usr/bin/fula
 mkdir -p $MOUNT_PATH
 
 rm -f "$MOUNT_LINKS"/disk-*
@@ -35,7 +36,7 @@ umount_drives() {
 
     while umount "$MOUNT_PATH" 2>/dev/null; do
         log "Successfully unmounted $MOUNT_PATH. Attempting again to ensure complete unmount."
-        if $ATTEMPT -gt $MAX_ATTEMPTS; then
+        if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
             umount -f "$MOUNT_PATH" || true
             break
         fi
@@ -142,6 +143,9 @@ monitor_and_update_drives() {
         
         if [ "$current_mount_count" != "$last_mount_count" ]; then
             echo "Detected change in mounted drives. Updating mergerfs mount."
+            if [ -f "$FULA_PATH/control_led.py" ]; then
+                python ${FULA_PATH}/control_led.py light_purple 9000 &
+            fi
             systemctl stop fula
             echo "fula stoped"
             
@@ -169,6 +173,9 @@ monitor_and_update_drives() {
             last_mount_count=$current_mount_count
             systemctl start fula
             echo "fula started"
+            if [ -f /usr/bin/fula/control_led.py ]; then
+                python /usr/bin/fula/control_led.py light_purple 0
+            fi
         fi
         
         cleanup_mounts

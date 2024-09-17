@@ -843,6 +843,7 @@ case $1 in
   ;;
 "start" | "restart")
   arch=${2:-RK1}
+  
   echo "ran start V6 at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
 
   if [ -z "$ENV_FILE" ]; then
@@ -877,8 +878,47 @@ case $1 in
       container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
   done
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
+    declare -A file_info
+    for file in fula.sh union-drive.sh; do
+      if [ -f "${FULA_PATH}/${file}" ]; then
+        size=$(stat -c %s "${FULA_PATH}/${file}")
+        mtime=$(stat -c %Y "${FULA_PATH}/${file}")
+        file_info["${file}"]="${size}:${mtime}"
+      fi
+    done
+  
     sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
+    # Check if fula.sh or union-drive.sh have changed
+    restart_uniondrive=false
+    restart_fula=false
+    for file in fula.sh union-drive.sh; do
+      if [ -f "${FULA_PATH}/${file}" ]; then
+        new_size=$(stat -c %s "${FULA_PATH}/${file}")
+        new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
+        old_info="${file_info["${file}"]}"
+        if [ -n "$old_info" ] && [ "${new_size}:${new_mtime}" != "$old_info" ]; then
+          if [ "$file" = "union-drive.sh" ]; then
+            restart_uniondrive=true
+          elif [ "$file" = "fula.sh" ]; then
+            restart_fula=true
+          fi
+        fi
+      fi
+    done
+
+    if [ "$restart_uniondrive" = true ]; then
+      echo "union-drive.sh has changed, restarting uniondrive" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart uniondrive
+    fi
+
+    if [ "$restart_fula" = true ]; then
+      echo "fula.sh has changed, calling restart" | sudo tee -a $FULA_LOG_PATH
+      if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+        echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
+      fi
+    fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
