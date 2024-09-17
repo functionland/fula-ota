@@ -129,13 +129,17 @@ mount_drives
 
 # Now start monitoring for changes
 monitor_and_update_drives() {
+    systemd-notify WATCHDOG=1
     last_mount_count=$(check_mounted_drives)
     
     while true; do
+        sleep 5
         systemd-notify WATCHDOG=1
         
         echo "Waiting for changes in /media/pi..."
-        inotifywait -q -e create,delete,move,unmount /media/pi
+        inotifywait -q -t 20 -e create,delete,move,unmount /media/pi
+        echo "No change detected in the last 20 seconds"
+        continue
         
         # Wait a moment for the system to finish mounting/unmounting
         sleep 7
@@ -182,6 +186,7 @@ monitor_and_update_drives() {
         fi
         
         cleanup_mounts
+        systemd-notify WATCHDOG=1
     done
 }
 
