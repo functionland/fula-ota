@@ -50,7 +50,7 @@ umount_drives() {
     else
         echo "$MOUNT_PATH is not mounted"
         if [ -d "$MOUNT_PATH" ]; then
-            sudo rm -f "$MOUNT_PATH/*"
+            sudo rm -rf "$MOUNT_PATH/*"
         fi
     fi
 }
