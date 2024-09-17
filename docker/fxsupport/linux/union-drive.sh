@@ -222,8 +222,19 @@ create_disk_link() {
     if mountpoint -q "$1"; then
         DISK_INDEX=$((DISK_INDEX+1))
         LINK_NAME="disk-$DISK_INDEX"
-        ln -sf "$(readlink -f "$1")" "$MOUNT_LINKS/$LINK_NAME"
-        echo "Created link $LINK_NAME for $1"
+        LINK_PATH="$MOUNT_LINKS/$LINK_NAME"
+        
+        if [ -L "$LINK_PATH" ]; then
+            # Link already exists, remove it
+            rm "$LINK_PATH"
+            echo "Removed existing link $LINK_NAME"
+        fi
+        
+        if ln -sf "$(readlink -f "$1")" "$LINK_PATH"; then
+            echo "Created link $LINK_NAME for $1"
+        else
+            echo "Failed to create link $LINK_NAME for $1"
+        fi
     else
         echo "Skipping $1, not a mount point."
     fi
