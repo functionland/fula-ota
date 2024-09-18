@@ -10,9 +10,12 @@ MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 SETUP_DONE_FILE="$MOUNT_PATH/setup.done"
 FULA_PATH=/usr/bin/fula
+
 mkdir -p $MOUNT_PATH
+mkdir -p $MOUNT_LINKS
 
 rm -f "$MOUNT_LINKS"/disk-*
+sync
 
 log()
 {
@@ -105,8 +108,6 @@ unionfs_fuse_mount_drives() {
     
     if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,minfreespace=1G,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
         echo "MergerFS mounted successfully"
-        touch "$SETUP_DONE_FILE"
-        echo "Created setup done file"
     else
         echo "Failed to mount MergerFS"
         return 1
@@ -127,6 +128,9 @@ done
 echo "Drive(s) detected. Proceeding with the script..."
 
 # Mount drives initially
+sync
+sleep 1
+systemd-notify WATCHDOG=1
 mount_drives
 
 # Now start monitoring for changes
@@ -250,23 +254,26 @@ create_disk_link() {
     fi
 }
 
-remove_unionready
-
-umount_drives
-
 #delete previous symbolic folders
 for d in "${MOUNT_LINKS:?}"/*; do
    rm -rf "$d"
-done 
-
-mkdir -p $MOUNT_LINKS
-mkdir -p $MOUNT_PATH
-
-mount_drives
+done
 
 for pattern in sda sdb sdc sdd sde nvme; do
     remove_recursive_pattern "$MOUNT_PATH" "${pattern}*"
 done
+
+check_fs_type() {
+    local_mount_path="$1"
+    local_expected_type="$2"
+
+    local_actual_type=$(findmnt -no FSTYPE "$local_mount_path")
+    if [ "$local_actual_type" = "$local_expected_type" ]; then
+        return 0  # Success
+    else
+        return 1  # Failure
+    fi
+}
 
 # Timeout for the mount to become available and to check if it's not read-only.
 TIMEOUT=60
@@ -274,38 +281,54 @@ ELAPSED=0
 SLEEP_INTERVAL=5
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
+    sleep $SLEEP_INTERVAL
     systemd-notify WATCHDOG=1
     if mountpoint -q "$MOUNT_PATH"; then
         log "Mount successful"
 
-        # Try to write a temporary file to check if the filesystem is read-write
-        if touch "$MOUNT_PATH/.test_rw" > /dev/null 2>&1; then
-            log "Filesystem is read-write"
-            rm -f "$MOUNT_PATH/.test_rw" > /dev/null 2>&1  # Clean up the test file
-            systemd-notify --ready
-            break
-        else
-            log "Filesystem is read-only. Attempting to remount as read-write."
-            if ! mount -o remount,rw "$MOUNT_PATH"; then
-                log "Failed to remount /uniondrive as read-write."
-                exit 1
+        if check_fs_type "$MOUNT_PATH" "fuse.mergerfs"; then
+            log "Correct filesystem type (fuse.mergerfs) detected"
+
+            # Try to write a temporary file to check if the filesystem is read-write
+            if touch "$MOUNT_PATH/.test_rw" > /dev/null 2>&1; then
+                log "Filesystem is read-write"
+                rm -f "$MOUNT_PATH/.test_rw" > /dev/null 2>&1  # Clean up the test file
+                touch "$SETUP_DONE_FILE"
+                sync
+                echo "Created setup done file"
+                systemd-notify --ready
+                break
+            else
+                log "Filesystem is read-only. Attempting to remount as read-write."
+                if ! mount -o remount,rw "$MOUNT_PATH"; then
+                    log "Failed to remount /uniondrive as read-write."
+                    exit 1
+                fi
             fi
+        else
+            log "Incorrect filesystem type. Expected fuse.mergerfs."
+            umount_drives
+            sync
+            sleep 1
+            systemd-notify WATCHDOG=1
+            remove_unionready
+            sync
+            sleep 1
+            systemd-notify WATCHDOG=1
+            # Restart the script from the beginning
+            exec "$0" "$@"
         fi
     else
         log "Mount is not available yet. Waiting..."
     fi
 
     ELAPSED=$((ELAPSED + SLEEP_INTERVAL))
-    sleep $SLEEP_INTERVAL
 done
 
 if [ $ELAPSED -ge $TIMEOUT ]; then
     log "Mount did not become available or writable within the timeout period."
     exit 1
 fi
-
-#remove to create new one
-rm -rf "${MOUNT_LINKS:?}"/*
 
 #log $hash_map
 
