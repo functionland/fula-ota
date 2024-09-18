@@ -40,6 +40,7 @@ umount_drives() {
             umount -f "$MOUNT_PATH" || true
             break
         fi
+        systemd-notify WATCHDOG=1
         sleep 5
     done
 
@@ -119,6 +120,7 @@ mount_drives(){
 # Wait for at least one drive to be mounted under /media/pi
 while [ $(check_mounted_drives) -eq 0 ]; do
     echo "Waiting for at least one drive to be mounted under /media/pi..."
+    systemd-notify WATCHDOG=1
     sleep 5  # Wait for 5 seconds before checking again
 done
 
@@ -272,6 +274,7 @@ ELAPSED=0
 SLEEP_INTERVAL=5
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
+    systemd-notify WATCHDOG=1
     if mountpoint -q "$MOUNT_PATH"; then
         log "Mount successful"
 
