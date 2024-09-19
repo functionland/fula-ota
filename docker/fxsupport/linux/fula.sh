@@ -637,6 +637,7 @@ function restart() {
     # Optionally, handle the case when the cron job does not exist
   fi
   mkdir -p ${HOME_DIR}/.internal
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
