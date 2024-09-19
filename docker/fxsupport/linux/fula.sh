@@ -827,6 +827,22 @@ function killPullImage() {
   fi
 }
 
+# Function to compare and copy service files
+  copy_service_file() {
+    local source_file="$1"
+    local dest_file="$2"
+    local service_name="$3"
+
+    if ! cmp -s "$source_file" "$dest_file"; then
+      echo "Updating $service_name service file" | sudo tee -a $FULA_LOG_PATH
+      sudo cp "$source_file" "$dest_file"
+      return 0  # File was updated
+    else
+      echo "$service_name service file is up to date" | sudo tee -a $FULA_LOG_PATH
+      return 1  # File was not updated
+    fi
+  }
+
 
 # Commands
 case $1 in
@@ -908,6 +924,25 @@ case $1 in
         fi
       fi
     done
+
+    systemd_reload_needed=false
+    # Check and update fula.service
+    if copy_service_file "${FULA_PATH}/fula.service" "$SYSTEMD_PATH/fula.service" "fula"; then
+      systemd_reload_needed=true
+      restart_fula=true
+    fi
+
+    # Check and update uniondrive.service
+    if copy_service_file "${FULA_PATH}/uniondrive.service" "$SYSTEMD_PATH/uniondrive.service" "uniondrive"; then
+      systemd_reload_needed=true
+      restart_uniondrive=true
+    fi
+
+    # Reload systemd if needed
+    if [ "$systemd_reload_needed" = true ]; then
+      echo "Reloading systemd" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl daemon-reload
+    fi
 
     if [ "$restart_uniondrive" = true ]; then
       echo "union-drive.sh has changed, restarting uniondrive" | sudo tee -a $FULA_LOG_PATH

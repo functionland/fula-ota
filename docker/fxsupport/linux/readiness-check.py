@@ -18,6 +18,17 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+def check_fs_type(mount_path, expected_type):
+    if not os.path.exists(mount_path):
+        return False
+    
+    try:
+        result = subprocess.run(["findmnt", "-no", "FSTYPE", mount_path], capture_output=True, text=True)
+        actual_type = result.stdout.strip()
+        return actual_type == expected_type
+    except subprocess.CalledProcessError:
+        return False
+
 def check_conditions():
     # Check all required conditions
     conditions = [
@@ -26,6 +37,7 @@ def check_conditions():
         os.path.exists(os.path.join(HOME_PATH, "V6.info")),
         "fula_go" in subprocess.getoutput("sudo docker ps --format '{{.Names}}'"),
         os.path.exists("/uniondrive"),  # Check if /uniondrive directory exists
+        check_fs_type("/uniondrive", "fuse.mergerfs"),
         "active" in subprocess.getoutput("sudo systemctl is-active docker.service"),
         "active" in subprocess.getoutput("sudo systemctl is-active fula.service"),
         "active" in subprocess.getoutput("sudo systemctl is-active uniondrive.service")  # Check if uniondrive service is running
@@ -96,6 +108,21 @@ def monitor_docker_logs_and_restart():
         time.sleep(500)
         # Check if Docker service is running
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
+        if not check_conditions():
+            logging.error("conditions not pass")
+            subprocess.run(["python", LED_PATH, "yellow", "5"])
+            subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "stop", "docker.service"], capture_output=True)
+            time.sleep(15)
+            subprocess.run(["sudo", "systemctl", "restart", "uniondrive.service"], capture_output=True)
+            # Wait a moment to let Docker restart
+            time.sleep(15)
+            subprocess.run(["sudo", "systemctl", "start", "docker.service"], capture_output=True)
+            # Wait a moment to let Docker restart
+            time.sleep(20)
+            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+            time.sleep(35)
+
         while "active" not in docker_service_status and restart_attempts < 3:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
             subprocess.run(["python", LED_PATH, "yellow", "5"])
@@ -103,7 +130,7 @@ def monitor_docker_logs_and_restart():
             # Wait a moment to let Docker restart
             time.sleep(15)
             subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
-            time.sleep(25)
+            time.sleep(35)
             restart_attempts += 1
             docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
 
@@ -137,19 +164,36 @@ def monitor_docker_logs_and_restart():
                 break
 
     if restart_attempts >= 3:
-        logging.error("Maximum restart attempts reached. Creating .reboot_flag and .command_partition files.")
+        logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
+        current_time = time.time()
+        
         if os.path.exists(REBOOT_FLAG_PATH):
-            # Issue persists even after reboot
-            logging.error("Issue persists after reboot. Flashing red and stopping further actions.")
-            while True:
-                subprocess.run(["python", LED_PATH, "red", "10"])
-                time.sleep(5)
+            file_mod_time = os.path.getmtime(REBOOT_FLAG_PATH)
+            time_difference = current_time - file_mod_time
+            
+            if time_difference < 24 * 60 * 60:  # 24 hours in seconds
+                # Issue persists even after reboot within 24 hours
+                logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
+                while True:
+                    subprocess.run(["python", LED_PATH, "red", "10"])
+                    time.sleep(5)
+            else:
+                # More than 24 hours have passed, update the reboot flag
+                logging.warning("Previous reboot flag is older than 24 hours. Updating and initiating re-partition process.")
+                os.remove(REBOOT_FLAG_PATH)
+                with open(REBOOT_FLAG_PATH, "w") as f:
+                    f.write("")
+                with open(COMMAND_PARTITION_PATH, "w") as f:
+                    f.write("")
+                subprocess.run(["python", LED_PATH, "purple", "5"])
         else:
-            subprocess.run(["python", LED_PATH, "purple", "5"])
+            # No existing reboot flag, create it and initiate re-partition process
+            logging.warning("No existing reboot flag. Creating flag and initiating re-partition process.")
             with open(REBOOT_FLAG_PATH, "w") as f:
                 f.write("")
             with open(COMMAND_PARTITION_PATH, "w") as f:
                 f.write("")
+            subprocess.run(["python", LED_PATH, "purple", "5"])
 
 def main():
     logging.info("readiness check started")
