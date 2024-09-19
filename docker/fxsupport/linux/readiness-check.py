@@ -200,7 +200,7 @@ def main():
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
-        time.sleep(30)
+        time.sleep(20)
         if check_conditions():
             logging.info("check_conditions passed")
             wifi_status = check_wifi_connection()
