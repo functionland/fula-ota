@@ -123,6 +123,7 @@ def monitor_docker_logs_and_restart():
     restart_attempts = 0
 
     while restart_attempts < 3:
+        logging.info("Entered into monitor while loop")
         time.sleep(500)
         # Check if Docker service is running
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
@@ -140,6 +141,10 @@ def monitor_docker_logs_and_restart():
             time.sleep(20)
             subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
             time.sleep(35)
+            restart_attempts += 1
+            continue
+        else:
+            logging.info("condition_check inside monitor passed")
 
         while "active" not in docker_service_status and restart_attempts < 3:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
@@ -152,18 +157,23 @@ def monitor_docker_logs_and_restart():
             restart_attempts += 1
             docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
 
+        all_containers_running = True
         for container in containers_to_check:
             container_running = container in subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
             if container_running:
+                logging.info(f"container_running inside monitor passed for {container}")
                 logs = subprocess.getoutput(f"sudo docker logs --tail 15 {container} 2>&1")
                 if "ERROR:" in logs:
                     logging.error(f"{container} logs contain ERROR:. Attempting to restart fula.service")
                     container_running = False
-
-            if not container_running:
+                else:
+                    logging.info(f"no ERROR found in the logs of {container}")
+            else:
+                all_containers_running = False
                 logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
                 subprocess.run(["python", LED_PATH, "yellow", "5"])
                 result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                time.sleep(5)
                 if result.returncode == 0:
                     logging.info(f"fula.service restarted successfully for {container}.")
                     subprocess.run(["python", LED_PATH, "blue", "5"])
@@ -172,19 +182,19 @@ def monitor_docker_logs_and_restart():
                     subprocess.run(["python", LED_PATH, "red", "5"])
                     if result.stderr:
                         logging.error(f"Restart error: {result.stderr}")
-                restart_attempts += 1
                 time.sleep(60)  # Delay between restart attempts
                 break  # Break to re-check all containers after an attempt
-            else:
-                # If all containers are running and logs are clean, reset attempts and continue monitoring
-                restart_attempts = 0
-                subprocess.run(["python", LED_PATH, "green", "1"])
-                break
+            
+        if all_containers_running:
+            # If all containers are running and logs are clean, reset attempts and continue monitoring
+            restart_attempts = 0
+            subprocess.run(["python", LED_PATH, "green", "1"])
+        else:
+            restart_attempts += 1
         
         ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
         if ipfs_cluster_fixed:
             restart_attempts += 1
-            continue
 
     if restart_attempts >= 3:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
