@@ -84,6 +84,24 @@ def attempt_wifi_connection():
 
     return None
 
+def check_and_fix_ipfs_cluster():
+    ipfs_cluster_logs = subprocess.getoutput("sudo docker logs --tail 50 ipfs_cluster 2>&1")
+    if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs:
+        logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
+        subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
+        time.sleep(10)
+        
+        pebble_dir = "/uniondrive/ipfs-cluster/pebble"
+        if os.path.exists(pebble_dir):
+            subprocess.run(["sudo", "rm", "-rf", f"{pebble_dir}/*"], shell=True)
+            logging.info("Pebble directory contents removed.")
+        else:
+            logging.warning("Pebble directory not found.")
+        
+        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        time.sleep(30)
+        return True
+    return False
 
 def check_internet_connection():
     try:
@@ -162,6 +180,11 @@ def monitor_docker_logs_and_restart():
                 restart_attempts = 0
                 subprocess.run(["python", LED_PATH, "green", "1"])
                 break
+        
+        ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
+        if ipfs_cluster_fixed:
+            restart_attempts += 1
+            continue
 
     if restart_attempts >= 3:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
