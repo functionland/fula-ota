@@ -4,6 +4,7 @@ import time
 import logging
 import sys
 import requests
+import re
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
@@ -112,6 +113,47 @@ def check_internet_connection():
         logging.error("No internet connection available.")
         return False
     
+def check_external_drive():
+    logging.info("Checking external drives for correct formatting")
+    try:
+        blkid_output = subprocess.check_output(["sudo", "blkid"], universal_newlines=True)
+        drives = [line.split(':') for line in blkid_output.splitlines() if line.startswith('/dev/sd') or line.startswith('/dev/nvme')]
+        for drive_info in drives:
+            drive = drive_info[0]
+            fstype = next((item.split('=')[1].strip('"') for item in drive_info[1].split() if item.startswith('TYPE=')), None)
+            if fstype and (fstype.lower() == 'exfat' or fstype.lower() == 'ntfs') :
+                logging.warning(f"Drive {drive} is formatted as {fstype}. Attempting to fix.")   
+                # Stop services
+                subprocess.run(["sudo", "systemctl", "stop", "fula.service"], check=True)
+                time.sleep(10)
+                subprocess.run(["sudo", "systemctl", "stop", "uniondrive.service"], check=True)
+                time.sleep(10)
+                # Stop automount service for the drive
+                partition = drive.split('/')[-1]
+                subprocess.run(["sudo", "systemctl", "stop", f"automount@{partition}.service"], check=True)
+                time.sleep(10)
+                # Delete mount folder
+                mount_folder = f"/media/pi/{partition}"
+                if os.path.exists(mount_folder):
+                    subprocess.run(["sudo", "umount", mount_folder], check=True)
+                    time.sleep(5)
+                    subprocess.run(["sudo", "rm", "-rf", mount_folder], check=True)
+                # Delete and recreate /uniondrive
+                if os.path.exists("/uniondrive"):
+                    subprocess.run(["sudo", "rm", "-rf", "/uniondrive"], check=True)
+                subprocess.run(["sudo", "mkdir", "/uniondrive"], check=True)
+                subprocess.run(["sudo", "chown", "-R", "pi:pi", "/uniondrive"], check=True)
+                subprocess.run(["sudo", "chmod", "-R", "777", "/uniondrive"], check=True)
+                return True
+        logging.info("No drives needing format correction found")
+        return False
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error in check_and_fix_external_drive: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error in check_and_fix_external_drive: {e}")
+        return False
+
 def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
@@ -121,6 +163,9 @@ def monitor_docker_logs_and_restart():
     
     containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
     restart_attempts = 0
+    if check_external_drive():
+        # a partition needs reformatting, skip the loop and go to partition section
+        restart_attempts = 3
 
     while restart_attempts < 3:
         logging.info("Entered into monitor while loop")

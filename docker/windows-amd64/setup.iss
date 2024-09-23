@@ -36,12 +36,14 @@ Source: "status.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "status.ps1"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "stop.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "stop.ps1"; DestDir: "{app}"; Flags: recursesubdirs
+Source: "fxblox.ps1"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ico"; DestDir: "{app}"; Flags: recursesubdirs
 Source: "trayicon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "mark_installation_complete.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "server\out\fula-webui-win32-x64\*"; DestDir: "{app}\server\fula-webui-win32-x64"; Flags: ignoreversion
 Source: "server\out\make\*"; DestDir: "{app}\server\make"; Flags: recursesubdirs
+Source: "zeroconf\zeroconf_discovery.exe"; DestDir: "{app}\zeroconf"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Fula Status"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\status.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\status.ico"
@@ -328,11 +330,54 @@ begin
   end;
 end;
 
+[Code]
+function GetEnvironmentVariable(lpName: string; lpBuffer: string; nSize: DWORD): DWORD;
+  external 'GetEnvironmentVariableW@kernel32.dll stdcall';
+function SetEnvironmentVariable(lpName: string; lpValue: string): BOOL;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
+procedure CompileGoFile();
+var
+  ResultCode: Integer;
+  OldGOOS, OldGOARCH: string;
+  Buffer: string;
+  BufferSize: DWORD;
+begin
+  // Save current environment variables
+  BufferSize := 1024;
+  SetLength(Buffer, BufferSize);
+  GetEnvironmentVariable('GOOS', Buffer, BufferSize);
+  OldGOOS := Buffer;
+  GetEnvironmentVariable('GOARCH', Buffer, BufferSize);
+  OldGOARCH := Buffer;
+
+  // Set new environment variables
+  SetEnvironmentVariable('GOOS', 'windows');
+  SetEnvironmentVariable('GOARCH', 'amd64');
+
+  // Compile the Go file
+  if not Exec(ExpandConstant('{cmd}'), '/C go build -o zeroconf\zeroconf_discovery.exe zeroconf\main.go', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    MsgBox('Failed to compile Go file. Error code: ' + IntToStr(ResultCode), mbError, MB_OK);
+    Abort;
+  end;
+
+  // Restore original environment variables
+  SetEnvironmentVariable('GOOS', OldGOOS);
+  SetEnvironmentVariable('GOARCH', OldGOARCH);
+end;
+
 procedure BeforeInstall;
 var
   ResultCode: Integer;
   SourcePath, DestPath: string;
 begin
+  CompileGoFile();
+  // Copy files after npm commands
+  SourcePath := ExpandConstant('{src}\zeroconf\zeroconf_discovery.exe');
+  DestPath := ExpandConstant('{app}\zeroconf\zeroconf_discovery.exe');
+  Exec(ExpandConstant('{cmd}'), Format('/C xcopy "%s" "%s" /E /I /Y', [SourcePath, DestPath]), '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  
   // Run npm install, build, and make commands
   Exec(ExpandConstant('{cmd}'), '/C npm install', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'), '/C npm run build', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);

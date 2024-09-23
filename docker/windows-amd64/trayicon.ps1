@@ -1,5 +1,11 @@
 # trayicon.ps1
 
+# Set the working directory to the script's location
+Set-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
+
+# Start transcript for logging
+Start-Transcript -Path "$env:TEMP\trayicon_log.txt" -Append
+
 # Path to the PID file
 $pidFilePath = Join-Path (Get-Location) "trayicon.pid"
 
@@ -22,21 +28,34 @@ $trayIcon.Text = "Fula Application"
 # Create context menu with items
 $contextMenu = New-Object System.Windows.Forms.ContextMenu
 
+# Function to execute scripts with error handling
+function Execute-Script {
+    param (
+        [string]$scriptName,
+        [string]$description
+    )
+    try {
+        Write-Host "${description}..."
+        $scriptPath = Join-Path $PSScriptRoot $scriptName
+        if (Test-Path $scriptPath) {
+            Start-Process -NoNewWindow -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+        } else {
+            Write-Host "Script not found: $scriptPath"
+        }
+    } catch {
+        Write-Host "Error executing ${description}: ${_}"
+    }
+}
+
 # Restart item
 $restartItem = New-Object System.Windows.Forms.MenuItem
 $restartItem.Text = "Restart"
-$restartItem.Add_Click({
-    Write-Host "Restarting Docker containers..."
-    Start-Process -NoNewWindow -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File .\start.ps1"
-})
+$restartItem.Add_Click({ Execute-Script "start.ps1" "Restarting Docker containers" })
 
 # Status item
 $statusItem = New-Object System.Windows.Forms.MenuItem
 $statusItem.Text = "Status"
-$statusItem.Add_Click({
-    Write-Host "Checking Docker containers status..."
-    Start-Process -NoNewWindow -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File .\status.ps1"
-})
+$statusItem.Add_Click({ Execute-Script "status.ps1" "Checking Docker containers status" })
 
 # Exit item
 $exitItem = New-Object System.Windows.Forms.MenuItem
@@ -44,12 +63,18 @@ $exitItem.Text = "Exit"
 $exitItem.Add_Click({
     Write-Host "Stopping and exiting..."
     Remove-Item -Path $pidFilePath -Force
-    Start-Process -NoNewWindow -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File .\stop.ps1"
+    Execute-Script "stop.ps1" "Stopping Docker containers"
     $trayIcon.Dispose()
     [System.Windows.Forms.Application]::Exit()
 })
 
+# Load FxBlox item
+$fxBloxItem = New-Object System.Windows.Forms.MenuItem
+$fxBloxItem.Text = "Load FxBlox"
+$fxBloxItem.Add_Click({ Execute-Script "fxblox.ps1" "Loading FxBlox" })
+
 # Add items to context menu
+$contextMenu.MenuItems.Add($fxBloxItem)
 $contextMenu.MenuItems.Add($restartItem)
 $contextMenu.MenuItems.Add($statusItem)
 $contextMenu.MenuItems.Add($exitItem)
@@ -70,3 +95,6 @@ $trayIcon.add_MouseClick({
 
 # Clean up the PID file when the script exits
 Remove-Item -Path $pidFilePath -Force
+
+# Stop transcript
+Stop-Transcript
