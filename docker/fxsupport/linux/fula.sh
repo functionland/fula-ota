@@ -159,6 +159,70 @@ function create_cron() {
   echo "Cron jobs created/updated." 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
+setup_storage_access() {
+    local arch=${1:-RK1}
+    local setup_flag="${HOME_DIR}/.storage_setup"
+    local smb_conf="/etc/samba/smb.conf"
+    local shared_folder="/uniondrive/fxblox"
+
+    # Check if setup has already been done
+    if [ -f "$setup_flag" ]; then
+        echo "Storage access already set up."
+        return 0
+    fi
+
+    # Wait for uniondrive to be mounted
+    while [ ! -d "/uniondrive" ]; do
+        echo "Waiting for uniondrive to be mounted..."
+        sleep 5
+    done
+
+    # Install Samba if not already installed
+    if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
+        echo "Installing Samba..."
+        sudo apt update
+        sudo apt install -y samba samba-common-bin
+    fi
+
+    # Create shared folder
+    sudo mkdir -p "$shared_folder"
+
+    # Configure Samba
+    local smb_config="[SharedFolder]
+path = $shared_folder
+browseable = yes
+writable = yes
+guest ok = yes
+read only = no
+create mask = 0777
+directory mask = 0777"
+
+    if [ ! -f "$smb_conf" ] || ! grep -q "\[SharedFolder\]" "$smb_conf"; then
+        echo "Configuring Samba..."
+        echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+    elif ! diff <(echo "$smb_config") <(sed -n '/\[SharedFolder\]/,/^$/p' "$smb_conf") > /dev/null; then
+        echo "Updating Samba configuration..."
+        sudo sed -i '/\[SharedFolder\]/,/^$/d' "$smb_conf"
+        echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+    fi
+
+    # Set up Samba user
+    echo "Setting up Samba user..."
+    if [ "${arch}" == "RPI4" ]; then
+        echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi
+    else
+        echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi
+    fi
+
+    # Restart Samba service
+    echo "Restarting Samba service..."
+    sudo systemctl restart smbd
+
+    # Create setup flag
+    touch "$setup_flag"
+    echo "Storage access setup completed."
+}
+
 # Functions
 function install() {
   arch=${1:-RK1}  # Set arch based on the provided argument, default to RK1
@@ -719,6 +783,9 @@ function restart() {
     sudo pip install requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
   }
 
+  #setup samba for blox storage access /uniondrive/fxblox
+  setup_storage_access
+
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
@@ -905,6 +972,8 @@ case $1 in
     done
   
     sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sleep 2
+    sync
 
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
     # Check if fula.sh or union-drive.sh have changed
