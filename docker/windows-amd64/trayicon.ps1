@@ -70,7 +70,7 @@ $exitItem.Add_Click({
 
 # Load FxBlox item
 $fxBloxItem = New-Object System.Windows.Forms.MenuItem
-$fxBloxItem.Text = "Load FxBlox"
+$fxBloxItem.Text = "Blox Link"
 $fxBloxItem.Add_Click({ Execute-Script "fxblox.ps1" "Loading FxBlox" })
 
 # Add items to context menu
