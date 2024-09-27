@@ -170,6 +170,10 @@ setup_storage_access() {
         echo "Storage access already set up."
         sudo mkdir -p "$shared_folder"
         sync
+        sleep 1
+        sudo chown -R pi:pi "$shared_folder"
+        sudo chmod 777 -R "$shared_folder"
+        sleep 1
         sleep 2
         sudo systemctl restart smbd
         return 0
@@ -191,6 +195,9 @@ setup_storage_access() {
     # Create shared folder
     sudo mkdir -p "$shared_folder"
     sync 
+    sleep 1
+    sudo chown -R pi:pi "$shared_folder"
+    sudo chmod 777 -R "$shared_folder"
     sleep 1
 
     # Configure Samba
