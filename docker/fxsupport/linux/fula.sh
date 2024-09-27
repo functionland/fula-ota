@@ -168,6 +168,10 @@ setup_storage_access() {
     # Check if setup has already been done
     if [ -f "$setup_flag" ]; then
         echo "Storage access already set up."
+        sudo mkdir -p "$shared_folder"
+        sync
+        sleep 2
+        sudo systemctl restart smbd
         return 0
     fi
 
@@ -186,6 +190,8 @@ setup_storage_access() {
 
     # Create shared folder
     sudo mkdir -p "$shared_folder"
+    sync 
+    sleep 1
 
     # Configure Samba
     local smb_config="[SharedFolder]
@@ -785,6 +791,7 @@ function restart() {
 
   #setup samba for blox storage access /uniondrive/fxblox
   setup_storage_access
+  sleep 2
 
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
