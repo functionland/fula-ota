@@ -300,7 +300,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
                 break
             else
                 log "Filesystem is read-only. Attempting to remount as read-write."
-                if ! mount -o remount,rw "$MOUNT_PATH"; then
+                if ! mount -o remount,rw,nonempty "$MOUNT_PATH"; then
                     log "Failed to remount /uniondrive as read-write."
                     exit 1
                 fi
