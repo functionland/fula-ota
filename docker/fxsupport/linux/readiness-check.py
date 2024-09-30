@@ -19,6 +19,45 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+def get_wifi_info_and_ping():
+    try:
+        # Get the list of connections
+        nmcli_output = subprocess.check_output(["sudo", "nmcli", "con", "show"], universal_newlines=True)
+        
+        # Find the non-FxBlox WiFi connection
+        wifi_connection = None
+        for line in nmcli_output.split('\n'):
+            if 'wifi' in line.lower() and 'fxblox' not in line.lower():
+                wifi_connection = line.split()[0]
+                break
+        
+        if not wifi_connection:
+            return "No non-FxBlox WiFi connection found."
+        
+        # Get the device for this connection
+        device_output = subprocess.check_output(["sudo", "nmcli", "con", "show", wifi_connection], universal_newlines=True)
+        device_match = re.search(r'GENERAL.DEVICES:\s+(\S+)', device_output)
+        if not device_match:
+            return f"Could not find device for connection {wifi_connection}"
+        
+        device = device_match.group(1)
+        
+        # Get the router IP (gateway)
+        gateway_output = subprocess.check_output(["sudo", "nmcli", "dev", "show", device], universal_newlines=True)
+        gateway_match = re.search(r'IP4.GATEWAY:\s+(\S+)', gateway_output)
+        if not gateway_match:
+            return f"Could not find gateway IP for device {device}"
+        
+        gateway_ip = gateway_match.group(1)
+        
+        # Ping the router 6 times
+        ping_output = subprocess.check_output(["ping", "-c", "6", gateway_ip], universal_newlines=True)
+        
+        return f"Connection: {wifi_connection}\nDevice: {device}\nGateway IP: {gateway_ip}\nPing results:\n{ping_output}"
+    
+    except subprocess.CalledProcessError as e:
+        return f"An error occurred: {str(e)}"
+
 def check_fs_type(mount_path, expected_type):
     if not os.path.exists(mount_path):
         return False
@@ -178,7 +217,8 @@ def monitor_docker_logs_and_restart():
 
     while restart_attempts < 3:
         logging.info("Entered into monitor while loop")
-        time.sleep(500)
+        time.sleep(450)
+        get_wifi_info_and_ping()
         # Check if Docker service is running
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         if not check_conditions():
@@ -263,6 +303,7 @@ def monitor_docker_logs_and_restart():
                 logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
                 while True:
                     subprocess.run(["python", LED_PATH, "red", "10"])
+                    get_wifi_info_and_ping()
                     time.sleep(5)
             else:
                 # More than 24 hours have passed, update the reboot flag
