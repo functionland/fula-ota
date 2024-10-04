@@ -24,6 +24,9 @@ resize_flag=$FULA_PATH/.resize_flg
 partition_flag=$FULA_PATH/.partition_flg
 VERSION_FILE="${HOME_DIR}/.internal/ipfs_data/version"
 
+ACTIVE_PLUGINS_FILE="$HOME_DIR/active-plugins.txt"
+PLUGINS_DIR="$FULA_PATH/plugins"
+
 DATA_DIR=$FULA_PATH
 if [ $# -gt 1 ]; then
   DATA_DIR=$2
@@ -910,7 +913,7 @@ function killPullImage() {
 }
 
 # Function to compare and copy service files
-  copy_service_file() {
+function copy_service_file() {
     local source_file="$1"
     local dest_file="$2"
     local service_name="$3"
@@ -923,7 +926,66 @@ function killPullImage() {
       echo "$service_name service file is up to date" | sudo tee -a $FULA_LOG_PATH
       return 1  # File was not updated
     fi
-  }
+}
+
+function process_plugins() {
+  # Create active-plugins.txt if it doesn't exist
+    if [ ! -f "$ACTIVE_PLUGINS_FILE" ]; then
+      touch "$ACTIVE_PLUGINS_FILE"
+      echo "Created empty active-plugins.txt file" | sudo tee -a $FULA_LOG_PATH
+    fi
+
+    # Read active plugins
+    mapfile -t active_plugins < "$ACTIVE_PLUGINS_FILE"
+
+    # Check if plugins folder exists
+    if [ -d "$PLUGINS_DIR" ]; then
+      for plugin in "${active_plugins[@]}"; do
+        plugin_dir="$PLUGINS_DIR/$plugin"
+        if [ -d "$plugin_dir" ]; then
+          # Check if plugin directory has changed
+          if [ "$(find "$plugin_dir" -type f -newer "$ACTIVE_PLUGINS_FILE" | wc -l)" -gt 0 ]; then
+            echo "Plugin $plugin has changed, updating..." | sudo tee -a $FULA_LOG_PATH
+
+            # Run uninstall.sh if it exists
+            if [ -f "$plugin_dir/uninstall.sh" ]; then
+              echo "Running uninstall.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+              sudo bash "$plugin_dir/uninstall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            fi
+
+            # Run install.sh
+            if [ -f "$plugin_dir/install.sh" ]; then
+              echo "Running install.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+              sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            else
+              echo "install.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+            fi
+
+            # Run start.sh
+            if [ -f "$plugin_dir/start.sh" ]; then
+              echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+              sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            else
+              echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+            fi
+          else
+            echo "No changes detected for plugin $plugin" | sudo tee -a $FULA_LOG_PATH
+            # Run start.sh
+            if [ -f "$plugin_dir/start.sh" ]; then
+              echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+              sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            else
+              echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+            fi
+          fi
+        else
+          echo "Plugin directory for $plugin not found" | sudo tee -a $FULA_LOG_PATH
+        fi
+      done
+    else
+      echo "Plugins directory not found" | sudo tee -a $FULA_LOG_PATH
+    fi
+}
 
 
 # Commands
@@ -1042,6 +1104,7 @@ case $1 in
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
+  process_plugins
   sync
   ;;
 "stop")

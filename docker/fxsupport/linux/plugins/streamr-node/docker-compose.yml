@@ -1,0 +1,13 @@
+version: '3'
+services:
+  streamr-node:
+    image: streamr/node
+    container_name: streamr-node
+    restart: unless-stopped
+    ports:
+      - "32200:32200"
+    volumes:
+      - /home/pi/streamr-node/streamr/.streamr:/home/streamr/.streamr:rw,shared,uid=1000,gid=1000
+    environment:
+      - LOG_LEVEL=info
+    user: "1000:1000"

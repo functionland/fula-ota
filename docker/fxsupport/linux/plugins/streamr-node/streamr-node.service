@@ -1,0 +1,14 @@
+[Unit]
+Description=Streamr Node
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/home/pi/streamr-node
+ExecStart=/usr/bin/docker-compose -f /home/pi/streamr-node/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /home/pi/streamr-node/docker-compose.yml down
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
