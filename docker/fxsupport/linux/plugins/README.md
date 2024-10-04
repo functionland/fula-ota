@@ -12,6 +12,7 @@ Plugins are separate services that can be added to a blox and users can opt-in t
 - {name}.service: which is the service file itself
 - uninstall.sh: which uninstalls and removes the service and associated files
 - docker-compose.yml: which is the configuration of docker running the plugin
+- info.json: Which includes standard information about hte plugin that will be shown to users
 
 User can activate or deactivate plugins and active plugins are stored in /home/pi/active-plugins.txt
 

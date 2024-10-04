@@ -1,0 +1,29 @@
+{
+    "name": "streamr-node",
+    "description": "Streamr (DATA) is an open source project and decentralized platform that relies on cryptography instead of trust. It is a P2P, real-time data infrastructure that houses a platform and tools for a new data economy. The technology stack includes a scalable real-time messaging network (pub/sub) hosted on computers worldwide, a marketplace for trading/selling data and a set of tools for working with real-time data.",
+    "version": "101",
+    "usage": {
+        "storage": "none",
+        "compute": "medium",
+        "bandwidth": "high",
+        "ram": "high",
+        "gpu": "none"
+    },
+    "rewards": [
+        {
+            "type": "token",
+            "currency": "$DATA",
+            "link": "https://coinmarketcap.com/currencies/streamr/"
+        }
+    ],
+    "socials": [
+        {
+            "telegram": "https://t.me/streamrofficial",
+            "twitter": "https://x.com/streamr",
+            "email": "",
+            "website": "",
+            "discord": ""
+        }
+    ],
+    "approved": true
+}
