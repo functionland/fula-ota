@@ -930,61 +930,79 @@ function copy_service_file() {
 
 function process_plugins() {
   # Create active-plugins.txt if it doesn't exist
-    if [ ! -f "$ACTIVE_PLUGINS_FILE" ]; then
-      touch "$ACTIVE_PLUGINS_FILE"
-      echo "Created empty active-plugins.txt file" | sudo tee -a $FULA_LOG_PATH
-    fi
+  if [ ! -f "$ACTIVE_PLUGINS_FILE" ]; then
+    touch "$ACTIVE_PLUGINS_FILE"
+    echo "Created empty active-plugins.txt file" | sudo tee -a $FULA_LOG_PATH
+  fi
 
-    # Read active plugins
-    mapfile -t active_plugins < "$ACTIVE_PLUGINS_FILE"
+  # Read active plugins
+  mapfile -t active_plugins < "$ACTIVE_PLUGINS_FILE"
 
-    # Check if plugins folder exists
-    if [ -d "$PLUGINS_DIR" ]; then
-      for plugin in "${active_plugins[@]}"; do
-        plugin_dir="$PLUGINS_DIR/$plugin"
-        if [ -d "$plugin_dir" ]; then
-          # Check if plugin directory has changed
-          if [ "$(find "$plugin_dir" -type f -newer "$ACTIVE_PLUGINS_FILE" | wc -l)" -gt 0 ]; then
-            echo "Plugin $plugin has changed, updating..." | sudo tee -a $FULA_LOG_PATH
+  # Array to keep track of newly installed plugins
+  newly_installed_plugins=()
 
-            # Run uninstall.sh if it exists
+  # Check if plugins folder exists
+  if [ -d "$PLUGINS_DIR" ]; then
+    # Process active plugins
+    for plugin in "${active_plugins[@]}"; do
+      plugin_dir="$PLUGINS_DIR/$plugin"
+      if [ -d "$plugin_dir" ]; then
+        echo "Processing active plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
+        
+        # Run install.sh
+        if [ -f "$plugin_dir/install.sh" ]; then
+          echo "Running install.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+          sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+          newly_installed_plugins+=("$plugin")
+        else
+          echo "install.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+        fi
+
+        # Run start.sh
+        if [ -f "$plugin_dir/start.sh" ]; then
+          echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+          sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+        else
+          echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+        fi
+      else
+        echo "Plugin directory for $plugin not found" | sudo tee -a $FULA_LOG_PATH
+      fi
+    done
+
+    # Process plugins in the plugins folder that are not in active-plugins
+    for plugin_dir in "$PLUGINS_DIR"/*; do
+      if [ -d "$plugin_dir" ]; then
+        plugin=$(basename "$plugin_dir")
+        if ! printf '%s\n' "${active_plugins[@]}" | grep -q "^$plugin$"; then
+          echo "Processing inactive plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
+          
+          # Check if the plugin was just installed
+          if ! printf '%s\n' "${newly_installed_plugins[@]}" | grep -q "^$plugin$"; then
+            # Run stop.sh
+            if [ -f "$plugin_dir/stop.sh" ]; then
+              echo "Running stop.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
+              sudo bash "$plugin_dir/stop.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            else
+              echo "stop.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+            fi
+
+            # Run uninstall.sh
             if [ -f "$plugin_dir/uninstall.sh" ]; then
               echo "Running uninstall.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
               sudo bash "$plugin_dir/uninstall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            fi
-
-            # Run install.sh
-            if [ -f "$plugin_dir/install.sh" ]; then
-              echo "Running install.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-              sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
             else
-              echo "install.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-            fi
-
-            # Run start.sh
-            if [ -f "$plugin_dir/start.sh" ]; then
-              echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-              sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            else
-              echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
+              echo "uninstall.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
             fi
           else
-            echo "No changes detected for plugin $plugin" | sudo tee -a $FULA_LOG_PATH
-            # Run start.sh
-            if [ -f "$plugin_dir/start.sh" ]; then
-              echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-              sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            else
-              echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-            fi
+            echo "Skipping uninstall for newly installed plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
           fi
-        else
-          echo "Plugin directory for $plugin not found" | sudo tee -a $FULA_LOG_PATH
         fi
-      done
-    else
-      echo "Plugins directory not found" | sudo tee -a $FULA_LOG_PATH
-    fi
+      fi
+    done
+  else
+    echo "Plugins directory not found" | sudo tee -a $FULA_LOG_PATH
+  fi
 }
 
 
