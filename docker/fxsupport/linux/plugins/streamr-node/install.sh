@@ -16,19 +16,19 @@ fi
 
 NETWORK=$1
 USER="pi"
-HOME_DIR="/home/$USER"
-STREAMR_DIR="$HOME_DIR/streamr-node"
+INTERNAL_DIR="/home/$USER/.internal"
+STREAMR_DIR="$INTERNAL_DIR/streamr-node"
 CONFIG_DIR="$STREAMR_DIR/streamr/.streamr/config"
 CONFIG_FILE="$CONFIG_DIR/default.json"
 
 # Create necessary directories
 mkdir -p "$STREAMR_DIR"
 mkdir -p "$CONFIG_DIR"
-chown "$USER":"$USER" -R "$HOME_DIR/streamr-node/streamr/.streamr"
+chown "$USER":"$USER" -R "$INTERNAL_DIR/streamr-node/streamr/.streamr"
 
 
 # Check for required files
-if [ ! -f "$HOME_DIR/.internal/.secrets/secret_seed.txt" ]; then
+if [ ! -f "$INTERNAL_DIR/.secrets/secret_seed.txt" ]; then
   echo "Error: secret_seed.txt not found."
   exit 1
 fi
@@ -48,7 +48,7 @@ fi
 API_KEY=$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)
 
 # Read private key and operator contract address
-PRIVATE_KEY=$(cat "$HOME_DIR/.internal/.secrets/secret_seed.txt" | tr -d '[:space:]')
+PRIVATE_KEY=$(cat "$INTERNAL_DIR/.secrets/secret_seed.txt" | tr -d '[:space:]')
 OPERATOR_ADDRESS=$(cat "$STREAMR_DIR/operator-contract-address.txt" | tr -d '[:space:]')
 
 # Set environment based on input

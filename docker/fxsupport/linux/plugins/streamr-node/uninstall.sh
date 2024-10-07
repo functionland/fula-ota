@@ -10,6 +10,10 @@ fi
 
 echo "Uninstalling Streamr node..."
 
+USER="pi"
+INTERNAL_DIR="/home/$USER/.internal"
+STREAMR_DIR="$INTERNAL_DIR/streamr-node"
+
 # Stop and remove the Docker container
 if docker ps -a | grep -q streamr-node; then
     echo "Stopping and removing Streamr node Docker container..."
@@ -28,9 +32,9 @@ else
 fi
 
 # Remove the configuration directory
-if [ -d "/home/pi/streamr-node" ]; then
+if [ -d "$STREAMR_DIR" ]; then
     echo "Removing Streamr node configuration directory..."
-    rm -rf /home/pi/streamr-node
+    rm -rf "$STREAMR_DIR"
 else
     echo "Streamr node configuration directory not found. Skipping directory removal."
 fi
