@@ -24,7 +24,7 @@ resize_flag=$FULA_PATH/.resize_flg
 partition_flag=$FULA_PATH/.partition_flg
 VERSION_FILE="${HOME_DIR}/.internal/ipfs_data/version"
 
-ACTIVE_PLUGINS_FILE="$HOME_DIR/active-plugins.txt"
+ACTIVE_PLUGINS_FILE="${HOME_DIR}/.internal/active-plugins.txt"
 PLUGINS_DIR="$FULA_PATH/plugins"
 
 DATA_DIR=$FULA_PATH

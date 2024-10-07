@@ -9,8 +9,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check if streamr service is already installed
-if systemctl is-active --quiet streamr-node.service; then
-  echo "Streamr node service is already installed and running."
+if systemctl list-unit-files | grep -q streamr-node.service; then
+  echo "Streamr node service is already installed."
   exit 0
 fi
 

@@ -14,6 +14,11 @@ USER="pi"
 INTERNAL_DIR="/home/$USER/.internal"
 STREAMR_DIR="$INTERNAL_DIR/streamr-node"
 
+if ! systemctl list-unit-files | grep -q streamr-node.service; then
+    echo "Streamr node service is not installed. No action needed"
+    exit 0
+fi
+
 # Stop and remove the Docker container
 if docker ps -a | grep -q streamr-node; then
     echo "Stopping and removing Streamr node Docker container..."
