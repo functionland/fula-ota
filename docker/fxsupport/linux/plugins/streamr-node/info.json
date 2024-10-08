@@ -25,6 +25,18 @@
             "discord": ""
         }
     ],
+    "instructions": [
+        {
+            "order": 1,
+            "description": "Get Operator Contract Address and paste in the parameters input below",
+            "url": "https://streamr.network/hub/network/operators/"
+        },
+        {
+            "order": 2,
+            "description": "Open Port 32200 in your router",
+            "url": ""
+        }
+    ],
     "requiredInputs": [
         {
             "name": "operator-contract-address",
