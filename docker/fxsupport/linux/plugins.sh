@@ -7,6 +7,7 @@ HOME_DIR=/home/pi
 FULA_PATH=/usr/bin/fula
 FULA_LOG_PATH=$HOME_DIR/fula.sh.log
 ACTIVE_PLUGINS_FILE="${HOME_DIR}/.internal/active-plugins.txt"
+UPDATE_PLUGIN_FILE="${HOME_DIR}/.internal/update-plugins.txt"
 PLUGINS_DIR="${FULA_PATH}/plugins"
 LOCKFILE="/tmp/plugin_manager.lock"
 SEMAPHORE="/tmp/plugin_semaphore"
@@ -246,6 +247,33 @@ install_active_plugins() {
     done
 }
 
+update_plugin() {
+    local plugin=$1
+    local plugin_dir="$PLUGINS_DIR/$plugin"
+    systemd-notify WATCHDOG=1
+
+    if [ -f "$plugin_dir/update.sh" ]; then
+        log_message "Running update.sh for $plugin"
+        if timeout $timeout sudo bash "$plugin_dir/update.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+            log_message "update.sh completed successfully for $plugin"
+        else
+            log_message "update.sh failed for $plugin"
+        fi
+    else
+        log_message "update.sh not found for $plugin"
+    fi
+}
+process_plugin_updates() {
+    local plugins_to_update=()
+    mapfile -t plugins_to_update < "$UPDATE_PLUGIN_FILE"
+    
+    for plugin in "${plugins_to_update[@]}"; do
+        update_plugin "$plugin"
+    done
+    
+    # Empty the file after processing all updates
+    : > "$UPDATE_PLUGIN_FILE"
+}
 
 # Cleanup function
 cleanup() {
@@ -290,25 +318,31 @@ running=true
 # Main loop
 while $running; do
     systemd-notify WATCHDOG=1
-    if ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE"; then
+    if ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
         # Timeout occurred, continue the loop
         systemd-notify WATCHDOG=1
         continue
     fi
-    
-    log_message "Changes detected in active-plugins.txt"
     
     if ! acquire_lock; then
         log_message "Failed to acquire lock. Skipping this iteration."
         continue
     fi
     
-    process_active_plugins_changes "${old_plugins[@]}"
+    if [ -s "$UPDATE_PLUGIN_FILE" ]; then
+        log_message "Changes detected in update-plugins.txt"
+        process_plugin_updates
+    fi
     
-    if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
-        old_plugins=()
-    else
-        mapfile -t old_plugins < "$ACTIVE_PLUGINS_FILE"
+    if [ -s "$ACTIVE_PLUGINS_FILE" ]; then
+        log_message "Changes detected in active-plugins.txt"
+        process_active_plugins_changes "${old_plugins[@]}"
+        
+        if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
+            old_plugins=()
+        else
+            mapfile -t old_plugins < "$ACTIVE_PLUGINS_FILE"
+        fi
     fi
     
     release_lock
