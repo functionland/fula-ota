@@ -1,6 +1,6 @@
 ## Plugins
 
-Plugins are separate services that can be added to a blox and users can opt-in to run them
+Plugins are separate services that can be added to a blox and users can opt-in to run them. Each plugin has access to the seed in order to be used for token creation.
 
 ## How to add a plugin
 
@@ -13,6 +13,7 @@ Plugins are separate services that can be added to a blox and users can opt-in t
 - uninstall.sh: which uninstalls and removes the service and associated files
 - docker-compose.yml: which is the configuration of docker running the plugin
 - info.json: Which includes standard information about hte plugin that will be shown to users
+- custom/: Any file that is not in the above and is used by your scripts go to this folder. you have access to python and bash.
 
 User can activate or deactivate plugins and active plugins are stored in /home/pi/active-plugins.txt
 

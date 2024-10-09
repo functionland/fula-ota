@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Adapted UID parsing logic - Line 31-40
-# fula-ota v6.0.5
+# fula-ota v6.1.0
 
 set -e
 
@@ -24,9 +24,6 @@ resize_flag=$FULA_PATH/.resize_flg
 partition_flag=$FULA_PATH/.partition_flg
 VERSION_FILE="${HOME_DIR}/.internal/ipfs_data/version"
 
-ACTIVE_PLUGINS_FILE="${HOME_DIR}/.internal/active-plugins.txt"
-PLUGINS_DIR="$FULA_PATH/plugins"
-
 DATA_DIR=$FULA_PATH
 if [ $# -gt 1 ]; then
   DATA_DIR=$2
@@ -34,6 +31,12 @@ fi
 
 ENV_FILE="$FULA_PATH/.env"
 DOCKER_DIR=$FULA_PATH
+
+if [ -d /sys/module/rockchipdrm ]; then
+    arch=RK1
+else
+    arch=RPI4
+fi
 
 declare -x CURRENT_USER
 CURRENT_USER=$(whoami)
@@ -163,7 +166,6 @@ function create_cron() {
 }
 
 setup_storage_access() {
-    local arch=${1:-RK1}
     local setup_flag="${HOME_DIR}/.storage_setup"
     local smb_conf="/etc/samba/smb.conf"
     local shared_folder="/uniondrive/fxblox"
@@ -845,6 +847,16 @@ function remove() {
 
   systemctl daemon-reload
   dockerPrune
+
+  if [ -f "${SYSTEMD_PATH}/fula-plugins.service" ]; then
+        echo "Removing fula-plugins service" | sudo tee -a $FULA_LOG_PATH
+        sudo systemctl stop fula-plugins
+        sudo systemctl disable fula-plugins
+        sudo rm fula-plugins
+        sudo systemctl daemon-reload
+  else
+        echo "fula-plugins service is not installed" | sudo tee -a $FULA_LOG_PATH
+  fi
   echo "Removing Fula Finished" | sudo tee -a $FULA_LOG_PATH
 }
 
@@ -929,80 +941,39 @@ function copy_service_file() {
 }
 
 function process_plugins() {
-  # Create active-plugins.txt if it doesn't exist
-  if [ ! -f "$ACTIVE_PLUGINS_FILE" ]; then
-    touch "$ACTIVE_PLUGINS_FILE"
-    echo "Created empty active-plugins.txt file" | sudo tee -a $FULA_LOG_PATH
-  fi
+    local SERVICE_NAME="fula-plugins"
+    local SERVICE_FILE="${SYSTEMD_PATH}/${SERVICE_NAME}.service"
 
-  # Read active plugins
-  mapfile -t active_plugins < "$ACTIVE_PLUGINS_FILE"
+    # Function to install and activate the service
+    install_service() {
+        echo "Installing ${SERVICE_NAME} service" | sudo tee -a $FULA_LOG_PATH
+        cat << EOF | sudo tee $SERVICE_FILE > /dev/null
+[Unit]
+Description=Fula Plugins Service
+After=docker.service
+Requires=docker.service
 
-  # Array to keep track of newly installed plugins
-  newly_installed_plugins=()
+[Service]
+ExecStart=/usr/bin/fula/plugins.sh
+Restart=on-failure
+RestartSec=300
+StartLimitInterval=3000
+StartLimitBurst=10
 
-  # Check if plugins folder exists
-  if [ -d "$PLUGINS_DIR" ]; then
-    # Process active plugins
-    for plugin in "${active_plugins[@]}"; do
-      plugin_dir="$PLUGINS_DIR/$plugin"
-      if [ -d "$plugin_dir" ]; then
-        echo "Processing active plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
-        
-        # Run install.sh
-        if [ -f "$plugin_dir/install.sh" ]; then
-          echo "Running install.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-          sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-          newly_installed_plugins+=("$plugin")
-        else
-          echo "install.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-        fi
+[Install]
+WantedBy=multi-user.target
+EOF
+        sudo systemctl daemon-reload
+        sudo systemctl enable $SERVICE_NAME
+        echo "${SERVICE_NAME} service installed and activated" | sudo tee -a $FULA_LOG_PATH
+    }
 
-        # Run start.sh
-        if [ -f "$plugin_dir/start.sh" ]; then
-          echo "Running start.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-          sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-        else
-          echo "start.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-        fi
-      else
-        echo "Plugin directory for $plugin not found" | sudo tee -a $FULA_LOG_PATH
-      fi
-    done
-
-    # Process plugins in the plugins folder that are not in active-plugins
-    for plugin_dir in "$PLUGINS_DIR"/*; do
-      if [ -d "$plugin_dir" ]; then
-        plugin=$(basename "$plugin_dir")
-        if ! printf '%s\n' "${active_plugins[@]}" | grep -q "^$plugin$"; then
-          echo "Processing inactive plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
-          
-          # Check if the plugin was just installed
-          if ! printf '%s\n' "${newly_installed_plugins[@]}" | grep -q "^$plugin$"; then
-            # Run stop.sh
-            if [ -f "$plugin_dir/stop.sh" ]; then
-              echo "Running stop.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-              sudo bash "$plugin_dir/stop.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            else
-              echo "stop.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-            fi
-
-            # Run uninstall.sh
-            if [ -f "$plugin_dir/uninstall.sh" ]; then
-              echo "Running uninstall.sh for $plugin" | sudo tee -a $FULA_LOG_PATH
-              sudo bash "$plugin_dir/uninstall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH
-            else
-              echo "uninstall.sh not found for $plugin" | sudo tee -a $FULA_LOG_PATH
-            fi
-          else
-            echo "Skipping uninstall for newly installed plugin: $plugin" | sudo tee -a $FULA_LOG_PATH
-          fi
-        fi
-      fi
-    done
-  else
-    echo "Plugins directory not found" | sudo tee -a $FULA_LOG_PATH
-  fi
+    # Check if service is installed
+    if [ ! -f "$SERVICE_FILE" ]; then
+        install_service
+    else
+        echo "${SERVICE_NAME} service already installed" | sudo tee -a $FULA_LOG_PATH
+    fi
 }
 
 
@@ -1018,6 +989,9 @@ case $1 in
     fi
   fi
   install "$arch" 2>&1 | sudo tee -a $FULA_LOG_PATH
+  sync
+  sleep 1
+  process_plugins
   ;;
 "start" | "restart")
   arch=${2:-RK1}
@@ -1122,8 +1096,16 @@ case $1 in
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
-  process_plugins
   sync
+  sleep 1
+  process_plugins
+  if systemctl is-active --quiet fula-plugins; then
+      echo "Restarting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart fula-plugins
+  else
+      echo "Starting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl start fula-plugins
+  fi
   ;;
 "stop")
   arch=${2:-RK1}
@@ -1140,6 +1122,12 @@ case $1 in
     if [ -f "$FULA_PATH/control_led.py" ]; then
       python ${FULA_PATH}/control_led.py red 0 2>&1 | sudo tee -a $FULA_LOG_PATH
     fi
+  fi
+  if systemctl is-active --quiet fula-plugins; then
+        echo "Stopping fula-plugins service" | sudo tee -a $FULA_LOG_PATH
+        sudo systemctl stop fula-plugins
+  else
+        echo "fula-plugins service is not running" | sudo tee -a $FULA_LOG_PATH
   fi
   ;;
 "rebuild")

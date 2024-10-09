@@ -21,7 +21,7 @@
             "telegram": "https://t.me/streamrofficial",
             "twitter": "https://x.com/streamr",
             "email": "",
-            "website": "",
+            "website": "https://streamr.network/",
             "discord": ""
         }
     ],
@@ -35,6 +35,22 @@
             "order": 2,
             "description": "Open Port 32200 in your router",
             "url": ""
+        },
+        {
+            "order": 3,
+            "description": "Fund your operator wallet address with $DATA",
+            "url": "https://streamr.network/hub/network/operators/"
+        },
+        {
+            "order": 4,
+            "description": "Click Install button",
+            "url": ""
+        },
+        {
+            "order": 5,
+            "description": "Fund your node address with $MATIC for testnet or $POL for mainnet. node address appears after installation is done.",
+            "url": "",
+            "paramId": 1
         }
     ],
     "requiredInputs": [
@@ -43,6 +59,18 @@
             "instructions": "go to https://streamr.network/hub/network/operators/ and click on your operator (Or become a new operator) and copy the Operator Contract Address",
             "type": "string",
             "default": ""
+        },
+        {
+            "name": "network",
+            "instructions": "testnet or mainnet.",
+            "type": "string",
+            "default": "testnet"
+        }
+    ],
+    "outputs": [
+        {
+            "name": "node_addr",
+            "id": 1
         }
     ],
     "approved": true

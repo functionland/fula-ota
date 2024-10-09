@@ -1,0 +1,15 @@
+[Unit]
+Description=Fula Plugins Service
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=root
+ExecStart=/bin/bash /usr/bin/fula/plugins.sh
+Restart=on-failure
+RestartSec=300
+StartLimitInterval=3000
+StartLimitBurst=10
+
+[Install]
+WantedBy=multi-user.target

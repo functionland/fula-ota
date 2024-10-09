@@ -56,3 +56,5 @@ else
 fi
 
 echo "Streamr node uninstallation complete."
+
+exit 0

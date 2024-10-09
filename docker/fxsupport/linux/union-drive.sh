@@ -119,7 +119,7 @@ mount_drives(){
 }
 
 # Wait for at least one drive to be mounted under /media/pi
-while [ $(check_mounted_drives) -eq 0 ]; do
+while [ "$(check_mounted_drives)" -eq 0 ]; do
     echo "Waiting for at least one drive to be mounted under /media/pi..."
     systemd-notify WATCHDOG=1
     sleep 5  # Wait for 5 seconds before checking again
@@ -134,33 +134,24 @@ systemd-notify WATCHDOG=1
 mount_drives
 
 # Now start monitoring for changes
-monitor_and_update_drives() {
-    systemd-notify WATCHDOG=1
-    last_mount_count=$(check_mounted_drives)
-    
-    while true; do
-        sleep 5
-        systemd-notify WATCHDOG=1
-        
-        echo "Waiting for changes in /media/pi..."
-        inotifywait -q -t 20 -e create,delete,move,unmount /media/pi
-        echo "No change detected in the last 20 seconds"
-        continue
-        
-        # Wait a moment for the system to finish mounting/unmounting
-        sleep 7
-        
-        current_mount_count=$(check_mounted_drives)
-        echo "Current mounted drives: $current_mount_count"
-        echo "Last mounted drives: $last_mount_count"
-        
-        if [ "$current_mount_count" != "$last_mount_count" ]; then
-            echo "Detected change in mounted drives. Updating mergerfs mount."
+check_and_remount() {
+    if ! mountpoint -q "$MOUNT_PATH"; then
+        echo "$MOUNT_PATH is not mounted. Checking for drives..."
+        if [ "$(ls -A $MOUNT_USB_PATH)" ]; then
+            echo "Drives found in $MOUNT_USB_PATH. Remounting..."
+            
+            sleep 7
+            
+            current_mount_count=$(check_mounted_drives)
+            echo "Current mounted drives: $current_mount_count"
+            echo "Last mounted drives: $last_mount_count"
+            
+            echo "Updating mergerfs mount."
             if [ -f "$FULA_PATH/control_led.py" ]; then
                 python ${FULA_PATH}/control_led.py light_purple 9000 &
             fi
             systemctl stop fula
-            echo "fula stoped"
+            echo "fula stopped"
             
             umount_drives
             rm -rf "${MOUNT_LINKS:?}"/*
@@ -172,11 +163,9 @@ monitor_and_update_drives() {
                 fi
             done
             
-            # Always remount after a change is detected
             mkdir -p $MOUNT_PATH
             mount_drives
             
-            # Check if the mount was successful
             if mountpoint -q "$MOUNT_PATH"; then
                 echo "MergerFS remounted successfully"
             else
@@ -189,9 +178,31 @@ monitor_and_update_drives() {
             if [ -f /usr/bin/fula/control_led.py ]; then
                 python /usr/bin/fula/control_led.py light_purple 0
             fi
+            
+            cleanup_mounts
+        else
+            echo "No drives found in $MOUNT_USB_PATH. Skipping remount."
         fi
+    else
+        echo "$MOUNT_PATH is already mounted. No action needed."
+    fi
+}
+
+monitor_and_update_drives() {
+    systemd-notify WATCHDOG=1
+    last_mount_count=$(check_mounted_drives)
+    
+    while true; do
+        sleep 5
+        systemd-notify WATCHDOG=1
         
-        cleanup_mounts
+        echo "Waiting for changes in /media/pi..."
+        inotifywait -q -t 20 -e create,delete,move,unmount /media/pi
+        echo "No change detected in the last 20 seconds"
+        systemd-notify WATCHDOG=1
+        
+        check_and_remount
+        
         systemd-notify WATCHDOG=1
     done
 }
@@ -200,10 +211,12 @@ remove_recursive_pattern() {
     base_path="$1"
     pattern="$2"
     if [ -d "$base_path" ]; then
-        sudo find "$base_path" -maxdepth 1 -type d -name "$pattern" -print0 | while IFS= read -r -d '' dir; do
-            echo "Removing recursive directory: $dir"
-            sudo rm -rf "$dir"
-        done
+        sudo find "$base_path" -maxdepth 1 -type d -name "$pattern" -exec sh -c '
+            for dir do
+                echo "Removing recursive directory: $dir"
+                sudo rm -rf "$dir"
+            done
+        ' sh {} +
     else
         echo "Base path $base_path does not exist or is not a directory"
     fi
