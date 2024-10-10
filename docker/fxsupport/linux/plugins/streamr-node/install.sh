@@ -17,7 +17,7 @@ fi
 USER="pi"
 PLUGIN_NAME="streamr-node"
 INTERNAL_DIR="/home/$USER/.internal"
-STREAMR_DIR="$INTERNAL_DIR/$PLUGIN_NAME"
+STREAMR_DIR="$INTERNAL_DIR/plugins/$PLUGIN_NAME"
 CONFIG_DIR="$STREAMR_DIR/streamr/.streamr/config"
 CONFIG_FILE="$CONFIG_DIR/default.json"
 PRIVATE_KEY_FILE="$STREAMR_DIR/private_key.txt"
@@ -25,6 +25,7 @@ STREAMR_NODE_FILE="$STREAMR_DIR/node_addr.txt"
 PLUGIN_EXEC_DIR="/usr/bin/fula/plugins/${PLUGIN_NAME}"
 
 # Create necessary directories
+mkdir -p "$INTERNAL_DIR/plugins"
 mkdir -p "$STREAMR_DIR"
 mkdir -p "$CONFIG_DIR"
 chown "$USER":"$USER" -R "$STREAMR_DIR/streamr/.streamr"

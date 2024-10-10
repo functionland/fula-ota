@@ -7,7 +7,7 @@ services:
     ports:
       - "32200:32200"
     volumes:
-      - /home/pi/.internal/streamr-node/streamr/.streamr:/home/streamr/.streamr:rw,shared,uid=1000,gid=1000
+      - /home/pi/.internal/plugins/streamr-node/streamr/.streamr:/home/streamr/.streamr:rw,shared,uid=1000,gid=1000
     environment:
       - LOG_LEVEL=info
     user: "1000:1000"

@@ -12,7 +12,7 @@ echo "Uninstalling Streamr node..."
 
 USER="pi"
 INTERNAL_DIR="/home/$USER/.internal"
-STREAMR_DIR="$INTERNAL_DIR/streamr-node"
+STREAMR_DIR="$INTERNAL_DIR/plugins/streamr-node"
 
 if ! systemctl list-unit-files | grep -q streamr-node.service; then
     echo "Streamr node service is not installed. No action needed"

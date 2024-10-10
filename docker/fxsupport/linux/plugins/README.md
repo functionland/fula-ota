@@ -6,7 +6,7 @@ Plugins are separate services that can be added to a blox and users can opt-in t
 
 1- Each plugin has a name that should be the same as service name and runs in its own docker
 2- Each plugin need these 4 files:
-- install.sh: which installs the service nad dependencies
+- install.sh: which installs the service and dependencies
 - start.sh: which starts the service
 - stop.sh: which stops the service
 - {name}.service: which is the service file itself

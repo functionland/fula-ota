@@ -4,9 +4,9 @@ After=docker.service
 Requires=docker.service
 
 [Service]
-WorkingDirectory=/home/pi/.internal/streamr-node
-ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/streamr-node/docker-compose.yml up
-ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/streamr-node/docker-compose.yml down
+WorkingDirectory=/home/pi/.internal/plugins/streamr-node
+ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/plugins/streamr-node/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/plugins/streamr-node/docker-compose.yml down
 Restart=always
 RestartSec=300
 
