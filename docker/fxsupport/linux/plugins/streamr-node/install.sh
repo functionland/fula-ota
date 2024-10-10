@@ -157,12 +157,18 @@ EOL
 
 # Copy service file
 cp "${PLUGIN_EXEC_DIR}/streamr-node.service" "/etc/systemd/system/"
-
+sync
+sleep 1
 # Copy docker-compose file
-cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$STREAMR_DIR/"
 
+cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$STREAMR_DIR/"
+sync
+sleep 1
 # Reload systemd
+
 systemctl daemon-reload
+sync
+sleep 1
 
 # Enable the service
 systemctl enable streamr-node.service
