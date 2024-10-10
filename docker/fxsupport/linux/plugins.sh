@@ -12,7 +12,7 @@ PLUGINS_DIR="${FULA_PATH}/plugins"
 LOCKFILE="/tmp/plugin_manager.lock"
 SEMAPHORE="/tmp/plugin_semaphore"
 
-systemd-notify WATCHDOG=1
+
 
 # Function to log messages
 log_message() {
@@ -33,7 +33,7 @@ release_lock() {
 wait_for_fula_fxsupport() {
     local attempt=0
     while ! sudo docker ps --format '{{.Names}}' | grep -q '^fula_fxsupport$'; do
-        systemd-notify WATCHDOG=1
+        
         attempt=$((attempt + 1))
         log_message "Waiting for fula_fxsupport container to start... (Attempt $attempt)"
         sleep 10
@@ -42,7 +42,6 @@ wait_for_fula_fxsupport() {
 
 # Function to copy plugins from docker
 copy_plugins_from_docker() {
-    systemd-notify WATCHDOG=1
     log_message "Copying plugins from fula_fxsupport container..."
     sudo docker cp fula_fxsupport:/linux/plugins/. ${PLUGINS_DIR} 2>&1 | sudo tee -a $FULA_LOG_PATH
     sync
@@ -62,7 +61,6 @@ write_plugin_status() {
 
     # Log the status update
     log_message "Updated status for $plugin: $status"
-    systemd-notify WATCHDOG=1
 }
 
 # Function to add plugin to active plugins file
@@ -70,7 +68,6 @@ add_to_active_plugins() {
     local plugin=$1
     echo "$plugin" | sudo tee -a "$ACTIVE_PLUGINS_FILE" > /dev/null
     log_message "Added $plugin to active plugins file"
-    systemd-notify WATCHDOG=1
 }
 
 # Function to remove plugin from active plugins file
@@ -81,7 +78,6 @@ remove_from_active_plugins() {
     grep -v "^$plugin$" "$ACTIVE_PLUGINS_FILE" > "$temp_file"
     sudo mv "$temp_file" "$ACTIVE_PLUGINS_FILE"
     log_message "Removed $plugin from active plugins file"
-    systemd-notify WATCHDOG=1
 }
 
 # Function to process a single plugin
@@ -93,38 +89,37 @@ process_plugin() {
 
     (
         flock -x -w $timeout 201 || { log_message "Failed to acquire lock for $plugin"; return 1; }
-        systemd-notify WATCHDOG=1
         if [ "$action" == "install" ]; then
             if [ -f "$plugin_dir/install.sh" ]; then
                 log_message "Running install.sh for $plugin"
-                systemd-notify WATCHDOG=1
+                
                 write_plugin_status "$plugin" "Installing"
                 (
                     set -o pipefail
                     if timeout $timeout sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "install.sh completed successfully for $plugin"
-                        systemd-notify WATCHDOG=1
+                        
                         write_plugin_status "$plugin" "Installed"
                         if [ -f "$plugin_dir/start.sh" ]; then
                             log_message "Running start.sh for $plugin"
-                            systemd-notify WATCHDOG=1
+                            
                             if timeout $timeout sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                                 log_message "start.sh completed successfully for $plugin"
-                                systemd-notify WATCHDOG=1
+                                
                             else
                                 log_message "start.sh failed for $plugin"
                                 remove_from_active_plugins "$plugin"
-                                systemd-notify WATCHDOG=1
+                                
                                 return 1
                             fi
                         else
                             log_message "start.sh not found for $plugin"
-                            systemd-notify WATCHDOG=1
+                            
                         fi
                     else
                         log_message "install.sh failed for $plugin. Removing from active plugins."
                         remove_from_active_plugins "$plugin"
-                        systemd-notify WATCHDOG=1
+                        
                         return 1
                     fi
                 )
@@ -132,13 +127,13 @@ process_plugin() {
                 if [ $install_exit_status -ne 0 ]; then
                     log_message "Installation process failed for $plugin with exit status $install_exit_status"
                     remove_from_active_plugins "$plugin"
-                    systemd-notify WATCHDOG=1
+                    
                     return 1
                 fi
             else
                 log_message "install.sh not found for $plugin. Removing from active plugins."
                 remove_from_active_plugins "$plugin"
-                systemd-notify WATCHDOG=1
+                
                 return 1
             fi
         elif [ "$action" == "uninstall" ]; then
@@ -148,7 +143,7 @@ process_plugin() {
                     set -o pipefail
                     if ! timeout $timeout sudo bash "$plugin_dir/stop.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "stop.sh failed for $plugin"
-                        systemd-notify WATCHDOG=1
+                        
                     fi
                 )
             else
@@ -156,17 +151,17 @@ process_plugin() {
             fi
             if [ -f "$plugin_dir/uninstall.sh" ]; then
                 log_message "Running uninstall.sh for $plugin"
-                systemd-notify WATCHDOG=1
+                
                 (
                     set -o pipefail
                     if timeout $timeout sudo bash "$plugin_dir/uninstall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "uninstall.sh completed successfully for $plugin"
                         remove_from_active_plugins "$plugin"
-                        systemd-notify WATCHDOG=1
+                        
                     else
                         log_message "uninstall.sh failed for $plugin. Adding back to active plugins."
                         add_to_active_plugins "$plugin"
-                        systemd-notify WATCHDOG=1
+                        
                         return 1
                     fi
                 )
@@ -174,13 +169,13 @@ process_plugin() {
                 if [ $uninstall_exit_status -ne 0 ]; then
                     log_message "Uninstallation process failed for $plugin with exit status $uninstall_exit_status"
                     add_to_active_plugins "$plugin"
-                    systemd-notify WATCHDOG=1
+                    
                     return 1
                 fi
             else
                 log_message "uninstall.sh not found for $plugin"
                 remove_from_active_plugins "$plugin"
-                systemd-notify WATCHDOG=1
+                
             fi
         fi
         sync
@@ -190,7 +185,7 @@ process_plugin() {
     local exit_status=$?
     if [ $exit_status -ne 0 ]; then
         log_message "Error processing plugin $plugin (action: $action). Exit status: $exit_status"
-        systemd-notify WATCHDOG=1
+        
     fi
     return $exit_status
 }
@@ -206,7 +201,7 @@ process_active_plugins_changes() {
     fi
 
     for plugin in "${new_plugins[@]}"; do
-        systemd-notify WATCHDOG=1
+        
         if ! printf '%s\n' "${old_plugins[@]}" | grep -q "^$plugin$"; then
             log_message "New plugin detected: $plugin"
             if ! process_plugin "$plugin" "install"; then
@@ -218,7 +213,7 @@ process_active_plugins_changes() {
     done
 
     for plugin in "${old_plugins[@]}"; do
-        systemd-notify WATCHDOG=1
+        
         if ! printf '%s\n' "${new_plugins[@]}" | grep -q "^$plugin$"; then
             log_message "Plugin removed: $plugin"
             if ! process_plugin "$plugin" "uninstall"; then
@@ -232,7 +227,7 @@ process_active_plugins_changes() {
 
 # Function to install all active plugins
 install_active_plugins() {
-    systemd-notify WATCHDOG=1
+    
     local plugins
     if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
         plugins=()
@@ -250,7 +245,7 @@ install_active_plugins() {
 update_plugin() {
     local plugin=$1
     local plugin_dir="$PLUGINS_DIR/$plugin"
-    systemd-notify WATCHDOG=1
+    
 
     if [ -f "$plugin_dir/update.sh" ]; then
         log_message "Running update.sh for $plugin"
@@ -317,10 +312,10 @@ running=true
 
 # Main loop
 while $running; do
-    systemd-notify WATCHDOG=1
+    
     if ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
         # Timeout occurred, continue the loop
-        systemd-notify WATCHDOG=1
+        
         continue
     fi
     
