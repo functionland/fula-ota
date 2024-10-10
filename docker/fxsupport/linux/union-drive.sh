@@ -135,8 +135,29 @@ mount_drives
 
 # Now start monitoring for changes
 check_and_remount() {
-    if ! mountpoint -q "$MOUNT_PATH"; then
-        echo "$MOUNT_PATH is not mounted. Checking for drives..."
+    is_correctly_mounted=false
+    # Check if /uniondrive is mounted
+    if mountpoint -q "$MOUNT_PATH"; then
+        echo "$MOUNT_PATH is mounted. Checking if it's correctly mounted..."
+        
+        # Check if it's a mergerfs mount
+        if grep -qs "$MOUNT_PATH" /proc/mounts && grep -qs "$MOUNT_PATH.*fuse.mergerfs" /proc/mounts; then
+            # Check if it's actually using the external drives
+            if df -T "$MOUNT_PATH" | grep -q "fuse.mergerfs"; then
+                echo "$MOUNT_PATH is correctly mounted as mergerfs."
+                is_correctly_mounted=true
+            else
+                echo "$MOUNT_PATH is mounted as mergerfs but not using external drives."
+            fi
+        else
+            echo "$MOUNT_PATH is mounted but not as mergerfs."
+        fi
+    else
+        echo "$MOUNT_PATH is not mounted."
+    fi
+
+    if ! $is_correctly_mounted; then
+        echo "$MOUNT_PATH is not mounted or wrongly mounted. Checking for drives..."
         if [ "$(ls -A $MOUNT_USB_PATH)" ]; then
             echo "Drives found in $MOUNT_USB_PATH. Remounting..."
             
@@ -184,7 +205,7 @@ check_and_remount() {
             echo "No drives found in $MOUNT_USB_PATH. Skipping remount."
         fi
     else
-        echo "$MOUNT_PATH is already mounted. No action needed."
+        echo "$MOUNT_PATH is already properly mounted. No action needed."
     fi
 }
 
@@ -200,7 +221,7 @@ monitor_and_update_drives() {
         inotifywait -q -t 20 -e create,delete,move,unmount /media/pi
         echo "No change detected in the last 20 seconds"
         systemd-notify WATCHDOG=1
-        
+
         check_and_remount
         
         systemd-notify WATCHDOG=1
