@@ -22,6 +22,8 @@ fi
 # Stop and force remove any containers using the streamr/node image
 echo "Stopping and removing any containers using the Streamr node image..."
 docker ps -a --filter ancestor=streamr/node -q | xargs -r docker rm -f
+sync
+sleep 1
 
 # Remove the Docker image
 if docker images | grep -q streamr/node; then
@@ -30,10 +32,14 @@ if docker images | grep -q streamr/node; then
 else
     echo "Streamr node Docker image not found. Skipping image removal."
 fi
+sync
+sleep 1
 
 # Prune any dangling images and containers
 echo "Pruning dangling images and containers..."
 docker system prune -f
+sync
+sleep 1
 
 # Remove the configuration directory
 if [ -d "$STREAMR_DIR" ]; then
@@ -42,6 +48,8 @@ if [ -d "$STREAMR_DIR" ]; then
 else
     echo "Streamr node configuration directory not found. Skipping directory removal."
 fi
+sync
+sleep 1
 
 # Disable and remove the systemd service
 if systemctl list-unit-files | grep -q streamr-node.service; then
@@ -53,6 +61,8 @@ if systemctl list-unit-files | grep -q streamr-node.service; then
 else
     echo "Streamr node systemd service not found. Skipping service removal."
 fi
+sync
+sleep 1
 
 echo "Streamr node uninstallation complete."
 

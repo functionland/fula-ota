@@ -13,7 +13,7 @@ PLUGINS_DIR="${FULA_PATH}/plugins"
 LOCKFILE="/tmp/plugin_manager.lock"
 SEMAPHORE="/tmp/plugin_semaphore"
 PROCESSING_CHANGES=false
-
+old_plugins=()
 
 # Function to log messages
 log_message() {
@@ -224,18 +224,21 @@ process_plugin() {
 }
 
 process_active_plugins_changes() {
-    local old_plugins=("$@")
-    local new_plugins
+    local old_plugins1=("$@")
+    local new_plugins1=()
+    log_message "process_active_plugins_changes: $old_plugins1"
 
-    if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
-        new_plugins=()
-    else
-        mapfile -t new_plugins < "$ACTIVE_PLUGINS_FILE"
-    fi
+    # Read the file, trim whitespace, and ignore empty lines
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(echo "$line" | xargs)  # Trim whitespace
+        if [ -n "$line" ]; then  # Ignore empty lines
+            new_plugins1+=("$line")
+        fi
+    done < "$ACTIVE_PLUGINS_FILE"
 
+    # Process new plugins (not in old_plugins1)
     for plugin in "${new_plugins[@]}"; do
-        
-        if ! printf '%s\n' "${old_plugins[@]}" | grep -q "^$plugin$"; then
+        if ! printf '%s\n' "${old_plugins1[@]}" | grep -q "^$plugin$"; then
             log_message "New plugin detected: $plugin"
             if ! process_plugin "$plugin" "install"; then
                 log_message "Failed to install plugin: $plugin"
@@ -245,9 +248,9 @@ process_active_plugins_changes() {
         fi
     done
 
-    for plugin in "${old_plugins[@]}"; do
-        
-        if ! printf '%s\n' "${new_plugins[@]}" | grep -q "^$plugin$"; then
+    # Process removed plugins (in old_plugins but not in new_plugins1)
+    for plugin in "${old_plugins1[@]}"; do
+        if ! printf '%s\n' "${new_plugins1[@]}" | grep -q "^$plugin$"; then
             log_message "Plugin removed: $plugin"
             if ! process_plugin "$plugin" "uninstall"; then
                 log_message "Failed to uninstall plugin: $plugin"
@@ -256,6 +259,9 @@ process_active_plugins_changes() {
             sleep 1
         fi
     done
+
+    # Update old_plugins for the next iteration
+    old_plugins=("${new_plugins1[@]}")
 }
 
 # Function to install all active plugins
@@ -345,18 +351,66 @@ running=true
 
 # Main loop
 while $running; do
+    log_message "PROCESSING_CHANGES=$PROCESSING_CHANGES"
+    if ! $PROCESSING_CHANGES; then
+        new_plugins=()
+        old_plugins=()
+        all_installed=true
+        all_uninstalled=true
+
+        # Read active plugins from file
+        while IFS= read -r plugin || [ -n "$plugin" ]; do
+            plugin=$(echo "$plugin" | xargs)  # Trim whitespace
+            if [ -n "$plugin" ]; then  # Ignore empty lines
+                new_plugins+=("$plugin")
+                status_file="$INTERNAL_PLUGIN_DIR/${plugin}/status.txt"
+                if [ -f "$status_file" ]; then
+                    status=$(cat "$status_file" | xargs)  # Read and trim status
+                    if [ "$status" != "Installed" ]; then
+                        all_installed=false
+                    fi
+                else
+                    all_installed=false
+                fi
+            fi
+        done < "$ACTIVE_PLUGINS_FILE"
+
+        # Check for plugins in INTERNAL_PLUGIN_DIR that are not in active plugins file
+        for plugin_dir in "$INTERNAL_PLUGIN_DIR"/*; do
+            if [ -d "$plugin_dir" ]; then
+                plugin_name=$(basename "$plugin_dir")
+                if ! printf '%s\n' "${new_plugins[@]}" | grep -q "^$plugin_name$"; then
+                    old_plugins+=("$plugin_name")
+                    all_uninstalled=false
+                fi
+            fi
+        done
+
+        log_message "all_installed=$all_installed, all_uninstalled=$all_uninstalled"
+
+        sync
+        sleep 1
+        if ! $all_installed || ! $all_uninstalled; then
+            PROCESSING_CHANGES=true
+        elif ! inotifywait -q -e modify -t 10 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
+            # Timeout occurred, continue the loop
+            sync
+            sleep 2
+            continue
+        fi
+    fi
     
-    if $PROCESSING_CHANGES || ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
-        # Timeout occurred, continue the loop
+    if ! $PROCESSING_CHANGES; then
+        sync
         sleep 2
         continue
     fi
-    
-    PROCESSING_CHANGES=true
 
     if ! acquire_lock; then
         log_message "Failed to acquire lock. Skipping this iteration."
         PROCESSING_CHANGES=false
+        sync
+        sleep 2
         continue
     fi
     
@@ -365,15 +419,13 @@ while $running; do
         process_plugin_updates
     fi
     
-    if [ -s "$ACTIVE_PLUGINS_FILE" ]; then
-        log_message "Changes detected in active-plugins.txt"
-        process_active_plugins_changes "${old_plugins[@]}"
-        
-        if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
-            old_plugins=()
-        else
-            mapfile -t old_plugins < "$ACTIVE_PLUGINS_FILE"
-        fi
+    log_message "Processing active plugins changes"
+    process_active_plugins_changes "${old_plugins[@]}"
+    
+    if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
+        old_plugins=()
+    else
+        mapfile -t old_plugins < "$ACTIVE_PLUGINS_FILE"
     fi
     
     release_lock
