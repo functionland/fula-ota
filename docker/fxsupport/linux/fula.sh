@@ -719,6 +719,7 @@ function restart() {
     # Optionally, handle the case when the cron job does not exist
   fi
   mkdir -p ${HOME_DIR}/.internal
+  mkdir -p ${HOME_DIR}/.internal/plugins
   mkdir -p ${HOME_DIR}/.internal/ipfs_data
 
   if [ -f "$HW_CHECK_SC" ]; then
