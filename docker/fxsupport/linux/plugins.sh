@@ -6,12 +6,13 @@ trap 'cleanup; exit' SIGINT SIGTERM EXIT
 HOME_DIR=/home/pi
 FULA_PATH=/usr/bin/fula
 FULA_LOG_PATH=$HOME_DIR/fula.sh.log
-ACTIVE_PLUGINS_FILE="${HOME_DIR}/.internal/active-plugins.txt"
-UPDATE_PLUGIN_FILE="${HOME_DIR}/.internal/update-plugins.txt"
+INTERNAL_PLUGIN_DIR="${HOME_DIR}/.internal/plugins"
+ACTIVE_PLUGINS_FILE="${INTERNAL_PLUGIN_DIR}/active-plugins.txt"
+UPDATE_PLUGIN_FILE="${INTERNAL_PLUGIN_DIR}/update-plugins.txt"
 PLUGINS_DIR="${FULA_PATH}/plugins"
 LOCKFILE="/tmp/plugin_manager.lock"
 SEMAPHORE="/tmp/plugin_semaphore"
-
+PROCESSING_CHANGES=false
 
 
 # Function to log messages
@@ -28,6 +29,24 @@ release_lock() {
     flock -u 200 2>/dev/null
     exec 200>&- 2>/dev/null
 }
+
+# Function to create a file if it doesn't exist
+create_file_if_not_exists() {
+    local file_path="$1"
+    if [ ! -f "$file_path" ]; then
+        mkdir -p "$(dirname "$file_path")"
+        touch "$file_path"
+        echo "Created file: $file_path"
+    else
+        echo "File already exists: $file_path"
+    fi
+}
+
+# Create the files if they don't exist
+create_file_if_not_exists "${ACTIVE_PLUGINS_FILE}"
+create_file_if_not_exists "${UPDATE_PLUGIN_FILE}"
+mkdir -p ${PLUGINS_DIR}
+mkdir -p ${INTERNAL_PLUGIN_DIR}
 
 # Function to wait for fula_fxsupport container to start
 wait_for_fula_fxsupport() {
@@ -51,7 +70,7 @@ copy_plugins_from_docker() {
 write_plugin_status() {
     local plugin=$1
     local status=$2
-    local status_file="$PLUGINS_DIR/$plugin/status.txt"
+    local status_file="$INTERNAL_PLUGIN_DIR/$plugin/status.txt"
 
     # Ensure the plugin directory exists
     mkdir -p "$(dirname "$status_file")"
@@ -76,14 +95,28 @@ remove_from_active_plugins() {
     local temp_file
     temp_file=$(mktemp)
     grep -v "^$plugin$" "$ACTIVE_PLUGINS_FILE" > "$temp_file"
-    sudo mv "$temp_file" "$ACTIVE_PLUGINS_FILE"
+    mv "$temp_file" "$ACTIVE_PLUGINS_FILE"
     log_message "Removed $plugin from active plugins file"
+    if [ -n "${plugin:?}" ] && [ -d "${INTERNAL_PLUGIN_DIR:?}/${plugin}" ]; then
+        echo "Removing ${plugin} configuration directory..."
+        rm -rf "${INTERNAL_PLUGIN_DIR:?}/${plugin}"
+    else
+        echo "${plugin} configuration directory not found or plugin name is empty. Skipping directory removal."
+    fi
 }
 
 # Function to process a single plugin
 process_plugin() {
-    local plugin=$1
+    local plugin
+    plugin=$(echo "$1" | xargs)
     local action=$2
+
+    # Check if plugin is empty after trimming
+    if [ -z "$plugin" ]; then
+        log_message "Empty plugin name provided. Skipping processing."
+        return 0  # Return success
+    fi
+
     local plugin_dir="$PLUGINS_DIR/$plugin"
     local timeout=300  # 5 minutes timeout
 
@@ -313,14 +346,17 @@ running=true
 # Main loop
 while $running; do
     
-    if ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
+    if $PROCESSING_CHANGES || ! inotifywait -q -e modify -t 5 "$ACTIVE_PLUGINS_FILE" "$UPDATE_PLUGIN_FILE"; then
         # Timeout occurred, continue the loop
-        
+        sleep 2
         continue
     fi
     
+    PROCESSING_CHANGES=true
+
     if ! acquire_lock; then
         log_message "Failed to acquire lock. Skipping this iteration."
+        PROCESSING_CHANGES=false
         continue
     fi
     
@@ -343,4 +379,7 @@ while $running; do
     release_lock
     
     log_message "Finished processing changes"
+    PROCESSING_CHANGES=false
+    sync
+    sleep 1
 done

@@ -22,6 +22,7 @@ CONFIG_DIR="$STREAMR_DIR/streamr/.streamr/config"
 CONFIG_FILE="$CONFIG_DIR/default.json"
 PRIVATE_KEY_FILE="$STREAMR_DIR/private_key.txt"
 STREAMR_NODE_FILE="$STREAMR_DIR/node_addr.txt"
+PLUGIN_EXEC_DIR="/usr/bin/fula/plugins/${PLUGIN_NAME}"
 
 # Create necessary directories
 mkdir -p "$STREAMR_DIR"
@@ -84,7 +85,7 @@ fi
 # Store the private key in a file
 echo "$PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
 
-NODE_ADDR=$(python custom/generate_evm_address.py "$PRIVATE_KEY" | tr -d '[:space:]')
+NODE_ADDR=$(python "${PLUGIN_EXEC_DIR}/custom/generate_evm_address.py" "$PRIVATE_KEY" | tr -d '[:space:]')
 
 echo "$NODE_ADDR" > "$STREAMR_NODE_FILE"
 
@@ -154,10 +155,10 @@ cat > "$CONFIG_FILE" <<EOL
 EOL
 
 # Copy service file
-cp streamr-node.service /etc/systemd/system/
+cp "${PLUGIN_EXEC_DIR}/streamr-node.service" "/etc/systemd/system/"
 
 # Copy docker-compose file
-cp docker-compose.yml "$STREAMR_DIR/"
+cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$STREAMR_DIR/"
 
 # Reload systemd
 systemctl daemon-reload
