@@ -4,12 +4,12 @@
 cleanup() {
     echo "Script is stopping, performing cleanup..."
     # Your cleanup commands here
-    sudo rm -R /home/pi/commands/*
+    sudo rm -rf /home/pi/commands/*
 }
 
 # Trap SIGTERM
 trap cleanup SIGTERM
-
+sudo rm -rf /home/pi/commands/*
 WATCH_PATH="/home/pi/commands/"
 FILE_NAMES=(".command_partition" ".command_repairfs" ".command_led" ".command_reboot")  # Add your file names here
 FILE_CONTENT=""
@@ -42,7 +42,7 @@ do
                 # Perform the reboot
                 echo "Repairing External Storage Filesystem now..."
                 sync
-                sudo bash /usr/bin/fula/repairfs.sh
+                sudo bash /usr/bin/fula/repairfs.sh 1
                 ;;
             ".command_led")
                 # Extract color and time from FILE_CONTENT, default time to 999999 if not provided

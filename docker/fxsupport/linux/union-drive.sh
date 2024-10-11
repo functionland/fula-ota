@@ -10,6 +10,7 @@ MOUNT_LINKS=/home/pi/drives
 MOUNT_PATH=/uniondrive
 SETUP_DONE_FILE="$MOUNT_PATH/setup.done"
 FULA_PATH=/usr/bin/fula
+COMMANDS_DIR="/home/pi/commands"
 
 mkdir -p $MOUNT_PATH
 mkdir -p $MOUNT_LINKS
@@ -22,7 +23,9 @@ log()
   echo "$1"
 }
 
+systemd-notify WATCHDOG=1
 remove_unionready() {
+    systemd-notify WATCHDOG=1
     if [ -d "$MOUNT_PATH" ] && [ -f "$SETUP_DONE_FILE" ]; then
         echo "Removing $SETUP_DONE_FILE..."
         rm -f "$SETUP_DONE_FILE" || true
@@ -33,11 +36,13 @@ remove_unionready() {
 remove_unionready
 
 umount_drives() {
+    systemd-notify WATCHDOG=1
   # Set a maximum number of attempts to prevent an infinite loop
     MAX_ATTEMPTS=10
     ATTEMPT=0
 
     while umount "$MOUNT_PATH" 2>/dev/null; do
+        systemd-notify WATCHDOG=1
         log "Successfully unmounted $MOUNT_PATH. Attempting again to ensure complete unmount."
         if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
             umount -f "$MOUNT_PATH" || true
@@ -48,10 +53,12 @@ umount_drives() {
     done
 
     if mountpoint -q "$MOUNT_PATH"; then
+        systemd-notify WATCHDOG=1
         echo "Failed to unmount $MOUNT_PATH after $MAX_ATTEMPTS attempts"
         # Optionally, you can add more aggressive unmounting methods here
         # For example: umount -f "$MOUNT_PATH" or umount -l "$MOUNT_PATH"
     else
+        systemd-notify WATCHDOG=1
         echo "$MOUNT_PATH is not mounted"
         if [ -d "$MOUNT_PATH" ]; then
             sudo rm -rf "$MOUNT_PATH"/*
@@ -61,6 +68,7 @@ umount_drives() {
 
 remove_unionready
 umount_drives
+systemd-notify WATCHDOG=1
 
 cleanup_on_exit() {
     echo "Cleaning up before exit..."
@@ -77,8 +85,10 @@ remove_exit_trap() {
 }
 
 check_mounted_drives() {
+    systemd-notify WATCHDOG=1
     mounted_count=0
     for drive in /media/pi/*; do
+        systemd-notify WATCHDOG=1
         if mountpoint -q "$drive"; then
             mounted_count=$((mounted_count + 1))
             echo "Detected mounted drive: $drive" >&2
@@ -88,10 +98,12 @@ check_mounted_drives() {
 }
 
 unionfs_fuse_mount_drives() {
+    systemd-notify WATCHDOG=1
     MOUNT_ARG=""
     FIRST=""
 
     for drive in /media/pi/*; do
+        systemd-notify WATCHDOG=1
         if mountpoint -q "$drive"; then
             MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
             FIRST=":"
@@ -107,8 +119,10 @@ unionfs_fuse_mount_drives() {
     echo "MOUNT_PATH= $MOUNT_PATH"
     
     if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,minfreespace=1G,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
+        systemd-notify WATCHDOG=1
         echo "MergerFS mounted successfully"
     else
+        systemd-notify WATCHDOG=1
         echo "Failed to mount MergerFS"
         return 1
     fi
@@ -117,11 +131,88 @@ unionfs_fuse_mount_drives() {
 mount_drives(){
 	unionfs_fuse_mount_drives
 }
+systemd-notify WATCHDOG=1
+check_mount_max_attempts=3
+check_mount_attempt=1
+systemd-notify WATCHDOG=1
+check_mount() {
+    is_correctly_unmounted=true
+    external_disks=""
+    systemd-notify WATCHDOG=1
+    # Check for external disks (excluding internal mmcblk and zram)
+    for disk in $(lsblk -ndo NAME); do
+        systemd-notify WATCHDOG=1
+        case "$disk" in
+            sd*|nvme*)
+                external_disks="$external_disks $disk"
+                ;;
+        esac
+    done
+
+    if [ -n "$external_disks" ]; then
+        echo "External disk(s) detected:$external_disks"
+        for disk in $external_disks; do
+            systemd-notify WATCHDOG=1
+            partition="${disk}1"
+            if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
+                echo "Attempting to mount ${partition}"
+                systemd-notify WATCHDOG=1
+                sudo systemctl restart "automount@${partition}"
+                sync
+                systemd-notify WATCHDOG=1
+                sleep 5
+                systemd-notify WATCHDOG=1
+                if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
+                    echo "Automount failed. Attempting a parition."
+                    if [ -d "${MOUNT_USB_PATH}/${partition}" ]; then
+                        sudo rm -rf "${MOUNT_USB_PATH}/${partition}"
+                    fi
+                    sync
+                    sleep 1
+                    systemd-notify WATCHDOG=1
+                    sudo mkdir -p "${MOUNT_USB_PATH}/${partition}"
+                    sync
+                    sleep 1
+                    systemd-notify WATCHDOG=1
+                    if [ "$check_mount_attempt" -eq 1 ]; then
+                        sudo touch "$COMMANDS_DIR/.command_partition"
+                        log "created partition flag. exiting."
+                        exit 1
+                    fi
+                fi
+            fi
+        done
+
+        # Check if mergerfs is properly mounted
+        if ! df -T "$MOUNT_PATH" | grep -q "fuse.mergerfs"; then
+            echo "MergerFS not properly mounted."
+            is_correctly_unmounted=false
+        fi
+    else
+        echo "No external disks detected."
+    fi
+    check_mount_attempt=$((check_mount_attempt + 1))
+
+    if [ "$is_correctly_unmounted" = true ]; then
+        echo "$MOUNT_PATH is correctly unmounted (no external disks or not merged)."
+        return 0  # Success
+    else
+        echo "$MOUNT_PATH should be mounted but isn't. There might be an issue."
+        return 1  # Failure
+    fi
+}
 
 # Wait for at least one drive to be mounted under /media/pi
 while [ "$(check_mounted_drives)" -eq 0 ]; do
     echo "Waiting for at least one drive to be mounted under /media/pi..."
     systemd-notify WATCHDOG=1
+    if [ $check_mount_attempt -le $check_mount_max_attempts ]; then
+        if ! check_mount; then
+            systemd-notify WATCHDOG=1
+            echo "Attempt $check_mount_attempt of $check_mount_max_attempts"
+            echo "There might be an issue with mounting. Please check the system logs."
+        fi
+    fi
     sleep 5  # Wait for 5 seconds before checking again
 done
 
@@ -135,11 +226,12 @@ mount_drives
 
 # Now start monitoring for changes
 check_and_remount() {
+    systemd-notify WATCHDOG=1
     is_correctly_mounted=false
     # Check if /uniondrive is mounted
     if mountpoint -q "$MOUNT_PATH"; then
         echo "$MOUNT_PATH is mounted. Checking if it's correctly mounted..."
-        
+        systemd-notify WATCHDOG=1
         # Check if it's a mergerfs mount
         if grep -qs "$MOUNT_PATH" /proc/mounts && grep -qs "$MOUNT_PATH.*fuse.mergerfs" /proc/mounts; then
             # Check if it's actually using the external drives
@@ -154,15 +246,21 @@ check_and_remount() {
         fi
     else
         echo "$MOUNT_PATH is not mounted."
+        if [ $check_mount_attempt -le $check_mount_max_attempts ]; then
+            if ! check_mount; then
+                echo "There might be an issue with mounting. Please check the system logs."
+                is_correctly_mounted=false
+            fi
+        fi
     fi
 
     if ! $is_correctly_mounted; then
         echo "$MOUNT_PATH is not mounted or wrongly mounted. Checking for drives..."
         if [ "$(ls -A $MOUNT_USB_PATH)" ]; then
             echo "Drives found in $MOUNT_USB_PATH. Remounting..."
-            
-            sleep 7
-            
+            systemd-notify WATCHDOG=1
+            sleep 5
+            systemd-notify WATCHDOG=1
             current_mount_count=$(check_mounted_drives)
             echo "Current mounted drives: $current_mount_count"
             echo "Last mounted drives: $last_mount_count"
@@ -173,12 +271,13 @@ check_and_remount() {
             fi
             systemctl stop fula
             echo "fula stopped"
-            
+            systemd-notify WATCHDOG=1
             umount_drives
             rm -rf "${MOUNT_LINKS:?}"/*
-            
+            systemd-notify WATCHDOG=1
             DISK_INDEX=0
             for drive in /media/pi/*; do
+                systemd-notify WATCHDOG=1
                 if mountpoint -q "$drive"; then
                     create_disk_link "$drive"
                 fi
@@ -229,6 +328,7 @@ monitor_and_update_drives() {
 }
 
 remove_recursive_pattern() {
+    systemd-notify WATCHDOG=1
     base_path="$1"
     pattern="$2"
     if [ -d "$base_path" ]; then
@@ -245,6 +345,7 @@ remove_recursive_pattern() {
 
 cleanup_mounts() {
     for dir in "${MOUNT_USB_PATH:?}"/*; do
+        systemd-notify WATCHDOG=1
         if [ -d "$dir" ] && ! mountpoint -q "$dir"; then
             echo "Removing unmounted directory $dir"
             rm -rf "$dir"
@@ -267,6 +368,7 @@ hget() {
 DISK_INDEX=0
 
 create_disk_link() {
+    systemd-notify WATCHDOG=1
     if mountpoint -q "$1"; then
         DISK_INDEX=$((DISK_INDEX+1))
         LINK_NAME="disk-$DISK_INDEX"
@@ -313,7 +415,7 @@ check_fs_type() {
 TIMEOUT=60
 ELAPSED=0
 SLEEP_INTERVAL=5
-
+check_mount_attempt=1
 while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep $SLEEP_INTERVAL
     systemd-notify WATCHDOG=1
@@ -335,7 +437,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
             else
                 log "Filesystem is read-only. Attempting to remount as read-write."
                 if ! mount -o remount,rw,nonempty "$MOUNT_PATH"; then
-                    log "Failed to remount /uniondrive as read-write."
+                    log "Failed to remount /uniondrive as read-write. exiting."
                     exit 1
                 fi
             fi
@@ -360,7 +462,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
 done
 
 if [ $ELAPSED -ge $TIMEOUT ]; then
-    log "Mount did not become available or writable within the timeout period."
+    log "Mount did not become available or writable within the timeout period. exiting."
     exit 1
 fi
 
