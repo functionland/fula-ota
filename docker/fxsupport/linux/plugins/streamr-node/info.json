@@ -38,7 +38,7 @@
         },
         {
             "order": 3,
-            "description": "Fund your operator wallet address with $DATA",
+            "description": "Fund your account with $DATA using the Fund button at the top of your profile",
             "url": "https://streamr.network/hub/network/operators/"
         },
         {
