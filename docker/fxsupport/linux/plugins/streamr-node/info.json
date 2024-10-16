@@ -28,7 +28,7 @@
     "instructions": [
         {
             "order": 1,
-            "description": "Get Operator Contract Address and paste in the parameters input below",
+            "description": "Connect your wallet and Get Operator Contract Address and paste in the parameters input below",
             "url": "https://streamr.network/hub/network/operators/"
         },
         {
@@ -38,7 +38,7 @@
         },
         {
             "order": 3,
-            "description": "Fund your account with $DATA using the Fund button at the top of your profile",
+            "description": "Fund your account with minimum 5K $DATA using the Fund button at the top of your profile",
             "url": "https://streamr.network/hub/network/operators/"
         },
         {
@@ -48,14 +48,19 @@
         },
         {
             "order": 5,
-            "description": "Fund your node address with $MATIC for testnet or $POL for mainnet. node address appears after installation is done.",
+            "description": "Node address appears after installation is done. Fund your node address with minimum 1 $MATIC for testnet or 1 $POL for mainnet.",
             "url": "",
             "paramId": 1
         },
         {
             "order": 6,
-            "description": "Delegate your node to your operator or any other operator, and then join any sponsorship",
+            "description": "Add your node to your operator by clicking on yur operator and scroll down to Operator's node addresses",
             "url": "https://streamr.network/hub/network/operators/"
+        },
+        {
+            "order": 7,
+            "description": "join any sponsorship",
+            "url": "https://streamr.network/hub/network/sponsorships/"
         }
     ],
     "requiredInputs": [
