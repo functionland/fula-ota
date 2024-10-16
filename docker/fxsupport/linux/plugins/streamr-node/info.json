@@ -74,7 +74,7 @@
             "name": "network",
             "instructions": "testnet or mainnet.",
             "type": "string",
-            "default": "testnet"
+            "default": "mainnet"
         }
     ],
     "outputs": [
