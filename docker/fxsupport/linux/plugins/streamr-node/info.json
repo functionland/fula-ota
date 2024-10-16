@@ -54,7 +54,7 @@
         },
         {
             "order": 6,
-            "description": "Delegate your node to your operator and then join any sponsorship",
+            "description": "Delegate your node to your operator or any other operator, and then join any sponsorship",
             "url": "https://streamr.network/hub/network/operators/"
         }
     ],
