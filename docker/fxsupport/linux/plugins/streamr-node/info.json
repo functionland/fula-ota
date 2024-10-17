@@ -48,7 +48,7 @@
         },
         {
             "order": 5,
-            "description": "Node address appears after installation is done. Fund your node address with a small $MATIC for testnet or small $POL for mainnet.",
+            "description": "Node address appears after installation is done. Fund your node address with a 0.2 $MATIC for testnet or 0.2 $POL for mainnet.",
             "url": "https://stakely.io/faucet/polygon-matic",
             "paramId": 1
         },
