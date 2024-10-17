@@ -23,6 +23,7 @@ CONFIG_FILE="$CONFIG_DIR/default.json"
 PRIVATE_KEY_FILE="$STREAMR_DIR/private_key.txt"
 STREAMR_NODE_FILE="$STREAMR_DIR/node_addr.txt"
 PLUGIN_EXEC_DIR="/usr/bin/fula/plugins/${PLUGIN_NAME}"
+VENV_DIR="$STREAMR_DIR/venv"
 
 # Create necessary directories
 mkdir -p "$INTERNAL_DIR/plugins"
@@ -30,6 +31,45 @@ mkdir -p "$STREAMR_DIR"
 mkdir -p "$CONFIG_DIR"
 chown "$USER":"$USER" -R "$STREAMR_DIR/streamr/.streamr"
 
+# Check Python version
+PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+
+# Function to install python3.10-venv
+install_python310_venv() {
+    echo "Attempting to install python3.10-venv..."
+    sudo apt update
+    sudo apt install -y python3.10-venv
+    if [ $? -ne 0 ]; then
+        echo "Failed to install python3.10-venv. Please check your system's package repositories."
+        exit 1
+    fi
+}
+
+# Try to create a virtual environment
+if ! python3 -m venv --help > /dev/null 2>&1; then
+    echo "venv module not available for Python $PYTHON_VERSION"
+    if [ "$PYTHON_VERSION" = "3.10" ]; then
+        install_python310_venv
+    else
+        echo "Please install the appropriate venv package for Python $PYTHON_VERSION"
+        exit 1
+    fi
+fi
+
+# Create and activate virtual environment
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+    if [ $? -ne 0 ]; then
+        echo "Failed to create virtual environment. Please check your Python installation."
+        exit 1
+    fi
+    chown -R "$USER":"$USER" "$VENV_DIR"
+fi
+
+# Activate virtual environment
+source "$VENV_DIR/bin/activate"
+
+# Install eth-account in the virtual environment
 if pip list | grep -F eth-account > /dev/null; then
     echo "eth-account is already installed"
 else
@@ -41,6 +81,7 @@ else
         echo "eth-account has been successfully installed"
     else
         echo "Failed to install eth-account"
+        deactivate
         exit 1
     fi
 fi
@@ -86,7 +127,7 @@ fi
 # Store the private key in a file
 echo "$PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
 
-NODE_ADDR=$(python "${PLUGIN_EXEC_DIR}/custom/generate_evm_address.py" "$PRIVATE_KEY" | tr -d '[:space:]')
+NODE_ADDR=$(${VENV_DIR}/bin/python "${PLUGIN_EXEC_DIR}/custom/generate_evm_address.py" "$PRIVATE_KEY" | tr -d '[:space:]')
 
 echo "$NODE_ADDR" > "$STREAMR_NODE_FILE"
 
@@ -174,5 +215,8 @@ sleep 1
 systemctl enable streamr-node.service
 
 echo "Streamr node installed successfully."
+
+# Deactivate virtual environment at the end
+deactivate
 
 exit 0
