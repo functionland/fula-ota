@@ -28,17 +28,17 @@
     "instructions": [
         {
             "order": 1,
-            "description": "Connect your wallet and Get Operator Contract Address and paste in the parameters input below",
-            "url": "https://streamr.network/hub/network/operators/"
-        },
-        {
-            "order": 2,
             "description": "Open Port 32200 in your router",
             "url": ""
         },
         {
+            "order": 2,
+            "description": "Skip if you chose default operator and no action is needed, otherwise Connect your wallet and Get Operator Contract Address and paste in the parameters input below",
+            "url": "https://streamr.network/hub/network/operators/"
+        },
+        {
             "order": 3,
-            "description": "Use default operator and nothing is needed, OR you need to fund your account with minimum 5K $DATA using the Fund button at the top of your profile",
+            "description": "Skip if you chose default operator and no action is needed, otherwise you need to fund your account with minimum 5K $DATA using the Fund button at the top of your profile",
             "url": "https://streamr.network/hub/network/operators/"
         },
         {
