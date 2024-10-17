@@ -33,7 +33,7 @@
         },
         {
             "order": 2,
-            "description": "Skip if you chose default operator and no action is needed, otherwise Connect your wallet and Get Operator Contract Address and paste in the parameters input below",
+            "description": "Skip if you chose default operator and no action is needed, otherwise Connect your wallet and Get Operator Contract Address and paste in the parameters input instead of default operator",
             "url": "https://streamr.network/hub/network/operators/"
         },
         {
@@ -64,7 +64,7 @@
         },
         {
             "order": 8,
-            "description": "If you chose default operator, join Functionland pool",
+            "description": "If you chose default operator, join Functionland pool, otherwise if you set up your own operator ignore this",
             "url": "https://fund.functionyard.fula.network/streamr",
             "paramId": 1
         }
