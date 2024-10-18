@@ -295,25 +295,25 @@ function install() {
     # Check if RPi.GPIO is installed
     python -c "import RPi.GPIO" 2>/dev/null || {
       echo "RPi.GPIO not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-      pip install RPi.GPIO 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install RPi.GPIO" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+      sudo apt-get install python3-rpi.gpio 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt-get install python3-rpi.gpio" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
     # Check if pexpect is installed
     python -c "import pexpect" 2>/dev/null || {
       echo "pexpect not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-      pip install pexpect 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install pexpect" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+      sudo apt-get install python3-pexpect 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-pexpect" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
     # Check if requests is installed
     python -c "import requests" 2>/dev/null || {
       echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-      pip install requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+      sudo apt-get install python3-requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
 
     # Check if psutil is installed
     python -c "import psutil" 2>/dev/null || {
       echo "psutil not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-      pip install psutil 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install psutil" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+      sudo apt-get install python3-psutil 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-psutil" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
   else
     echo "Internet check failed, checking for existing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -799,7 +799,7 @@ function restart() {
   # Check if requests is installed
   python -c "import requests" 2>/dev/null || {
     echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-    sudo pip install requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not pip install requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo apt install python3-requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
   }
 
   #setup samba for blox storage access /uniondrive/fxblox
