@@ -8,10 +8,13 @@ Requires=docker.service uniondrive.service
 Type=simple
 RemainAfterExit=true
 WorkingDirectory=/usr/bin/fula/
+EnvironmentFile=/usr/bin/fula/.env
 ExecStart=/bin/bash -c '. /usr/bin/fula/.env && chmod +x /usr/bin/fula/fula.sh && if ! [ -s /usr/bin/fula/fula.sh ] || ! bash /usr/bin/fula/fula.sh start; then  echo "failed";  docker run --name fula_fxsupport --rm $FX_SUPPROT sleep 20 & sleep 2 && docker cp fula_fxsupport:/linux/. /usr/bin/fula/;  sync ;exit 1;  fi'
 ExecStop=/bin/bash -c '/usr/bin/fula/fula.sh stop'
 Restart=always
 RestartSec=30
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
