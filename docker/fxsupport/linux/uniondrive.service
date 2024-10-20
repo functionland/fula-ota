@@ -1,5 +1,7 @@
 [Unit]
 Description=%i Union Drive service with docker compose
+After=network.target local-fs.target
+Wants=network.target local-fs.target
 
 [Service]
 Type=notify
@@ -12,6 +14,7 @@ RestartSec=30
 WatchdogSec=120
 User=root
 Group=root
+NotifyAccess=all
 
 [Install]
 WantedBy=multi-user.target
