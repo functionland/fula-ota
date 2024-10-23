@@ -123,9 +123,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Pull Kubo Docker Image
-        run: docker pull --platform=linux/arm64 ipfs/kubo:master-latest
+        run: docker pull --platform=linux/arm64 ipfs/kubo:release
       - name: Save Kubo Image as Tar File
-        run: docker save ipfs/kubo:master-latest -o ./kubo.tar
+        run: docker save ipfs/kubo:release -o ./kubo.tar
       - name: Get Release Info
         id: get-release-info
         uses: actions/github-script@v5

@@ -28,7 +28,7 @@ services:
         max-file: "5"
 
   kubo:
-    image: ipfs/kubo:master-latest
+    image: ipfs/kubo:release
     container_name: ipfs_host
     restart: always
     depends_on:
