@@ -127,7 +127,7 @@ def attempt_wifi_connection():
 def check_and_fix_ipfs_cluster():
     ipfs_cluster_logs = subprocess.getoutput("sudo docker logs --tail 50 ipfs_cluster 2>&1")
     
-    if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs:
+    if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
         logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
         subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
         time.sleep(10)
@@ -146,6 +146,26 @@ def check_and_fix_ipfs_cluster():
         time.sleep(10)
         subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs-cluster/cluster.lock"], capture_output=True)
         logging.info("IPFS Cluster lock file removed.")
+        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        time.sleep(30)
+        return True
+    
+    return False
+
+
+def check_and_fix_ipfs_host():
+    ipfs_host_logs = subprocess.getoutput("sudo docker logs --tail 10 ipfs_host 2>&1")
+    
+    if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs:
+        logging.warning("IPFS Host issue detected. Attempting to fix.")
+        subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
+        time.sleep(10)
+        ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
+        if os.path.exists(ipfs_dir):
+            subprocess.run(["sudo", "rm", "-rf", f"{ipfs_dir}"], shell=True)
+            logging.info("Ipfs Blocks directory contents removed.")
+        else:
+            logging.warning("Ipfs Blocks directory not found.")
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
         time.sleep(30)
         return True
@@ -287,7 +307,8 @@ def monitor_docker_logs_and_restart():
             restart_attempts += 1
         
         ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
-        if ipfs_cluster_fixed:
+        ipfs_host_fixed = check_and_fix_ipfs_host()
+        if ipfs_cluster_fixed or ipfs_host_fixed:
             restart_attempts += 1
 
     if restart_attempts >= 3:
