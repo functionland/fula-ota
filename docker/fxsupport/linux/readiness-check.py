@@ -125,32 +125,52 @@ def attempt_wifi_connection():
     return None
 
 def check_and_fix_ipfs_cluster():
-    ipfs_cluster_logs = subprocess.getoutput("sudo docker logs --tail 50 ipfs_cluster 2>&1")
-    
-    if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
-        logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
-        subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
-        time.sleep(10)
-        pebble_dir = "/uniondrive/ipfs-cluster/pebble"
-        if os.path.exists(pebble_dir):
-            subprocess.run(["sudo", "rm", "-rf", f"{pebble_dir}/*"], shell=True)
-            logging.info("Pebble directory contents removed.")
-        else:
-            logging.warning("Pebble directory not found.")
-        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
-        time.sleep(30)
-        return True
-    elif "error obtaining execution lock: cannot acquire lock:" in ipfs_cluster_logs:
-        logging.warning("IPFS Cluster lock issue detected. Attempting to fix.")
-        subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
-        time.sleep(10)
-        subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs-cluster/cluster.lock"], capture_output=True)
-        logging.info("IPFS Cluster lock file removed.")
-        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
-        time.sleep(30)
-        return True
-    
-    return False
+    try:
+        ipfs_cluster_logs = subprocess.getoutput("sudo docker logs --tail 15 ipfs_cluster 2>&1")
+        cluster_error_found = False
+        
+        if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
+            logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
+            subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, check=True)
+            time.sleep(10)
+            pebble_dir = "/uniondrive/ipfs-cluster/pebble"
+            if os.path.exists(pebble_dir):
+                subprocess.run(["sudo", "rm", "-rf", f"{pebble_dir}/*"], shell=True, check=True)
+                logging.info("Pebble directory contents removed.")
+            else:
+                logging.warning("Pebble directory not found.")
+            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            cluster_error_found = True
+        elif "error obtaining execution lock: cannot acquire lock:" in ipfs_cluster_logs:
+            logging.warning("IPFS Cluster lock issue detected. Attempting to fix.")
+            subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, check=True)
+            time.sleep(10)
+            subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs-cluster/cluster.lock"], capture_output=True, check=True)
+            logging.info("IPFS Cluster lock file removed.")
+            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            cluster_error_found = True
+        elif "status_code=000" in ipfs_cluster_logs and "Request failed, retrying in 60 seconds" in ipfs_cluster_logs:
+            logging.warning("IPFS Cluster status code issue detected. Attempting to restart fula.")
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            cluster_error_found = True
+        
+        # Try to clear logs only if the container exists
+        if cluster_error_found:
+            container_id = subprocess.getoutput("docker inspect --format='{{.Id}}' ipfs_cluster 2>/dev/null")
+            if container_id:
+                try:
+                    subprocess.run(["sudo", "truncate", "-s", "0", f"/var/lib/docker/containers/{container_id}/ipfs_cluster-json.log"], shell=True, check=True)
+                    logging.info("fix applied and IPFS Cluster logs cleared successfully.")
+                except subprocess.CalledProcessError:
+                    logging.warning("Failed to truncate logs, but applied with the fix of ipfs cluster")
+        
+        return cluster_error_found
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error during IPFS cluster fix: {str(e)}")
+        return False
 
 
 def check_and_fix_ipfs_host():
