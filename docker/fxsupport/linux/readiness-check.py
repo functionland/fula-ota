@@ -65,7 +65,7 @@ def check_fs_type(mount_path, expected_type):
     try:
         result = subprocess.run(["findmnt", "-no", "FSTYPE", mount_path], capture_output=True, text=True)
         actual_type = result.stdout.strip()
-        return actual_type == expected_type
+        return expected_type in actual_type.split('\n')
     except subprocess.CalledProcessError:
         return False
 
@@ -369,7 +369,6 @@ def main():
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
-        time.sleep(20)
         if check_conditions():
             logging.info("check_conditions passed")
             wifi_status = check_wifi_connection()
@@ -390,6 +389,7 @@ def main():
 
                 subprocess.run(["python", LED_PATH, "red", "10"])
                 cycles_with_no_wifi += 1
+                time.sleep(10)
         else:
             logging.info("check_conditions failed")
             # Check if 'fula_go' exists in `docker ps -a`
@@ -411,7 +411,7 @@ def main():
                             logging.error(f"Restart error: {result.stderr}")
 
                     fula_restart_attempts += 1
-            time.sleep(7)
+            time.sleep(20)
 
 if __name__ == "__main__":
     main()
