@@ -46,7 +46,7 @@ install_python310_venv() {
 }
 
 # Try to create a virtual environment
-if ! python3 -m venv --help > /dev/null 2>&1; then
+if ! python3 -m venv test_venv &>/dev/null; then
     echo "venv module not available for Python $PYTHON_VERSION"
     if [ "$PYTHON_VERSION" = "3.10" ]; then
         install_python310_venv
@@ -55,6 +55,8 @@ if ! python3 -m venv --help > /dev/null 2>&1; then
         exit 1
     fi
 fi
+# Clean up test environment if it was created
+rm -rf test_venv
 
 # Create and activate virtual environment
 if [ ! -d "$VENV_DIR" ]; then
