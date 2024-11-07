@@ -71,7 +71,6 @@
         {
             "order": 9,
             "description": "Add node to your metamask with the private key below (Polygon) to receive $DATA",
-            "url": "https://fund.functionyard.fula.network/streamr",
             "paramId": 2
         }
     ],
