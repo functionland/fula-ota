@@ -67,6 +67,12 @@
             "description": "If you chose default operator, join Functionland pool, otherwise if you set up your own operator ignore this",
             "url": "https://fund.functionyard.fula.network/streamr",
             "paramId": 1
+        },
+        {
+            "order": 9,
+            "description": "Add node to your metamask with the private key below (Polygon) to receive $DATA",
+            "url": "https://fund.functionyard.fula.network/streamr",
+            "paramId": 2
         }
     ],
     "requiredInputs": [
@@ -87,6 +93,10 @@
         {
             "name": "node_addr",
             "id": 1
+        },
+        {
+            "name": "private_key",
+            "id": 2
         }
     ],
     "approved": true
