@@ -17,13 +17,26 @@ check_wifi_name() {
 }
 
 check_internet() {
-  for iface in /sys/class/net/*; do
-    iface_name=$(basename "$iface")
-    if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && (ip addr show "$iface_name" | grep -q "inet ") && check_wifi_name "$iface_name"; then
-      return 0
+    # First determine which wireless tool to use
+    if command -v iwconfig > /dev/null 2>&1; then
+        for iface in /sys/class/net/*; do
+            iface_name=$(basename "$iface")
+            if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && ip addr show "$iface_name" | grep -q "inet " && check_wifi_name "$iface_name"; then
+                return 0
+            fi
+        done
+    elif command -v iw > /dev/null 2>&1; then
+        for iface in /sys/class/net/*; do
+            iface_name=$(basename "$iface")
+            if [ "$iface_name" != "lo" ] && iw dev "$iface_name" info 2>/dev/null | grep -q "type managed" && ip addr show "$iface_name" | grep -q "inet " && check_wifi_name "$iface_name"; then
+                return 0
+            fi
+        done
+    else
+        log "Neither iwconfig nor iw commands found"
+        return 1
     fi
-  done
-  return 1
+    return 1
 }
 
 check_ping() {
@@ -105,14 +118,27 @@ check_interfaces() {
   if ! command -v ip > /dev/null 2>&1; then
     log "The 'ip' command is required but not found. Exiting."
     return 1
-fi
+  fi
 
-if ! command -v iwconfig > /dev/null 2>&1; then
-    log "The 'iwconfig' command is required but not found. Exiting."
-    return 1
-fi
-  # Get a list of all network interfaces
-  interfaces=$(iwconfig 2>&1 | grep 'IEEE' | awk '{print $1}')
+  # Initialize interfaces variable
+  interfaces=""
+
+  # First check for iwconfig
+  if ! command -v iwconfig > /dev/null 2>&1; then
+      log "iwconfig not found, checking for iw..."
+      # Then check for iw
+      if ! command -v iw > /dev/null 2>&1; then
+          log "Neither iwconfig nor iw commands found. Exiting."
+          return 1
+      else
+          log "Using iw command for wireless operations"
+          interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
+      fi
+  else
+      log "Using iwconfig command for wireless operations"
+      interfaces=$(iwconfig 2>&1 | grep 'IEEE' | awk '{print $1}')
+  fi
+
   if [ -z "$interfaces" ]; then
       log "No wireless network interfaces found. Exiting."
       return 1
@@ -126,7 +152,7 @@ fi
           state=$(ip link show "$interface" | awk '/state UP/ {print $9}')
 
           # Check if the interface is in the 'UP' state
-          if [ "$state" = "UP" ]; then
+          if [ -n "$state" ] && [ "$state" = "UP" ]; then
               log "Interface $interface is up and ready."
               break
           else
