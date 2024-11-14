@@ -113,58 +113,98 @@ check_writable() {
 }
 
 
+is_interface_ready() {
+    local_interface=$1
+    if ip link show "$local_interface" | grep -q "UP"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 check_interfaces() {
-  # Check for required commands
-  if ! command -v ip > /dev/null 2>&1; then
-    log "The 'ip' command is required but not found. Exiting."
-    return 1
-  fi
+    # Check for required commands
+    if ! command -v ip > /dev/null 2>&1; then
+        log "The 'ip' command is required but not found. Exiting."
+        return 1
+    fi
 
-  # Initialize interfaces variable
-  interfaces=""
+    # Initialize interfaces variable
+    interfaces=""
 
-  # First check for iwconfig
-  if ! command -v iwconfig > /dev/null 2>&1; then
-      log "iwconfig not found, checking for iw..."
-      # Then check for iw
-      if ! command -v iw > /dev/null 2>&1; then
-          log "Neither iwconfig nor iw commands found. Exiting."
-          return 1
-      else
-          log "Using iw command for wireless operations"
-          interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
-      fi
-  else
-      log "Using iwconfig command for wireless operations"
-      interfaces=$(iwconfig 2>&1 | grep 'IEEE' | awk '{print $1}')
-  fi
+    # Then check for iw
+    if ! command -v iw > /dev/null 2>&1; then
+        log "iw command not found. Exiting."
+        return 1
+    else
+        log "Using iw command for wireless operations"
+        interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
+    fi
 
-  if [ -z "$interfaces" ]; then
-      log "No wireless network interfaces found. Exiting."
-      return 1
-  fi
+    if [ -z "$interfaces" ]; then
+        log "No wireless network interfaces found. Exiting."
+        return 1
+    fi
 
-  # Loop through each interface and check its status
-  for interface in $interfaces; do
-      log "Checking wireless interface: $interface"
-      while : ; do
-          # Get the current state of the interface
-          state=$(ip link show "$interface" | awk '/state UP/ {print $9}')
-
-          # Check if the interface is in the 'UP' state
-          if [ -n "$state" ] && [ "$state" = "UP" ]; then
-              log "Interface $interface is up and ready."
-              break
-          else
-              log "Waiting for interface $interface to be ready..."
-              sleep 1
+    # Check for saved Wi-Fi connections
+    saved_connections=$(nmcli -t -f TYPE,UUID connection show | grep 802-11-wireless | cut -d: -f2)
+    if [ -z "$saved_connections" ]; then
+      # Flag to control the while loop
+      interface_ready=false
+      start_time=$(date +%s)
+      timeout=90  # 60 seconds timeout
+      # Infinite loop to wait for an interface to become ready
+      while ! $interface_ready; do
+        for interface in $interfaces; do
+          if is_interface_ready "$interface"; then
+            # Set the flag to true and break out of the for loop
+            interface_ready=true
+            break
           fi
+        done
+        sleep 2
+        if [ $elapsed_time -ge $timeout ]; then
+          log "Timeout reached for interfaces. Exiting."
+          return 1
+        fi
       done
-  done
 
-  # Wait an additional 5 seconds after all interfaces are up
-  log "All interfaces are ready."
-  return 0
+      log "No saved Wi-Fi connections found. Exiting."
+      return 0
+    fi
+
+    start_time=$(date +%s)
+    timeout=120  # 60 seconds timeout
+    interface_connected=false
+    # Loop through each interface and check its status
+    while ! $interface_connected; do
+        for interface in $interfaces; do
+            log "Checking wireless interface: $interface"
+            
+            # Get the current state of the interface
+            state=$(ip link show "$interface" | awk '/state UP/ {print $9}')
+
+            # Check if the interface is in the 'UP' state
+            if [ -n "$state" ] && [ "$state" = "UP" ]; then
+                log "Interface $interface is up and connected."
+                interface_connected=true
+                break
+            else
+                log "Waiting for interface $interface to be connected..."
+                sleep 2
+            fi
+        done
+        current_time=$(date +%s)
+        elapsed_time=$((current_time - start_time))
+        if [ $elapsed_time -ge $timeout ]; then
+            log "Timeout reached for interface $interface. Exiting."
+            return 1
+        fi
+    done
+
+    # Wait an additional 5 seconds after all interfaces are up
+    log "All interfaces are ready."
+    return 0
 }
 
 disconnect_others() {
