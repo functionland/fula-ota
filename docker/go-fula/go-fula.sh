@@ -122,14 +122,15 @@ fi
   for interface in $interfaces; do
       log "Checking wireless interface: $interface"
       while : ; do
-          # Check if the interface exists and is administratively up
-          if ip link show "$interface" | grep -q "UP" ; then
-              log "Interface $interface is administratively up and ready."
+          # Get the current state of the interface
+          state=$(ip link show "$interface" | awk '/state UP/ {print $9}')
+
+          # Check if the interface is in the 'UP' state
+          if [ "$state" = "UP" ]; then
+              log "Interface $interface is up and ready."
               break
           else
               log "Waiting for interface $interface to be ready..."
-              # Try to bring the interface up
-              ip link set "$interface" up 2>/dev/null
               sleep 1
           fi
       done
