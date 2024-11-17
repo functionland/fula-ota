@@ -44,8 +44,7 @@ export MOUNT_PATH=/media/$CURRENT_USER
 
 function setup_logrotate {
     # Check if logrotate is installed
-    if ! command -v logrotate &> /dev/null
-    then
+    if ! command -v logrotate &> /dev/null; then
         echo "logrotate could not be found. Installing..."
         sudo apt-get update
         sudo apt-get install logrotate -y
@@ -71,8 +70,7 @@ ${logfile_path} {
 EOF
 
     # Check if the existing config file is different than the temp config
-    if [ ! -f ${config_path} ] || ! cmp -s ${config_path} ${temp_config_path}
-    then
+    if [ ! -f ${config_path} ] || ! cmp -s ${config_path} ${temp_config_path}; then
         # If they differ, replace the old config with the new one
         sudo mv ${temp_config_path} ${config_path}
         echo "Logrotate configuration file for $logfile_path has been updated."
