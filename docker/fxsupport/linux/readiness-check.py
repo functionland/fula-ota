@@ -126,7 +126,7 @@ def attempt_wifi_connection():
 
 def check_and_fix_ipfs_cluster():
     try:
-        ipfs_cluster_logs = subprocess.getoutput("sudo docker logs --tail 15 ipfs_cluster 2>&1")
+        ipfs_cluster_logs = subprocess.getoutput("sudo docker logs ipfs_cluster --tail 15 2>&1")
         cluster_error_found = False
         
         if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
@@ -174,9 +174,9 @@ def check_and_fix_ipfs_cluster():
 
 
 def check_and_fix_ipfs_host():
-    ipfs_host_logs = subprocess.getoutput("sudo docker logs --tail 10 ipfs_host 2>&1")
+    ipfs_host_logs = subprocess.getoutput("sudo docker logs ipfs_host --tail 10 2>&1")
     
-    if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs:
+    if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs or "Error: directory missing SHARDING file:" in ipfs_host_logs:
         logging.warning("IPFS Host issue detected. Attempting to fix.")
         subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
         time.sleep(10)
