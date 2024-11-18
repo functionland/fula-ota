@@ -177,7 +177,7 @@ def check_and_fix_ipfs_host():
     ipfs_host_logs = subprocess.getoutput("sudo docker logs ipfs_host --tail 10 2>&1")
     
     if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs or "Error: directory missing SHARDING file:" in ipfs_host_logs:
-        logging.warning("IPFS Host issue detected. Attempting to fix.")
+        logging.warning("IPFS Host issue 1 detected. Attempting to fix.")
         subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
         time.sleep(10)
         ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
@@ -187,6 +187,11 @@ def check_and_fix_ipfs_host():
         else:
             logging.warning("Ipfs Blocks directory not found.")
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        time.sleep(30)
+        return True
+    elif "ERROR   core/commands/cmdenv    pin/pin.go:155  context canceled" in ipfs_host_logs:
+        logging.warning("IPFS Host issue 2 detected. Attempting to fix.")
+        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
         time.sleep(30)
         return True
     
