@@ -189,9 +189,22 @@ def check_and_fix_ipfs_host():
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
         time.sleep(30)
         return True
-    elif "ERROR   core/commands/cmdenv    pin/pin.go:155  context canceled" in ipfs_host_logs:
-        logging.warning("IPFS Host issue 2 detected. Attempting to fix.")
-        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+    
+    return False
+
+def check_and_fix_node():
+    fula_node_logs = subprocess.getoutput("sudo docker logs fula_node --tail 5 2>&1")
+    
+    if "Invalid argument: Column families not opened:" in fula_node_logs:
+        logging.warning("Fula Node issue 1 detected. Attempting to fix.")
+        fula_node_dir = "/uniondrive/chain/chains/functionyard/db/full"
+        if os.path.exists(fula_node_dir):
+            subprocess.run(["sudo", "rm", "-rf", f"{fula_node_dir}"], shell=True)
+            logging.info("Fula Node directory contents removed.")
+        else:
+            logging.warning("Fula Node  directory not found.")
+
+        subprocess.run(["sudo", "docker", "restart", "fula_node"], capture_output=True)
         time.sleep(30)
         return True
     
@@ -335,6 +348,8 @@ def monitor_docker_logs_and_restart():
         ipfs_host_fixed = check_and_fix_ipfs_host()
         if ipfs_cluster_fixed or ipfs_host_fixed:
             restart_attempts += 1
+            
+        fula_node_fixed = check_and_fix_node()
 
     if restart_attempts >= 3:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
