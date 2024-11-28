@@ -227,7 +227,7 @@ def check_external_drive():
         for drive_info in drives:
             drive = drive_info[0]
             fstype = next((item.split('=')[1].strip('"') for item in drive_info[1].split() if item.startswith('TYPE=')), None)
-            if fstype and (fstype.lower() == 'exfat' or fstype.lower() == 'ntfs') :
+            if fstype and (fstype.lower() != 'ext4' and fstype.lower() != 'fat32') :
                 logging.warning(f"Drive {drive} is formatted as {fstype}. Attempting to fix.")   
                 # Stop services
                 subprocess.run(["sudo", "systemctl", "stop", "fula.service"], check=True)
@@ -263,7 +263,7 @@ def check_external_drive():
 def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
-        subprocess.run(["python", LED_PATH, "yellow", "5"])
+        subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"])
         time.sleep(500)
         return
     
@@ -281,7 +281,7 @@ def monitor_docker_logs_and_restart():
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         if not check_conditions():
             logging.error("conditions not pass")
-            subprocess.run(["python", LED_PATH, "yellow", "5"])
+            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"])
             subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
             subprocess.run(["sudo", "systemctl", "stop", "docker.service"], capture_output=True)
             time.sleep(15)
@@ -300,7 +300,7 @@ def monitor_docker_logs_and_restart():
 
         while "active" not in docker_service_status and restart_attempts < 3:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
-            subprocess.run(["python", LED_PATH, "yellow", "5"])
+            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"])
             subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True)
             # Wait a moment to let Docker restart
             time.sleep(15)
@@ -323,15 +323,15 @@ def monitor_docker_logs_and_restart():
             else:
                 all_containers_running = False
                 logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
-                subprocess.run(["python", LED_PATH, "yellow", "5"])
+                subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"])
                 result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
                 time.sleep(5)
                 if result.returncode == 0:
                     logging.info(f"fula.service restarted successfully for {container}.")
-                    subprocess.run(["python", LED_PATH, "blue", "5"])
+                    subprocess.run(["sudo", "python", LED_PATH, "blue", "5"])
                 else:
                     logging.error(f"Failed to restart fula.service for {container}.")
-                    subprocess.run(["python", LED_PATH, "red", "5"])
+                    subprocess.run(["sudo", "python", LED_PATH, "red", "5"])
                     if result.stderr:
                         logging.error(f"Restart error: {result.stderr}")
                 time.sleep(60)  # Delay between restart attempts
@@ -340,7 +340,7 @@ def monitor_docker_logs_and_restart():
         if all_containers_running:
             # If all containers are running and logs are clean, reset attempts and continue monitoring
             restart_attempts = 0
-            subprocess.run(["python", LED_PATH, "green", "1"])
+            subprocess.run(["sudo", "python", LED_PATH, "green", "1"])
         else:
             restart_attempts += 1
         
@@ -363,26 +363,23 @@ def monitor_docker_logs_and_restart():
                 # Issue persists even after reboot within 24 hours
                 logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
                 while True:
-                    subprocess.run(["python", LED_PATH, "red", "10"])
+                    subprocess.run(["sudo", "python", LED_PATH, "red", "10"])
                     get_wifi_info_and_ping()
                     time.sleep(5)
             else:
                 # More than 24 hours have passed, update the reboot flag
                 logging.warning("Previous reboot flag is older than 24 hours. Updating and initiating re-partition process.")
-                os.remove(REBOOT_FLAG_PATH)
-                with open(REBOOT_FLAG_PATH, "w") as f:
-                    f.write("")
-                with open(COMMAND_PARTITION_PATH, "w") as f:
-                    f.write("")
-                subprocess.run(["python", LED_PATH, "purple", "5"])
+                subprocess.run(['sudo', 'rm', REBOOT_FLAG_PATH])
+                time.sleep(2)
+                subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH])
+                subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH])
+                subprocess.run(["sudo", "python", LED_PATH, "purple", "5"])
         else:
             # No existing reboot flag, create it and initiate re-partition process
             logging.warning("No existing reboot flag. Creating flag and initiating re-partition process.")
-            with open(REBOOT_FLAG_PATH, "w") as f:
-                f.write("")
-            with open(COMMAND_PARTITION_PATH, "w") as f:
-                f.write("")
-            subprocess.run(["python", LED_PATH, "purple", "5"])
+            subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH])
+            subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH])
+            subprocess.run(["sudo", "python", LED_PATH, "purple", "5"])
 
 def main():
     logging.info("readiness check started")
@@ -394,10 +391,10 @@ def main():
             wifi_status = check_wifi_connection()
             if wifi_status == "FxBlox":
                 logging.info("wifi_status FxBlox")
-                subprocess.run(["python", LED_PATH, "cyan", "5"])
+                subprocess.run(["sudo", "python", LED_PATH, "cyan", "5"])
             elif wifi_status == "other":
                 logging.info("wifi_status other")
-                subprocess.run(["python", LED_PATH, "green", "30"])
+                subprocess.run(["sudo", "python", LED_PATH, "green", "30"])
                 while True:
                     monitor_docker_logs_and_restart()
             else:
@@ -407,7 +404,7 @@ def main():
                     attempt_wifi_connection()
                     cycles_with_no_wifi = 0
 
-                subprocess.run(["python", LED_PATH, "red", "10"])
+                subprocess.run(["sudo", "python", LED_PATH, "red", "10"])
                 cycles_with_no_wifi += 1
                 time.sleep(10)
         else:

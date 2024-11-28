@@ -230,6 +230,12 @@ partition_fs () {
   fi
 }
 
+if [ "$force_partition" -eq 1 ]; then
+    # Replace `your_command_here` with the command you want to run
+    echo "Force partition is set to 1. Running the specified command..."
+    partition_fs "$force_partition"
+fi
+
 if [ -f "$resize_flag" ]; then
   echo "File exists. so no need to expand." 2>&1 | sudo tee -a $FULA_LOG_PATH
   if [ -f "$partition_flag" ]; then
@@ -237,6 +243,7 @@ if [ -f "$resize_flag" ]; then
     trap - EXIT
     exit 0
   else
+    echo "partitioning with force=$force_partition"
     partition_fs "$force_partition"
   fi
 else
