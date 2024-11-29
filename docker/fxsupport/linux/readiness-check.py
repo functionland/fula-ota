@@ -218,46 +218,88 @@ def check_internet_connection():
     except requests.ConnectionError:
         logging.error("No internet connection available.")
         return False
-    
+
+def safe_run(command):
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Error running command {command}: {e}')
+
+def format_drive(drive):
+    try:
+        # Delete all partitions on the drive
+        safe_run(["sudo", "wipefs", "--all", drive])
+        
+        # Create a new partition table and a single ext4 partition
+        safe_run(["sudo", "parted", "-s", drive, "mklabel", "gpt"])
+        safe_run(["sudo", "parted", "-s", drive, "mkpart", "primary", "ext4", "0%", "100%"])
+        
+        # Format the new partition as ext4
+        partition = f"{drive}1"  # Assuming the first partition is created
+        safe_run(["sudo", "mkfs.ext4", partition])
+
+        logging.info(f'Successfully formatted {drive} as ext4')
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Error during formatting the drive {drive}: {e}')
+        return False
+
 def check_external_drive():
     logging.info("Checking external drives for correct formatting")
     try:
         blkid_output = subprocess.check_output(["sudo", "blkid"], universal_newlines=True)
         drives = [line.split(':') for line in blkid_output.splitlines() if line.startswith('/dev/sd') or line.startswith('/dev/nvme')]
+        
         for drive_info in drives:
             drive = drive_info[0]
             fstype = next((item.split('=')[1].strip('"') for item in drive_info[1].split() if item.startswith('TYPE=')), None)
-            if fstype and (fstype.lower() != 'ext4' and fstype.lower() != 'fat32') :
-                logging.warning(f"Drive {drive} is formatted as {fstype}. Attempting to fix.")   
+            
+            # Check the disk size
+            size_output = subprocess.check_output(["sudo", "lsblk", "-b", "-n", "-o", "SIZE", drive], universal_newlines=True)
+            disk_size = int(size_output.split()[0])  # Size in bytes
+            disk_size_gb = disk_size / (1024 ** 3)  # Convert to GB
+
+            if fstype and (fstype.lower() != 'ext4') and (disk_size_gb > 500):
+                logging.warning(f"Drive {drive} is formatted as {fstype} and is larger than 500GB. Attempting to fix.")
+                
                 # Stop services
-                subprocess.run(["sudo", "systemctl", "stop", "fula.service"], check=True)
+                safe_run(["sudo", "systemctl", "stop", "fula.service"])
                 time.sleep(10)
-                subprocess.run(["sudo", "systemctl", "stop", "uniondrive.service"], check=True)
+                safe_run(["sudo", "systemctl", "stop", "uniondrive.service"])
                 time.sleep(10)
+
                 # Stop automount service for the drive
                 partition = drive.split('/')[-1]
-                subprocess.run(["sudo", "systemctl", "stop", f"automount@{partition}.service"], check=True)
+                safe_run(["sudo", "systemctl", "stop", f"automount@{partition}.service"])
                 time.sleep(10)
+
                 # Delete mount folder
                 mount_folder = f"/media/pi/{partition}"
                 if os.path.exists(mount_folder):
-                    subprocess.run(["sudo", "umount", mount_folder], check=True)
+                    safe_run(["sudo", "umount", mount_folder])
                     time.sleep(5)
-                    subprocess.run(["sudo", "rm", "-rf", mount_folder], check=True)
+                    safe_run(["sudo", "rm", "-rf", mount_folder])
+
                 # Delete and recreate /uniondrive
                 if os.path.exists("/uniondrive"):
-                    subprocess.run(["sudo", "rm", "-rf", "/uniondrive"], check=True)
-                subprocess.run(["sudo", "mkdir", "/uniondrive"], check=True)
-                subprocess.run(["sudo", "chown", "-R", "pi:pi", "/uniondrive"], check=True)
-                subprocess.run(["sudo", "chmod", "-R", "777", "/uniondrive"], check=True)
+                    safe_run(["sudo", "rm", "-rf", "/uniondrive"])
+                safe_run(["sudo", "mkdir", "/uniondrive"])
+                safe_run(["sudo", "chown", "-R", "pi:pi", "/uniondrive"])
+                safe_run(["sudo", "chmod", "-R", "777", "/uniondrive"])
+
+                # Format the drive as ext4
+                format_drive(drive)
+
                 return True
+
         logging.info("No drives needing format correction found")
         return False
+        
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error in check_and_fix_external_drive: {e}")
+        logging.error(f"Error in check_external_drive: {e}")
         return False
     except Exception as e:
-        logging.error(f"Unexpected error in check_and_fix_external_drive: {e}")
+        logging.error(f"Unexpected error in check_external_drive: {e}")
         return False
 
 def monitor_docker_logs_and_restart():
