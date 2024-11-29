@@ -105,8 +105,14 @@ unionfs_fuse_mount_drives() {
     for drive in /media/pi/*; do
         systemd-notify WATCHDOG=1
         if mountpoint -q "$drive"; then
-            MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
-            FIRST=":"
+            # Check if the filesystem type is ext4
+            fs_type=$(findmnt -n -o FSTYPE "$drive")
+            if [ "$fs_type" = "ext4" ]; then
+                MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
+                FIRST=":"
+            else
+                echo "Skipping $drive as it is not formatted as ext4. Detected type: $fs_type"
+            fi
         fi
     done
 
