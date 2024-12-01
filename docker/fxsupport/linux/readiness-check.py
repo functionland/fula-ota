@@ -401,7 +401,7 @@ def monitor_docker_logs_and_restart():
             file_mod_time = os.path.getmtime(REBOOT_FLAG_PATH)
             time_difference = current_time - file_mod_time
             
-            if time_difference < 24 * 60 * 60:  # 24 hours in seconds
+            if time_difference < 12 * 60 * 60:  # 12 hours in seconds
                 # Issue persists even after reboot within 24 hours
                 logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
                 while True:
