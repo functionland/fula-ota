@@ -135,7 +135,7 @@ def check_and_fix_ipfs_cluster():
             time.sleep(10)
             pebble_dir = "/uniondrive/ipfs-cluster/pebble"
             if os.path.exists(pebble_dir):
-                subprocess.run(["sudo", "rm", "-rf", f"{pebble_dir}/*"], shell=True, check=True)
+                subprocess.run(f"sudo rm -rf {pebble_dir}/*", shell=True, check=True)
                 logging.info("Pebble directory contents removed.")
             else:
                 logging.warning("Pebble directory not found.")
@@ -162,7 +162,7 @@ def check_and_fix_ipfs_cluster():
             container_id = subprocess.getoutput("docker inspect --format='{{.Id}}' ipfs_cluster 2>/dev/null")
             if container_id:
                 try:
-                    subprocess.run(["sudo", "truncate", "-s", "0", f"/var/lib/docker/containers/{container_id}/ipfs_cluster-json.log"], shell=True, check=True)
+                    subprocess.run(["sudo", "truncate", "-s", "0", f"/var/lib/docker/containers/{container_id}/ipfs_cluster-json.log"], check=True)
                     logging.info("fix applied and IPFS Cluster logs cleared successfully.")
                 except subprocess.CalledProcessError:
                     logging.warning("Failed to truncate logs, but applied with the fix of ipfs cluster")
@@ -182,7 +182,7 @@ def check_and_fix_ipfs_host():
         time.sleep(10)
         ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
         if os.path.exists(ipfs_dir):
-            subprocess.run(["sudo", "rm", "-rf", f"{ipfs_dir}"], shell=True)
+            subprocess.run(["sudo", "rm", "-rf", ipfs_dir])
             logging.info("Ipfs Blocks directory contents removed.")
         else:
             logging.warning("Ipfs Blocks directory not found.")
@@ -199,7 +199,7 @@ def check_and_fix_node():
         logging.warning("Fula Node issue 1 detected. Attempting to fix.")
         fula_node_dir = "/uniondrive/chain/chains/functionyard/db/full"
         if os.path.exists(fula_node_dir):
-            subprocess.run(["sudo", "rm", "-rf", f"{fula_node_dir}"], shell=True)
+            subprocess.run(["sudo", "rm", "-rf", fula_node_dir])
             logging.info("Fula Node directory contents removed.")
         else:
             logging.warning("Fula Node  directory not found.")
