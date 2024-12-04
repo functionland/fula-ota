@@ -23,6 +23,9 @@ SOFTWARE.
 Modified By Ehsan shariati-Functionland Inc
 """
 
+import json
+import queue
+import traceback
 import dbus
 
 import os
@@ -31,16 +34,27 @@ import psutil
 import subprocess
 import time
 import threading
+from go_server_client import GoServerClient
 
 from advertisement import Advertisement
 from service import Application, Service, Characteristic, Descriptor
+
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    print('Gracefully shutting down...')
+    connect_ongoing.clear()
+    app.quit()
+    kill_bluetooth_processes()
+    sys.exit(0)
 
 # Flag to indicate whether an action is ongoing
 action_ongoing = threading.Event()
 connect_ongoing = threading.Event()
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
-NOTIFY_TIMEOUT = 5000
+NOTIFY_TIMEOUT = 25000
 
 os.environ["DBUS_TIMEOUT"] = "999"
 class FulatowerAdvertisement(Advertisement):
@@ -48,6 +62,7 @@ class FulatowerAdvertisement(Advertisement):
         Advertisement.__init__(self, index, "peripheral")
         self.add_local_name("fulatower")
         self.include_tx_power = True
+        print(f"Advertising service: {FulatowerService.FULATOWERSERVICE_SVC_UUID}")
 
 class FulatowerService(Service):
     FULATOWERSERVICE_SVC_UUID = "00000001-710e-4a5b-8d75-3e5b444bc3cf"
@@ -56,8 +71,12 @@ class FulatowerService(Service):
         self.lastCommand = ""
 
         Service.__init__(self, index, self.FULATOWERSERVICE_SVC_UUID, True)
-        self.add_characteristic(BroadcastCharacteristic(self))
-        self.add_characteristic(CommandCharacteristic(self))
+        print(f"Initializing service with UUID: {self.FULATOWERSERVICE_SVC_UUID}")
+        self.broadcast_char = BroadcastCharacteristic(self)
+        self.command_char = CommandCharacteristic(self)
+        self.add_characteristic(self.broadcast_char)
+        self.add_characteristic(self.command_char)
+        print("Characteristics added to service")
 
     def get_lastCommand(self):
         return self.lastCommand
@@ -110,7 +129,7 @@ class BroadcastCharacteristic(Characteristic):
         return value
 
 class BroadcastDescriptor(Descriptor):
-    TEMP_DESCRIPTOR_UUID = "2901"
+    TEMP_DESCRIPTOR_UUID = "00000003-710e-4a5b-8d75-3e5b444bc3cf"
     TEMP_DESCRIPTOR_VALUE = "Broadcast Information"
 
     def __init__(self, characteristic):
@@ -132,56 +151,240 @@ class CommandCharacteristic(Characteristic):
     COMMAND_CHARACTERISTIC_UUID = "00000003-710e-4a5b-8d75-3e5b444bc3cf"
 
     def __init__(self, service):
+        self.go_client = GoServerClient()
+        self.notifying = False
+        self.indicating = False
+        self.response_queue = queue.Queue()
         Characteristic.__init__(
                 self, self.COMMAND_CHARACTERISTIC_UUID,
-                ["read", "write"], service)
+                ["read", "write", "notify", "indicate"], service)
         self.add_descriptor(CommandDescriptor(self))
-        self.reset_timer = None
+        self._start_response_handler()
+    
+    def _start_response_handler(self):
+        def handle_responses():
+            while True:
+                try:
+                    response = self.response_queue.get()
+                    if self.notifying:
+                        self.notify_response(response)
+                    if self.indicating:
+                        self.indicate_response(response)
+                except Exception as e:
+                    print(f"Error handling response: {e}")
+                    traceback.print_exc()
 
-    def kill_led_processes(self):
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            # check whether the process command line matches
-            if proc.info['cmdline'] and 'control_led.py' in ' '.join(proc.info['cmdline']):
-                proc.kill()  # kill the process
+        thread = threading.Thread(target=handle_responses, daemon=True)
+        thread.start()
+
+    def indicate_response(self, response):
+        """Send response back to client via indication"""
+        try:
+            if not self.indicating:
+                return
+            
+            value = []
+            response_str = json.dumps(response)
+            for c in response_str:
+                value.append(dbus.Byte(c.encode()))
+            
+            value = dbus.Array(value, signature='y')
+            print(f"Sending indication: {response_str}")
+            self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+            
+        except Exception as e:
+            print(f"Error sending indication: {str(e)}")
+            traceback.print_exc()
+
+    def StartIndicate(self):
+        print("Starting indications")
+        self.indicating = True
+
+    def StopIndicate(self):
+        print("Stopping indications")
+        self.indicating = False
+
+    def notify_response(self, response):
+        """Send response back to client via notification"""
+        try:
+            # Enable notifications if not already enabled
+            if not self.notifying:
+                self.StartNotify()
+            
+            # Convert response to bytes
+            value = []
+            if isinstance(response, dict) or isinstance(response, list):
+                response_str = json.dumps(response)
+            else:
+                response_str = str(response)
+                
+            for c in response_str:
+                value.append(dbus.Byte(c.encode()))
+
+            value = dbus.Array(value, signature='y')
+            
+            # Send notification
+            self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+            print(f"Notification sent: {response_str}")
+            
+            # Update the characteristic value for subsequent reads
+            self.service.set_lastCommand(response_str)
+            
+        except Exception as e:
+            print(f"Error sending notification: {str(e)}")
+            traceback.print_exc()
 
     def WriteValue(self, value, options):
-        command = "".join([chr(b) for b in value])
-        val = str(command).lower().strip()
-        self.service.set_lastCommand(val)
-        print(f"command received {val}")
-        if val == "reset":
-            print(f"reset is received: {val}")
-            with open('/home/pi/reset.txt', 'w') as f:
-                # This file is being created so that the existence of it can be checked later.
-                pass
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '20'])
-            # Create a thread to handle reset after 20 seconds
-            self.reset_timer = threading.Timer(20.0, self.reset_procedure)
-            self.reset_timer.start()
-        elif val == "cancel":
-            print(f"cancel is received: {val}")
-            if os.path.exists('/home/pi/reset.txt'):
-                os.remove('/home/pi/reset.txt')
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
-            self.kill_led_processes()
-            # Cancel the reset timer if it's running
-            if self.reset_timer is not None:
-                self.reset_timer.cancel()
-        elif val == "removedockercpblock":
-            print(f"removedockercpblock is received: {val}")
-            if os.path.exists('/home/pi/stop_docker_copy.txt'):
-                os.remove('/home/pi/stop_docker_copy.txt')
-        elif val == "stopleds":
-            print(f"stopleds is received: {val}")
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
-            self.kill_led_processes()
-        elif val.startswith("connect "):
-            parts = val.split(" ")
-            if len(parts) == 3:
-                ssid = parts[1]
-                password = parts[2]
-                print(f"Connect command received with SSID: {ssid} and PASSWORD: {password}")
-                self.create_and_connect_wifi(ssid, password)
+        try:
+            print(f"Received raw value: {value}")
+            command = "".join([chr(b) for b in value])
+            val = str(command).lower().strip()
+            print(f"Decoded command: {command}")
+            print(f"Processed value: {val}")
+            self.service.set_lastCommand("Processing " + val)
+            print(f"command received {val}")
+
+            # Handle long-running commands in a separate thread
+            if val in ["wifi/list", "peer/exchange", "peer/generate-identity"]:
+                thread = threading.Thread(target=self._handle_long_command, args=(val,))
+                thread.daemon = True
+                thread.start()
+            else:
+                # Handle quick commands directly
+                self._handle_command(val)
+                
+        except Exception as e:
+            print(f"Error in WriteValue: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _handle_long_command(self, val):
+        """Handle long-running commands and send periodic updates"""
+        try:
+            # Send updates every 2 seconds to keep connection alive
+            def send_progress():
+                while not command_complete.is_set():
+                    self.service.set_lastCommand("Processing " + val)
+                    time.sleep(2)
+
+            command_complete = threading.Event()
+            progress_thread = threading.Thread(target=send_progress)
+            progress_thread.daemon = True
+            progress_thread.start()
+
+            # Execute the actual command
+            response = self._handle_command(val)
+
+            # Signal completion and update final result
+            command_complete.set()
+            if response:
+                self.service.set_lastCommand(json.dumps(response))
+
+        except Exception as e:
+            print(f"Error in long command: {str(e)}")
+            self.service.set_lastCommand("Error: " + str(e))
+            
+    def _handle_command(self, val):
+        response = None
+        """Handle long-running commands and send periodic updates"""
+        try:
+            if val == "reset":
+                print(f"reset is received: {val}")
+                with open('/home/pi/reset.txt', 'w') as f:
+                    # This file is being created so that the existence of it can be checked later.
+                    pass
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '20'])
+                # Create a thread to handle reset after 20 seconds
+                self.reset_timer = threading.Timer(20.0, self.reset_procedure)
+                self.reset_timer.start()
+            elif val == "cancel":
+                print(f"cancel is received: {val}")
+                if os.path.exists('/home/pi/reset.txt'):
+                    os.remove('/home/pi/reset.txt')
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+                self.kill_led_processes()
+                # Cancel the reset timer if it's running
+                if self.reset_timer is not None:
+                    self.reset_timer.cancel()
+            elif val == "removedockercpblock":
+                print(f"removedockercpblock is received: {val}")
+                if os.path.exists('/home/pi/stop_docker_copy.txt'):
+                    os.remove('/home/pi/stop_docker_copy.txt')
+            elif val == "stopleds":
+                print(f"stopleds is received: {val}")
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+                self.kill_led_processes()
+                    
+            elif val == "wifi/list":
+                response = self.go_client.list_wifi()
+                print(f"WiFi list: {response}")
+                
+            elif val == "wifi/status":
+                response = self.go_client.wifi_status()
+                print(f"WiFi status: {response}")
+                
+            elif val.startswith("wifi/connect "):
+                parts = val.split(" ")
+                if len(parts) == 3:
+                    ssid = parts[1]
+                    password = parts[2]
+                    response = self.go_client.connect_wifi(ssid, password)
+                    print(f"WiFi connection response: {response}")
+                    
+            elif val.startswith("peer/exchange "):
+                parts = val.split(" ")
+                if len(parts) == 3:
+                    peer_id = parts[1]
+                    seed = parts[2]
+                    response = self.go_client.exchange_peers(peer_id, seed)
+                    print(f"Peer exchange response: {response}")
+                    
+            elif val.startswith("peer/generate-identity "):
+                parts = val.split(" ")
+                if len(parts) == 2:
+                    seed = parts[1]
+                    response = self.go_client.generate_identity(seed)
+                    print(f"Identity generation response: {response}")
+                    
+            elif val == "ap/enable":
+                response = self.go_client.enable_access_point()
+                print(f"AP enable response: {response}")
+                    
+            elif val == "partition":
+                response = self.go_client.partition()
+                print(f"Partition response: {response}")
+                    
+            elif val == "readiness":
+                response = self.go_client.readiness()
+                print(f"Readiness response: {response}")
+            
+            if response:
+                # Try both notification and indication
+                if self.notifying:
+                    self.notify_response(response)
+                if self.indicating:
+                    self.indicate_response(response)
+                
+                # Always update the value for read operations
+                self.service.set_lastCommand(json.dumps(response))
+                
+            return response
+
+        except Exception as e:
+            error_response = {"error": str(e)}
+            if self.notifying:
+                self.notify_response(error_response)
+            if self.indicating:
+                self.indicate_response(error_response)
+            raise
+
+    def StartNotify(self):
+        if self.notifying:
+            return
+        self.notifying = True
+
+    def StopNotify(self):
+        self.notifying = False
 
     def reset_procedure(self):
         print("reset_precedure started")
@@ -204,15 +407,6 @@ class CommandCharacteristic(Characteristic):
 
         return value
 
-    def create_and_connect_wifi(self, ssid, password):
-        print("create_and_connect_wifi started")
-        action_ongoing.set()
-        subprocess.call(['sudo', 'nmcli', 'con', 'add', 'type', 'wifi', 'ifname', '*', 'con-name', ssid, 'ssid', ssid])
-        subprocess.call(['sudo', 'nmcli', 'con', 'modify', ssid, 'wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
-        subprocess.call(['sudo', 'nmcli', 'con', 'up', ssid])
-        action_ongoing.clear()
-        print("create_and_connect_wifi finished")
-
     def remove_wifi_connections(self):
         print("remove_wifi_connections started")
         wifi_connections = subprocess.check_output(['nmcli', 'con', 'show']).decode().split('\n')
@@ -224,30 +418,42 @@ class CommandCharacteristic(Characteristic):
         print("remove_wifi_connections finished")
 
 class CommandDescriptor(Descriptor):
-    COMMAND_DESCRIPTOR_UUID = "2901"
-    COMMAND_DESCRIPTOR_VALUE = "Command from client"
+    CCCD_UUID = "2902"
 
     def __init__(self, characteristic):
         Descriptor.__init__(
-                self, self.COMMAND_DESCRIPTOR_UUID,
-                ["read"],
+                self, self.CCCD_UUID,
+                ["read", "write"],
                 characteristic)
+        self.value = [0, 0]
+
+    def WriteValue(self, value, options):
+        print("CommandDescriptor")
+        if value:
+            self.value = value
+            if self.value[0] & 0x01:  # Notifications
+                self.characteristic.StartNotify()
+            else:
+                self.characteristic.StopNotify()
+            if self.value[0] & 0x02:  # Indications
+                self.characteristic.StartIndicate()
+            else:
+                self.characteristic.StopIndicate()
 
     def ReadValue(self, options):
-        value = []
-        desc = self.COMMAND_DESCRIPTOR_VALUE
-
-        for c in desc:
-            value.append(dbus.Byte(c.encode()))
-
-        return value
+        return self.value
 
 app = Application()
-app.add_service(FulatowerService(0))
+service = FulatowerService(0)
+app.add_service(service)
+print("Registering service...")
 app.register()
+print("Service registered successfully")
 
+print("Registering advertisement...")
 adv = FulatowerAdvertisement(0)
 adv.register()
+print("Advertisement registered successfully")
 
 def kill_bluetooth_processes():
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -280,6 +486,10 @@ def setup_bluetooth():
             break
 
 # Create a new thread for setup_bluetooth()
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Create a new thread for setup_bluetooth()
 connect_ongoing.set()
 setup_thread = threading.Thread(target=setup_bluetooth)
 setup_thread.start()
@@ -294,14 +504,10 @@ def start_server():
 server_thread = threading.Thread(target=start_server)
 server_thread.start()
 
-# Main thread sleeps for 900 seconds then stops server
-time.sleep(900)
-# If an action is ongoing, wait until it is finished
-action_ongoing.wait()
-
-connect_ongoing.clear()
-
-print("900 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
-app.stop()
-server_thread.join()
-kill_bluetooth_processes()
+# Instead of sleep, use infinite loop
+print("Server running. Press Ctrl+C to exit.")
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    signal_handler(signal.SIGINT, None)
