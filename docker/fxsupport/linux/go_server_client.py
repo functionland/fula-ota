@@ -56,6 +56,11 @@ class GoServerClient:
     def wifi_status(self):
         """Check WiFi connection status"""
         return self._make_request('GET', '/wifi/status')
+    
+    def properties(self):
+        """Get Properties"""
+        response = self._make_request('GET', '/properties')
+        return response
 
     def connect_wifi(self, ssid, password):
         """Connect to a WiFi network"""

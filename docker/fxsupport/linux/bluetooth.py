@@ -84,6 +84,48 @@ class FulatowerService(Service):
     def set_lastCommand(self, command):
         self.lastCommand = command
 
+
+class BLEResponseHandler:
+    def __init__(self, mtu_size=512):
+        self.mtu_size = mtu_size - 3  # Account for BLE overhead
+        self.chunks = []
+        self.current_chunk_index = 0
+
+    def prepare_response(self, response):
+        """Prepare response by splitting into chunks"""
+        json_str = json.dumps(response)
+        self.chunks = []
+        
+        # Add header chunk with total length and number of chunks
+        total_length = len(json_str)
+        chunk_count = (total_length + self.mtu_size - 1) // self.mtu_size
+        header = {
+            "type": "ble_header",
+            "total_length": total_length,
+            "chunks": chunk_count
+        }
+        self.chunks.append(header)
+        
+        # Split data into chunks
+        for i in range(0, total_length, self.mtu_size):
+            chunk = {
+                "type": "ble_chunk",
+                "index": len(self.chunks),
+                "data": json_str[i:i + self.mtu_size]
+            }
+            self.chunks.append(chunk)
+        
+        self.current_chunk_index = 0
+        return len(self.chunks)
+
+    def get_next_chunk(self):
+        """Get next chunk of data"""
+        if self.current_chunk_index < len(self.chunks):
+            chunk = self.chunks[self.current_chunk_index]
+            self.current_chunk_index += 1
+            return chunk
+        return None
+
 class BroadcastCharacteristic(Characteristic):
     BROADCAST_CHARACTERISTIC_UUID = "00000002-710e-4a5b-8d75-3e5b444bc3cf"
 
@@ -151,6 +193,7 @@ class CommandCharacteristic(Characteristic):
     COMMAND_CHARACTERISTIC_UUID = "00000003-710e-4a5b-8d75-3e5b444bc3cf"
 
     def __init__(self, service):
+        self.response_handler = BLEResponseHandler()
         self.go_client = GoServerClient()
         self.notifying = False
         self.indicating = False
@@ -177,21 +220,82 @@ class CommandCharacteristic(Characteristic):
         thread = threading.Thread(target=handle_responses, daemon=True)
         thread.start()
 
+    def send_chunked_response(self, response, is_notification=True):
+        """Send response in chunks"""
+        try:
+            chunks_count = self.response_handler.prepare_response(response)
+            
+            def send_chunks():
+                for i in range(chunks_count):
+                    chunk = self.response_handler.get_next_chunk()
+                    if chunk is None:
+                        print(f"Warning: Expected chunk {i} of {chunks_count} but got None")
+                        break
+                    
+                    value = []
+                    chunk_str = json.dumps(chunk)
+                    for c in chunk_str:
+                        value.append(dbus.Byte(c.encode()))
+                    
+                    value = dbus.Array(value, signature='y')
+                    print(f"Sending chunk {i+1} of {chunks_count}: {chunk_str}")
+                    
+                    self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                    time.sleep(0.1)  # Small delay between chunks
+                    
+            # Start sending chunks in a separate thread
+            thread = threading.Thread(target=send_chunks)
+            thread.daemon = True
+            thread.start()
+            
+        except Exception as e:
+            print(f"Error sending chunked response: {str(e)}")
+            traceback.print_exc()
+
+    def notify_response(self, response):
+        """Send response back to client via notification"""
+        try:
+            if not self.notifying:
+                self.StartNotify()
+            
+            # Check if response needs chunking (e.g., properties endpoint)
+            response_str = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+            if len(response_str) > 512:  # MTU threshold
+                self.send_chunked_response(response, is_notification=True)
+            else:
+                # Original single-chunk notification logic
+                value = []
+                for c in response_str:
+                    value.append(dbus.Byte(c.encode()))
+                value = dbus.Array(value, signature='y')
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                print(f"Notification sent: {response_str}")
+                
+            self.service.set_lastCommand(response_str)
+            
+        except Exception as e:
+            print(f"Error sending notification: {str(e)}")
+            traceback.print_exc()
+
     def indicate_response(self, response):
         """Send response back to client via indication"""
         try:
             if not self.indicating:
                 return
             
-            value = []
-            response_str = json.dumps(response)
-            for c in response_str:
-                value.append(dbus.Byte(c.encode()))
-            
-            value = dbus.Array(value, signature='y')
-            print(f"Sending indication: {response_str}")
-            self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-            
+            # Check if response needs chunking
+            response_str = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+            if len(response_str) > 512:  # MTU threshold
+                self.send_chunked_response(response, is_notification=False)
+            else:
+                # Original single-chunk indication logic
+                value = []
+                for c in response_str:
+                    value.append(dbus.Byte(c.encode()))
+                value = dbus.Array(value, signature='y')
+                print(f"Sending indication: {response_str}")
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                
         except Exception as e:
             print(f"Error sending indication: {str(e)}")
             traceback.print_exc()
@@ -203,36 +307,6 @@ class CommandCharacteristic(Characteristic):
     def StopIndicate(self):
         print("Stopping indications")
         self.indicating = False
-
-    def notify_response(self, response):
-        """Send response back to client via notification"""
-        try:
-            # Enable notifications if not already enabled
-            if not self.notifying:
-                self.StartNotify()
-            
-            # Convert response to bytes
-            value = []
-            if isinstance(response, dict) or isinstance(response, list):
-                response_str = json.dumps(response)
-            else:
-                response_str = str(response)
-                
-            for c in response_str:
-                value.append(dbus.Byte(c.encode()))
-
-            value = dbus.Array(value, signature='y')
-            
-            # Send notification
-            self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-            print(f"Notification sent: {response_str}")
-            
-            # Update the characteristic value for subsequent reads
-            self.service.set_lastCommand(response_str)
-            
-        except Exception as e:
-            print(f"Error sending notification: {str(e)}")
-            traceback.print_exc()
 
     def WriteValue(self, value, options):
         try:
@@ -322,6 +396,10 @@ class CommandCharacteristic(Characteristic):
             elif val == "wifi/status":
                 response = self.go_client.wifi_status()
                 print(f"WiFi status: {response}")
+            
+            elif val == "properties":
+                response = self.go_client.properties()
+                print(f"Properties: {response}")
                 
             elif val.startswith("wifi/connect "):
                 parts = val.split(" ")
