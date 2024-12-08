@@ -60,7 +60,21 @@ class GoServerClient:
     def properties(self):
         """Get Properties"""
         response = self._make_request('GET', '/properties')
-        return response
+        return {
+            "bloxFreeSpace": {
+                "device_count": response.get("bloxFreeSpace", {}).get("device_count", 0),
+                "size": response.get("bloxFreeSpace", {}).get("size", 0),
+                "used": response.get("bloxFreeSpace", {}).get("used", 0),
+                "avail": response.get("bloxFreeSpace", {}).get("avail", 0),
+                "used_percentage": response.get("bloxFreeSpace", {}).get("used_percentage", 0)
+            },
+            "containerInfo_fula": {},
+            "containerInfo_fxsupport": {},
+            "containerInfo_node": {},
+            "hardwareID": response.get("hardwareID", ""),
+            "ota_version": response.get("ota_version", ""),
+            "restartNeeded": response.get("restartNeeded", "false")
+        }
 
     def connect_wifi(self, ssid, password):
         """Connect to a WiFi network"""
