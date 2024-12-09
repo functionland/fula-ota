@@ -57,6 +57,7 @@ GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 NOTIFY_TIMEOUT = 25000
 
 os.environ["DBUS_TIMEOUT"] = "999"
+
 class FulatowerAdvertisement(Advertisement):
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
@@ -250,6 +251,19 @@ class CommandCharacteristic(Characteristic):
             
         except Exception as e:
             print(f"Error sending chunked response: {str(e)}")
+            traceback.print_exc()
+
+    def handle_connection(self):
+        """Handle device connection"""
+        try:
+            print("Device connected to BLE")
+            led_path = "/usr/bin/fula/control_led.py"
+            if os.path.exists(led_path):
+                subprocess.run(["sudo", "python", led_path, "yellow", "5"])
+            else:
+                print(f"LED control script not found at {led_path}")
+        except Exception as e:
+            print(f"Error handling connection: {str(e)}")
             traceback.print_exc()
 
     def notify_response(self, response):

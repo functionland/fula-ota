@@ -425,6 +425,10 @@ def monitor_docker_logs_and_restart():
 
 def main():
     logging.info("readiness check started")
+    subprocess.run(["sudo", "python", LED_PATH, "yellow", "-1"])
+    subprocess.run(["sudo", "python", LED_PATH, "cyan", "-1"])
+    subprocess.run(["sudo", "python", LED_PATH, "blue", "-1"])
+    subprocess.run(["sudo", "python", LED_PATH, "green", "2"], capture_output=True)
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
