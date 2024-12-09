@@ -2,6 +2,7 @@ import requests
 import json
 from requests.exceptions import RequestException
 import logging
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,21 @@ class GoServerClient:
         self.session = requests.Session()
 
     def _make_request(self, method, endpoint, data=None):
-        """Make HTTP request with proper error handling"""
         try:
             url = f"{self.base_url}{endpoint}"
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+            
+            # For POST with form data, ensure it's properly encoded
+            if method == 'POST' and data:
+                encoded_data = urlencode(data)
+            else:
+                encoded_data = data
+                
             response = self.session.request(
                 method=method,
                 url=url,
-                json=data if method == 'POST' else None,
-                data=data if method != 'POST' else None,
+                data=encoded_data,
+                headers=headers,
                 timeout=self.timeout
             )
             response.raise_for_status()
@@ -76,11 +84,12 @@ class GoServerClient:
             "restartNeeded": response.get("restartNeeded", "false")
         }
 
-    def connect_wifi(self, ssid, password):
+    def connect_wifi(self, ssid, password, country_code='US'):
         """Connect to a WiFi network"""
         data = {
             'ssid': ssid,
-            'password': password
+            'password': password,
+            'countryCode': country_code
         }
         return self._make_request('POST', '/wifi/connect', data)
 

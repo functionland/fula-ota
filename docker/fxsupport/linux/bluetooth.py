@@ -258,12 +258,12 @@ class CommandCharacteristic(Characteristic):
             if not self.notifying:
                 self.StartNotify()
             
-            # Check if response needs chunking (e.g., properties endpoint)
+            # Handle both success and error responses
             response_str = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+            
             if len(response_str) > 512:  # MTU threshold
                 self.send_chunked_response(response, is_notification=True)
             else:
-                # Original single-chunk notification logic
                 value = []
                 for c in response_str:
                     value.append(dbus.Byte(c.encode()))
@@ -276,6 +276,15 @@ class CommandCharacteristic(Characteristic):
         except Exception as e:
             print(f"Error sending notification: {str(e)}")
             traceback.print_exc()
+            # Send error response without breaking the connection
+            error_response = {"error": str(e), "status": "error"}
+            try:
+                error_str = json.dumps(error_response)
+                value = dbus.Array([dbus.Byte(c.encode()) for c in error_str], signature='y')
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                self.service.set_lastCommand(error_str)
+            except:
+                print("Failed to send error notification")
 
     def indicate_response(self, response):
         """Send response back to client via indication"""
@@ -312,14 +321,15 @@ class CommandCharacteristic(Characteristic):
         try:
             print(f"Received raw value: {value}")
             command = "".join([chr(b) for b in value])
-            val = str(command).lower().strip()
+            val = str(command).strip()
             print(f"Decoded command: {command}")
             print(f"Processed value: {val}")
             self.service.set_lastCommand("Processing " + val)
             print(f"command received {val}")
 
             # Handle long-running commands in a separate thread
-            if val in ["wifi/list", "peer/exchange", "peer/generate-identity"]:
+            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect"]):
+                print("command is long-processing")
                 thread = threading.Thread(target=self._handle_long_command, args=(val,))
                 thread.daemon = True
                 thread.start()
@@ -403,7 +413,13 @@ class CommandCharacteristic(Characteristic):
                 
             elif val.startswith("wifi/connect "):
                 parts = val.split(" ")
-                if len(parts) == 3:
+                if len(parts) == 4:  # Check for all parameters including country code
+                    ssid = parts[1]
+                    password = parts[2]
+                    country_code = parts[3]
+                    response = self.go_client.connect_wifi(ssid, password, country_code)
+                    print(f"WiFi connection response: {response}")
+                elif len(parts) == 3:  # Backward compatibility without country code
                     ssid = parts[1]
                     password = parts[2]
                     response = self.go_client.connect_wifi(ssid, password)
