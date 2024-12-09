@@ -96,26 +96,45 @@ class BLEResponseHandler:
         """Prepare response by splitting into chunks"""
         json_str = json.dumps(response)
         self.chunks = []
-        
-        # Add header chunk with total length and number of chunks
+
+        # Calculate exact metadata overhead for a chunk
+        chunk_template = {
+            "type": "ble_chunk",
+            "index": 999,  # Use max possible index digits
+            "data": ""
+        }
+        metadata_size = len(json.dumps(chunk_template)) * 2
+        max_data_size = self.mtu_size - metadata_size
+
+        # Calculate chunks needed
         total_length = len(json_str)
-        chunk_count = (total_length + self.mtu_size - 1) // self.mtu_size
+        chunk_count = (total_length + max_data_size - 1) // max_data_size
+
+        # Add header chunk
         header = {
             "type": "ble_header",
             "total_length": total_length,
             "chunks": chunk_count
         }
+        header_json = json.dumps(header)
+        if len(header_json) > self.mtu_size:
+            raise ValueError(f"Header size {len(header_json)} exceeds MTU {self.mtu_size}")
         self.chunks.append(header)
-        
+
         # Split data into chunks
-        for i in range(0, total_length, self.mtu_size):
+        for i in range(0, total_length, max_data_size):
+            chunk_data = json_str[i:i + max_data_size]
             chunk = {
                 "type": "ble_chunk",
                 "index": len(self.chunks),
-                "data": json_str[i:i + self.mtu_size]
+                "data": chunk_data
             }
+            # Verify final chunk size
+            chunk_json = json.dumps(chunk)
+            if len(chunk_json) > self.mtu_size:
+                raise ValueError(f"Chunk {i//max_data_size} size {len(chunk_json)} exceeds MTU {self.mtu_size}")
             self.chunks.append(chunk)
-        
+
         self.current_chunk_index = 0
         return len(self.chunks)
 
@@ -225,7 +244,7 @@ class CommandCharacteristic(Characteristic):
         """Send response in chunks"""
         try:
             chunks_count = self.response_handler.prepare_response(response)
-            
+            print(f"Info: chunks_count: {chunks_count}")
             def send_chunks():
                 for i in range(chunks_count):
                     chunk = self.response_handler.get_next_chunk()
