@@ -35,6 +35,7 @@ import subprocess
 import time
 import threading
 from go_server_client import GoServerClient
+from local_command_server import LocalCommandServer
 
 from advertisement import Advertisement
 from service import Application, Service, Characteristic, Descriptor
@@ -215,6 +216,7 @@ class CommandCharacteristic(Characteristic):
     def __init__(self, service):
         self.response_handler = BLEResponseHandler()
         self.go_client = GoServerClient()
+        self.local_server = LocalCommandServer()
         self.notifying = False
         self.indicating = False
         self.response_queue = queue.Queue()
@@ -361,7 +363,7 @@ class CommandCharacteristic(Characteristic):
             print(f"command received {val}")
 
             # Handle long-running commands in a separate thread
-            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect"]):
+            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log"]):
                 print("command is long-processing")
                 thread = threading.Thread(target=self._handle_long_command, args=(val,))
                 thread.daemon = True
@@ -484,6 +486,11 @@ class CommandCharacteristic(Characteristic):
             elif val == "readiness":
                 response = self.go_client.readiness()
                 print(f"Readiness response: {response}")
+            elif val.startswith("logs "):
+                # Extract the JSON parameters after "logs "
+                params = val[5:]  # Skip "logs " prefix
+                response = self.local_server.get_logs(params)
+                print(f"Logs response: {response}")
             
             if response:
                 # Try both notification and indication
