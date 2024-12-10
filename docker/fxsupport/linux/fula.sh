@@ -290,11 +290,13 @@ function install() {
       sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     }
 
-    # Check if RPi.GPIO is installed
-    python -c "import RPi.GPIO" 2>/dev/null || {
-      echo "RPi.GPIO not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-      sudo apt-get install -y python3-rpi.gpio 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt-get install python3-rpi.gpio" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
-    }
+    if [ ! -d "/sys/module/rockchipdrm" ]; then
+      # Check if RPi.GPIO is installed
+      python -c "import RPi.GPIO" 2>/dev/null || {
+        echo "RPi.GPIO not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        sudo apt-get install -y python3-rpi.gpio 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt-get install python3-rpi.gpio" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+      }
+    fi
 
     # Check if pexpect is installed
     python -c "import pexpect" 2>/dev/null || {
@@ -317,10 +319,12 @@ function install() {
     echo "Internet check failed, checking for existing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
     command -v inotifywait >/dev/null 2>&1 || { echo "inotifywait not found"; all_success=false; }
+    command -v mergerfs >/dev/null 2>&1 || { echo "mergerfs not found"; all_success=false; }
     python -c "import dbus" 2>/dev/null || { echo "python3-dbus not found"; all_success=false; }
     if [ ! -d "/sys/module/rockchipdrm" ]; then
       python -c "import RPi.GPIO" 2>/dev/null || { echo "RPi.GPIO not found"; all_success=false; }
     fi
+    python -c "import requests" 2>/dev/null || { echo "requests not found"; all_success=false; }
     python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
     python -c "import psutil" 2>/dev/null || { echo "psutil not found"; all_success=false; }
   fi
@@ -344,9 +348,12 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/control_led.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file control_led.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/advertisement.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file advertisement.py" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp ${INSTALLATION_FULA_DIR}/bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/plugins.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file plugins.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/service.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file service.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/bluetooth.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/bletools.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bletools.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/go_server_client.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file go_server_client.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/local_command_server.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file local_command_server.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/bluetooth.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file bluetooth.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/update.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/docker_rm_duplicate_network.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file docker_rm_duplicate_network.py" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -354,17 +361,26 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/automount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/version $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file version" | sudo tee -a $FULA_LOG_PATH; } || true
+
 
     cp -r ${INSTALLATION_FULA_DIR}/kubo $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/ipfs-cluster $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying ipfs-cluster folder" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp -r ${INSTALLATION_FULA_DIR}/plugins $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying plugins folder" | sudo tee -a $FULA_LOG_PATH; } || true
+
 
     sudo chmod -R 755 ${FULA_PATH}/kubo
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
+    sudo chmod -R 755 ${FULA_PATH}/plugins
 
     cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/uniondrive.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/fula-readiness-check.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/automount@.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount@.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/fula-plugins.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-plugins.service" | sudo tee -a $FULA_LOG_PATH; } || true
+
   else
     echo "Source and destination are the same, skipping copy" | sudo tee -a $FULA_LOG_PATH
   fi
@@ -372,6 +388,8 @@ function install() {
   sudo mv ${FULA_PATH}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/automount@.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying automount@.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  sudo mv ${FULA_PATH}/fula-plugins.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-plugins.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
   if [[ -d "${HOME_DIR}/.internal/ipfs_data/config" ]]; then
     echo "Config exists as a directory, deleting..." | sudo tee -a $FULA_LOG_PATH
@@ -463,6 +481,14 @@ function install() {
     if [ ! -x "$FULA_PATH/kubo/kubo-container-init.d.sh" ]; then 
       echo "$FULA_PATH/kubo/kubo-container-init.d.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
       sudo chmod +x $FULA_PATH/kubo/kubo-container-init.d.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file kubo-container-init.d.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+
+  if [ -f "$FULA_PATH/plugins.sh" ]; then 
+    # Check if fula.sh is executable 
+    if [ ! -x "$FULA_PATH/plugins.sh" ]; then 
+      echo "$FULA_PATH/plugins.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/plugins.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file plugins.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
 
