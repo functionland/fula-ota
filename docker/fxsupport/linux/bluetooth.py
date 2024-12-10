@@ -23,6 +23,9 @@ SOFTWARE.
 Modified By Ehsan shariati-Functionland Inc
 """
 
+import json
+import queue
+import traceback
 import dbus
 
 import os
@@ -31,23 +34,37 @@ import psutil
 import subprocess
 import time
 import threading
+from go_server_client import GoServerClient
+from local_command_server import LocalCommandServer
 
 from advertisement import Advertisement
 from service import Application, Service, Characteristic, Descriptor
+
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    print('Gracefully shutting down...')
+    connect_ongoing.clear()
+    app.quit()
+    kill_bluetooth_processes()
+    sys.exit(0)
 
 # Flag to indicate whether an action is ongoing
 action_ongoing = threading.Event()
 connect_ongoing = threading.Event()
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
-NOTIFY_TIMEOUT = 5000
+NOTIFY_TIMEOUT = 25000
 
 os.environ["DBUS_TIMEOUT"] = "999"
+
 class FulatowerAdvertisement(Advertisement):
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
         self.add_local_name("fulatower")
         self.include_tx_power = True
+        print(f"Advertising service: {FulatowerService.FULATOWERSERVICE_SVC_UUID}")
 
 class FulatowerService(Service):
     FULATOWERSERVICE_SVC_UUID = "00000001-710e-4a5b-8d75-3e5b444bc3cf"
@@ -56,14 +73,79 @@ class FulatowerService(Service):
         self.lastCommand = ""
 
         Service.__init__(self, index, self.FULATOWERSERVICE_SVC_UUID, True)
-        self.add_characteristic(BroadcastCharacteristic(self))
-        self.add_characteristic(CommandCharacteristic(self))
+        print(f"Initializing service with UUID: {self.FULATOWERSERVICE_SVC_UUID}")
+        self.broadcast_char = BroadcastCharacteristic(self)
+        self.command_char = CommandCharacteristic(self)
+        self.add_characteristic(self.broadcast_char)
+        self.add_characteristic(self.command_char)
+        print("Characteristics added to service")
 
     def get_lastCommand(self):
         return self.lastCommand
 
     def set_lastCommand(self, command):
         self.lastCommand = command
+
+
+class BLEResponseHandler:
+    def __init__(self, mtu_size=512):
+        self.mtu_size = mtu_size - 3  # Account for BLE overhead
+        self.chunks = []
+        self.current_chunk_index = 0
+
+    def prepare_response(self, response):
+        """Prepare response by splitting into chunks"""
+        json_str = json.dumps(response)
+        self.chunks = []
+
+        # Calculate exact metadata overhead for a chunk
+        chunk_template = {
+            "type": "ble_chunk",
+            "index": 999,  # Use max possible index digits
+            "data": ""
+        }
+        metadata_size = len(json.dumps(chunk_template)) * 2
+        max_data_size = self.mtu_size - metadata_size
+
+        # Calculate chunks needed
+        total_length = len(json_str)
+        chunk_count = (total_length + max_data_size - 1) // max_data_size
+
+        # Add header chunk
+        header = {
+            "type": "ble_header",
+            "total_length": total_length,
+            "chunks": chunk_count
+        }
+        header_json = json.dumps(header)
+        if len(header_json) > self.mtu_size:
+            raise ValueError(f"Header size {len(header_json)} exceeds MTU {self.mtu_size}")
+        self.chunks.append(header)
+
+        # Split data into chunks
+        for i in range(0, total_length, max_data_size):
+            chunk_data = json_str[i:i + max_data_size]
+            chunk = {
+                "type": "ble_chunk",
+                "index": len(self.chunks),
+                "data": chunk_data
+            }
+            # Verify final chunk size
+            chunk_json = json.dumps(chunk)
+            if len(chunk_json) > self.mtu_size:
+                raise ValueError(f"Chunk {i//max_data_size} size {len(chunk_json)} exceeds MTU {self.mtu_size}")
+            self.chunks.append(chunk)
+
+        self.current_chunk_index = 0
+        return len(self.chunks)
+
+    def get_next_chunk(self):
+        """Get next chunk of data"""
+        if self.current_chunk_index < len(self.chunks):
+            chunk = self.chunks[self.current_chunk_index]
+            self.current_chunk_index += 1
+            return chunk
+        return None
 
 class BroadcastCharacteristic(Characteristic):
     BROADCAST_CHARACTERISTIC_UUID = "00000002-710e-4a5b-8d75-3e5b444bc3cf"
@@ -110,7 +192,7 @@ class BroadcastCharacteristic(Characteristic):
         return value
 
 class BroadcastDescriptor(Descriptor):
-    TEMP_DESCRIPTOR_UUID = "2901"
+    TEMP_DESCRIPTOR_UUID = "00000003-710e-4a5b-8d75-3e5b444bc3cf"
     TEMP_DESCRIPTOR_VALUE = "Broadcast Information"
 
     def __init__(self, characteristic):
@@ -132,56 +214,311 @@ class CommandCharacteristic(Characteristic):
     COMMAND_CHARACTERISTIC_UUID = "00000003-710e-4a5b-8d75-3e5b444bc3cf"
 
     def __init__(self, service):
+        self.response_handler = BLEResponseHandler()
+        self.go_client = GoServerClient()
+        self.local_server = LocalCommandServer()
+        self.notifying = False
+        self.indicating = False
+        self.response_queue = queue.Queue()
         Characteristic.__init__(
                 self, self.COMMAND_CHARACTERISTIC_UUID,
-                ["read", "write"], service)
+                ["read", "write", "notify", "indicate"], service)
         self.add_descriptor(CommandDescriptor(self))
-        self.reset_timer = None
+        self._start_response_handler()
+    
+    def _start_response_handler(self):
+        def handle_responses():
+            while True:
+                try:
+                    response = self.response_queue.get()
+                    if self.notifying:
+                        self.notify_response(response)
+                    if self.indicating:
+                        self.indicate_response(response)
+                except Exception as e:
+                    print(f"Error handling response: {e}")
+                    traceback.print_exc()
 
-    def kill_led_processes(self):
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            # check whether the process command line matches
-            if proc.info['cmdline'] and 'control_led.py' in ' '.join(proc.info['cmdline']):
-                proc.kill()  # kill the process
+        thread = threading.Thread(target=handle_responses, daemon=True)
+        thread.start()
+
+    def send_chunked_response(self, response, is_notification=True):
+        """Send response in chunks"""
+        try:
+            chunks_count = self.response_handler.prepare_response(response)
+            print(f"Info: chunks_count: {chunks_count}")
+            def send_chunks():
+                for i in range(chunks_count):
+                    chunk = self.response_handler.get_next_chunk()
+                    if chunk is None:
+                        print(f"Warning: Expected chunk {i} of {chunks_count} but got None")
+                        break
+                    
+                    value = []
+                    chunk_str = json.dumps(chunk)
+                    for c in chunk_str:
+                        value.append(dbus.Byte(c.encode()))
+                    
+                    value = dbus.Array(value, signature='y')
+                    print(f"Sending chunk {i+1} of {chunks_count}: {chunk_str}")
+                    
+                    self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                    time.sleep(0.1)  # Small delay between chunks
+                    
+            # Start sending chunks in a separate thread
+            thread = threading.Thread(target=send_chunks)
+            thread.daemon = True
+            thread.start()
+            
+        except Exception as e:
+            print(f"Error sending chunked response: {str(e)}")
+            traceback.print_exc()
+
+    def handle_connection(self):
+        """Handle device connection"""
+        try:
+            print("Device connected to BLE")
+            led_path = "/usr/bin/fula/control_led.py"
+            if os.path.exists(led_path):
+                subprocess.run(["sudo", "python", led_path, "yellow", "5"])
+            else:
+                print(f"LED control script not found at {led_path}")
+        except Exception as e:
+            print(f"Error handling connection: {str(e)}")
+            traceback.print_exc()
+
+    def notify_response(self, response):
+        """Send response back to client via notification"""
+        try:
+            if not self.notifying:
+                self.StartNotify()
+            
+            # Handle both success and error responses
+            response_str = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+            
+            if len(response_str) > 512:  # MTU threshold
+                self.send_chunked_response(response, is_notification=True)
+            else:
+                value = []
+                for c in response_str:
+                    value.append(dbus.Byte(c.encode()))
+                value = dbus.Array(value, signature='y')
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                print(f"Notification sent: {response_str}")
+                
+            self.service.set_lastCommand(response_str)
+            
+        except Exception as e:
+            print(f"Error sending notification: {str(e)}")
+            traceback.print_exc()
+            # Send error response without breaking the connection
+            error_response = {"error": str(e), "status": "error"}
+            try:
+                error_str = json.dumps(error_response)
+                value = dbus.Array([dbus.Byte(c.encode()) for c in error_str], signature='y')
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                self.service.set_lastCommand(error_str)
+            except:
+                print("Failed to send error notification")
+
+    def indicate_response(self, response):
+        """Send response back to client via indication"""
+        try:
+            if not self.indicating:
+                return
+            
+            # Check if response needs chunking
+            response_str = json.dumps(response) if isinstance(response, (dict, list)) else str(response)
+            if len(response_str) > 512:  # MTU threshold
+                self.send_chunked_response(response, is_notification=False)
+            else:
+                # Original single-chunk indication logic
+                value = []
+                for c in response_str:
+                    value.append(dbus.Byte(c.encode()))
+                value = dbus.Array(value, signature='y')
+                print(f"Sending indication: {response_str}")
+                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+                
+        except Exception as e:
+            print(f"Error sending indication: {str(e)}")
+            traceback.print_exc()
+
+    def StartIndicate(self):
+        print("Starting indications")
+        self.indicating = True
+
+    def StopIndicate(self):
+        print("Stopping indications")
+        self.indicating = False
 
     def WriteValue(self, value, options):
-        command = "".join([chr(b) for b in value])
-        val = str(command).lower().strip()
-        self.service.set_lastCommand(val)
-        print(f"command received {val}")
-        if val == "reset":
-            print(f"reset is received: {val}")
-            with open('/home/pi/reset.txt', 'w') as f:
-                # This file is being created so that the existence of it can be checked later.
-                pass
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '20'])
-            # Create a thread to handle reset after 20 seconds
-            self.reset_timer = threading.Timer(20.0, self.reset_procedure)
-            self.reset_timer.start()
-        elif val == "cancel":
-            print(f"cancel is received: {val}")
-            if os.path.exists('/home/pi/reset.txt'):
-                os.remove('/home/pi/reset.txt')
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
-            self.kill_led_processes()
-            # Cancel the reset timer if it's running
-            if self.reset_timer is not None:
-                self.reset_timer.cancel()
-        elif val == "removedockercpblock":
-            print(f"removedockercpblock is received: {val}")
-            if os.path.exists('/home/pi/stop_docker_copy.txt'):
-                os.remove('/home/pi/stop_docker_copy.txt')
-        elif val == "stopleds":
-            print(f"stopleds is received: {val}")
-            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
-            self.kill_led_processes()
-        elif val.startswith("connect "):
-            parts = val.split(" ")
-            if len(parts) == 3:
-                ssid = parts[1]
-                password = parts[2]
-                print(f"Connect command received with SSID: {ssid} and PASSWORD: {password}")
-                self.create_and_connect_wifi(ssid, password)
+        try:
+            print(f"Received raw value: {value}")
+            command = "".join([chr(b) for b in value])
+            val = str(command).strip()
+            print(f"Decoded command: {command}")
+            print(f"Processed value: {val}")
+            self.service.set_lastCommand("Processing " + val)
+            print(f"command received {val}")
+
+            # Handle long-running commands in a separate thread
+            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log"]):
+                print("command is long-processing")
+                thread = threading.Thread(target=self._handle_long_command, args=(val,))
+                thread.daemon = True
+                thread.start()
+            else:
+                # Handle quick commands directly
+                self._handle_command(val)
+                
+        except Exception as e:
+            print(f"Error in WriteValue: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _handle_long_command(self, val):
+        """Handle long-running commands and send periodic updates"""
+        try:
+            # Send updates every 2 seconds to keep connection alive
+            def send_progress():
+                while not command_complete.is_set():
+                    self.service.set_lastCommand("Processing " + val)
+                    time.sleep(2)
+
+            command_complete = threading.Event()
+            progress_thread = threading.Thread(target=send_progress)
+            progress_thread.daemon = True
+            progress_thread.start()
+
+            # Execute the actual command
+            response = self._handle_command(val)
+
+            # Signal completion and update final result
+            command_complete.set()
+            if response:
+                self.service.set_lastCommand(json.dumps(response))
+
+        except Exception as e:
+            print(f"Error in long command: {str(e)}")
+            self.service.set_lastCommand("Error: " + str(e))
+            
+    def _handle_command(self, val):
+        response = None
+        """Handle long-running commands and send periodic updates"""
+        try:
+            if val == "reset":
+                print(f"reset is received: {val}")
+                with open('/home/pi/reset.txt', 'w') as f:
+                    # This file is being created so that the existence of it can be checked later.
+                    pass
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '20'])
+                # Create a thread to handle reset after 20 seconds
+                self.reset_timer = threading.Timer(20.0, self.reset_procedure)
+                self.reset_timer.start()
+            elif val == "cancel":
+                print(f"cancel is received: {val}")
+                if os.path.exists('/home/pi/reset.txt'):
+                    os.remove('/home/pi/reset.txt')
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+                self.kill_led_processes()
+                # Cancel the reset timer if it's running
+                if self.reset_timer is not None:
+                    self.reset_timer.cancel()
+            elif val == "removedockercpblock":
+                print(f"removedockercpblock is received: {val}")
+                if os.path.exists('/home/pi/stop_docker_copy.txt'):
+                    os.remove('/home/pi/stop_docker_copy.txt')
+            elif val == "stopleds":
+                print(f"stopleds is received: {val}")
+                subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
+                self.kill_led_processes()
+                    
+            elif val == "wifi/list":
+                response = self.go_client.list_wifi()
+                print(f"WiFi list: {response}")
+                
+            elif val == "wifi/status":
+                response = self.go_client.wifi_status()
+                print(f"WiFi status: {response}")
+            
+            elif val == "properties":
+                response = self.go_client.properties()
+                print(f"Properties: {response}")
+                
+            elif val.startswith("wifi/connect "):
+                parts = val.split(" ")
+                if len(parts) == 4:  # Check for all parameters including country code
+                    ssid = parts[1]
+                    password = parts[2]
+                    country_code = parts[3]
+                    response = self.go_client.connect_wifi(ssid, password, country_code)
+                    print(f"WiFi connection response: {response}")
+                elif len(parts) == 3:  # Backward compatibility without country code
+                    ssid = parts[1]
+                    password = parts[2]
+                    response = self.go_client.connect_wifi(ssid, password)
+                    print(f"WiFi connection response: {response}")
+                    
+            elif val.startswith("peer/exchange "):
+                parts = val.split(" ")
+                if len(parts) == 3:
+                    peer_id = parts[1]
+                    seed = parts[2]
+                    response = self.go_client.exchange_peers(peer_id, seed)
+                    print(f"Peer exchange response: {response}")
+                    
+            elif val.startswith("peer/generate-identity "):
+                parts = val.split(" ")
+                if len(parts) == 2:
+                    seed = parts[1]
+                    response = self.go_client.generate_identity(seed)
+                    print(f"Identity generation response: {response}")
+                    
+            elif val == "ap/enable":
+                response = self.go_client.enable_access_point()
+                print(f"AP enable response: {response}")
+                    
+            elif val == "partition":
+                response = self.go_client.partition()
+                print(f"Partition response: {response}")
+                    
+            elif val == "readiness":
+                response = self.go_client.readiness()
+                print(f"Readiness response: {response}")
+            elif val.startswith("logs "):
+                # Extract the JSON parameters after "logs "
+                params = val[5:]  # Skip "logs " prefix
+                response = self.local_server.get_logs(params)
+                print(f"Logs response: {response}")
+            
+            if response:
+                # Try both notification and indication
+                if self.notifying:
+                    self.notify_response(response)
+                if self.indicating:
+                    self.indicate_response(response)
+                
+                # Always update the value for read operations
+                self.service.set_lastCommand(json.dumps(response))
+                
+            return response
+
+        except Exception as e:
+            error_response = {"error": str(e)}
+            if self.notifying:
+                self.notify_response(error_response)
+            if self.indicating:
+                self.indicate_response(error_response)
+            raise
+
+    def StartNotify(self):
+        if self.notifying:
+            return
+        self.notifying = True
+
+    def StopNotify(self):
+        self.notifying = False
 
     def reset_procedure(self):
         print("reset_precedure started")
@@ -204,15 +541,6 @@ class CommandCharacteristic(Characteristic):
 
         return value
 
-    def create_and_connect_wifi(self, ssid, password):
-        print("create_and_connect_wifi started")
-        action_ongoing.set()
-        subprocess.call(['sudo', 'nmcli', 'con', 'add', 'type', 'wifi', 'ifname', '*', 'con-name', ssid, 'ssid', ssid])
-        subprocess.call(['sudo', 'nmcli', 'con', 'modify', ssid, 'wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
-        subprocess.call(['sudo', 'nmcli', 'con', 'up', ssid])
-        action_ongoing.clear()
-        print("create_and_connect_wifi finished")
-
     def remove_wifi_connections(self):
         print("remove_wifi_connections started")
         wifi_connections = subprocess.check_output(['nmcli', 'con', 'show']).decode().split('\n')
@@ -224,30 +552,42 @@ class CommandCharacteristic(Characteristic):
         print("remove_wifi_connections finished")
 
 class CommandDescriptor(Descriptor):
-    COMMAND_DESCRIPTOR_UUID = "2901"
-    COMMAND_DESCRIPTOR_VALUE = "Command from client"
+    CCCD_UUID = "2902"
 
     def __init__(self, characteristic):
         Descriptor.__init__(
-                self, self.COMMAND_DESCRIPTOR_UUID,
-                ["read"],
+                self, self.CCCD_UUID,
+                ["read", "write"],
                 characteristic)
+        self.value = [0, 0]
+
+    def WriteValue(self, value, options):
+        print("CommandDescriptor")
+        if value:
+            self.value = value
+            if self.value[0] & 0x01:  # Notifications
+                self.characteristic.StartNotify()
+            else:
+                self.characteristic.StopNotify()
+            if self.value[0] & 0x02:  # Indications
+                self.characteristic.StartIndicate()
+            else:
+                self.characteristic.StopIndicate()
 
     def ReadValue(self, options):
-        value = []
-        desc = self.COMMAND_DESCRIPTOR_VALUE
-
-        for c in desc:
-            value.append(dbus.Byte(c.encode()))
-
-        return value
+        return self.value
 
 app = Application()
-app.add_service(FulatowerService(0))
+service = FulatowerService(0)
+app.add_service(service)
+print("Registering service...")
 app.register()
+print("Service registered successfully")
 
+print("Registering advertisement...")
 adv = FulatowerAdvertisement(0)
 adv.register()
+print("Advertisement registered successfully")
 
 def kill_bluetooth_processes():
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -280,6 +620,10 @@ def setup_bluetooth():
             break
 
 # Create a new thread for setup_bluetooth()
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Create a new thread for setup_bluetooth()
 connect_ongoing.set()
 setup_thread = threading.Thread(target=setup_bluetooth)
 setup_thread.start()
@@ -294,14 +638,10 @@ def start_server():
 server_thread = threading.Thread(target=start_server)
 server_thread.start()
 
-# Main thread sleeps for 900 seconds then stops server
-time.sleep(900)
-# If an action is ongoing, wait until it is finished
-action_ongoing.wait()
-
-connect_ongoing.clear()
-
-print("900 seconds have passed. Turning off Bluetooth GATT server and stopping the script...")
-app.stop()
-server_thread.join()
-kill_bluetooth_processes()
+# Instead of sleep, use infinite loop
+print("Server running. Press Ctrl+C to exit.")
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    signal_handler(signal.SIGINT, None)
