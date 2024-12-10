@@ -637,6 +637,16 @@ function dockerComposeUp() {
       if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
         echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
         pullFailed=1
+      else
+        # Save the newly pulled image to tar file
+        echo "Saving $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+        if ! docker save "$image" -o "$tar_path.tmp" 2>/dev/null; then
+          echo "Failed to save $image to $tar_path.tmp" | sudo tee -a $FULA_LOG_PATH
+        else
+          # Safely replace the existing tar file
+          mv -f "$tar_path.tmp" "$tar_path" 2>/dev/null || rm -f "$tar_path.tmp"
+          echo "Successfully saved $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+        fi
       fi
     else
       pullFailed=1
