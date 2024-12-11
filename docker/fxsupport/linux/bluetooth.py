@@ -36,6 +36,7 @@ import time
 import threading
 from go_server_client import GoServerClient
 from local_command_server import LocalCommandServer
+from dbus.exceptions import DBusException
 
 from advertisement import Advertisement
 from service import Application, Service, Characteristic, Descriptor
@@ -577,12 +578,42 @@ class CommandDescriptor(Descriptor):
     def ReadValue(self, options):
         return self.value
 
-app = Application()
-service = FulatowerService(0)
-app.add_service(service)
-print("Registering service...")
-app.register()
-print("Service registered successfully")
+
+def register_bluetooth_service(max_retries=10, initial_delay=5):
+    """
+    Register the Bluetooth service with exponential backoff retry logic
+    """
+    for attempt in range(max_retries):
+        try:
+            app = Application()
+            service = FulatowerService(0)
+            app.add_service(service)
+            print(f"Attempt {attempt + 1}/{max_retries}: Registering service...")
+            app.register()
+            print("Service registered successfully")
+            return app, service
+        except DBusException as e:
+            delay = initial_delay * (2 ** attempt)  # Exponential backoff
+            print(f"DBus error during registration: {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {delay} seconds... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+            else:
+                print("Failed to register service after all attempts")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Fatal error during registration: {e}")
+            sys.exit(1)
+
+# Usage
+app = None
+service = None
+try:
+    app, service = register_bluetooth_service()
+    print("Bluetooth service started successfully")
+except SystemExit:
+    sys.exit(1)
+
 
 print("Registering advertisement...")
 adv = FulatowerAdvertisement(0)
