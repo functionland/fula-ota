@@ -60,12 +60,17 @@ function setup_logrotate {
     cat << EOF > ${temp_config_path}
 ${logfile_path} {
     daily
-    rotate 6
+    rotate 3
     compress
     missingok
     notifempty
     create 0640 root root
     copytruncate
+    maxsize 20M
+    maxage 7
+    dateext
+    dateformat -%Y%m%d
+    delaycompress
 }
 EOF
 
@@ -74,9 +79,11 @@ EOF
         # If they differ, replace the old config with the new one
         sudo mv ${temp_config_path} ${config_path}
         echo "Logrotate configuration file for $logfile_path has been updated."
+        sudo chown root:root ${config_path}
+        sudo chmod 644 ${config_path}
 
         # Force logrotate to read the new configuration
-        sudo logrotate -f /etc/logrotate.conf
+        sudo logrotate -f ${config_path}
     else
         echo "Logrotate configuration file for $logfile_path is already up to date."
         # Remove the temporary config file
@@ -736,6 +743,9 @@ function restart() {
       sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh || { echo "chmod ipfs-cluster/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
   fi
+
+  setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true
+
   
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
