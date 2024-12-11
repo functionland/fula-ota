@@ -87,10 +87,16 @@ class LocalCommandServer:
             docker_logs = {}
             for container in data.get('docker', []):
                 if container:
-                    cmd = f"sudo docker logs {container} --tail 5"
+                    cmd = f"sudo docker logs {container} --tail 6"
                     try:
-                        output = subprocess.check_output(cmd, shell=True).decode('utf-8')
-                        docker_logs[container] = output
+                        # Capture both stdout and stderr
+                        output = subprocess.check_output(
+                            cmd,
+                            shell=True,
+                            stderr=subprocess.STDOUT,  # Redirect stderr to stdout
+                            universal_newlines=True    # Handle text output properly
+                        )
+                        docker_logs[container] = output if output else "No logs available"
                     except subprocess.CalledProcessError as e:
                         docker_logs[container] = f"Error: {str(e)}"
             result['docker'] = docker_logs

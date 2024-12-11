@@ -104,7 +104,7 @@ class BLEResponseHandler:
             "index": 999,  # Use max possible index digits
             "data": ""
         }
-        metadata_size = len(json.dumps(chunk_template)) * 2
+        metadata_size = len(json.dumps(chunk_template)) * 2 + 3
         max_data_size = self.mtu_size - metadata_size
 
         # Calculate chunks needed
