@@ -18,14 +18,7 @@ check_wifi_name() {
 
 check_internet() {
     # First determine which wireless tool to use
-    if command -v iwconfig > /dev/null 2>&1; then
-        for iface in /sys/class/net/*; do
-            iface_name=$(basename "$iface")
-            if [ "$iface_name" != "lo" ] && iwconfig "$iface_name" 2>&1 | grep -q "ESSID" && ip addr show "$iface_name" | grep -q "inet " && check_wifi_name "$iface_name"; then
-                return 0
-            fi
-        done
-    elif command -v iw > /dev/null 2>&1; then
+    if command -v iw > /dev/null 2>&1; then
         for iface in /sys/class/net/*; do
             iface_name=$(basename "$iface")
             if [ "$iface_name" != "lo" ] && iw dev "$iface_name" info 2>/dev/null | grep -q "type managed" && ip addr show "$iface_name" | grep -q "inet " && check_wifi_name "$iface_name"; then
@@ -33,7 +26,7 @@ check_internet() {
             fi
         done
     else
-        log "Neither iwconfig nor iw commands found"
+        log "iw command not found"
         return 1
     fi
     return 1
@@ -243,7 +236,7 @@ while true; do
     log "Internet connected and necessary files exist. Running /app."
     node_key_file="/internal/.secrets/node_key.txt"
     secret_phrase_file="/internal/.secrets/secret_phrase.txt"
-    mkdir -p /internal/.secrets
+    mkdir -p "/internal/.secrets"
 
     # Generate the node key
     new_key=$(/app --generateNodeKey --config /internal/config.yaml | grep -E '^[a-f0-9]{64}$')
