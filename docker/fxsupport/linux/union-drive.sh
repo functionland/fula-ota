@@ -97,6 +97,35 @@ check_mounted_drives() {
     echo $mounted_count
 }
 
+detect_type() {
+    local_mount_point="$1"
+
+    # Check if argument is provided
+    if [ -z "$local_mount_point" ]; then
+        echo "Error: Mount point argument is required"
+        exit 1
+    fi
+
+    # Check if mount point exists
+    if [ ! -d "$local_mount_point" ]; then
+        echo "Error: Mount point does not exist"
+        exit 1
+    fi
+
+    # Use df -PT to get the actual filesystem type, ignoring FUSE layers
+    # -P for POSIX format
+    # grep to find the specific mount point
+    # awk to extract just the filesystem type
+    fs_type=$(df -PT "$local_mount_point" | grep "$local_mount_point" | awk '{print $2}')
+
+    if [ -z "$fs_type" ]; then
+        echo "Error: Could not detect filesystem type"
+        exit 1
+    fi
+
+    echo "$fs_type"
+}
+
 unionfs_fuse_mount_drives() {
     systemd-notify WATCHDOG=1
     MOUNT_ARG=""
@@ -106,7 +135,7 @@ unionfs_fuse_mount_drives() {
         systemd-notify WATCHDOG=1
         if mountpoint -q "$drive"; then
             # Check if the filesystem type is ext4
-            fs_type=$(findmnt -n -o FSTYPE "$drive")
+            fs_type=$(detect_type "$drive")
             if [ "$fs_type" = "ext4" ]; then
                 MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
                 FIRST=":"
