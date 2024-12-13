@@ -153,7 +153,7 @@ unionfs_fuse_mount_drives() {
     echo "MOUNT_ARG= $MOUNT_ARG"
     echo "MOUNT_PATH= $MOUNT_PATH"
     
-    if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,minfreespace=1G,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
+    if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
         systemd-notify WATCHDOG=1
         echo "MergerFS mounted successfully"
     else
