@@ -729,6 +729,49 @@ function dockerPrune() {
   docker image prune --all --force 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
+migrate_to_pebble() {
+    local CONFIG_FILE="/home/pi/.internal/ipfs_config"
+    local PEBBLE_FLAG="/home/pi/.ipfs_pebble"
+    local DATASTORE_SPEC="/home/pi/.internal/ipfs_data/datastore_spec"
+    local IPFS_DATA_CONFIG="/home/pi/.internal/ipfs_data/config"
+
+    # Check if config file exists
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "IPFS config file not found"
+        return 1
+    fi
+
+    # Check if pebble flag doesn't exist
+    if [ ! -f "$PEBBLE_FLAG" ]; then
+        # Update the ipfs_config file
+        sed -i 's/"type": "levelds"/"type": "pebbleds"/g' "$CONFIG_FILE"
+        sed -i 's/"prefix": "leveldb.datastore"/"prefix": "pebble.datastore"/g' "$CONFIG_FILE"
+        
+        # Update the datastore_spec file if it exists
+        if [ -f "$DATASTORE_SPEC" ]; then
+            sed -i 's/"type":"levelds"/"type":"pebbleds"/g' "$DATASTORE_SPEC"
+        fi
+
+        # Update the ipfs_data config file if it exists
+        if [ -f "$IPFS_DATA_CONFIG" ]; then
+            sed -i 's/"type":"levelds"/"type":"pebbleds"/g' "$IPFS_DATA_CONFIG"
+        fi
+        
+        # Clean up the datastore
+        if [ -d "/uniondrive/ipfs_datastore/datastore" ]; then
+          sudo rm -rf /uniondrive/ipfs_datastore/datastore/*
+        fi
+        
+        # Create pebble flag file
+        touch "$PEBBLE_FLAG"
+        
+        echo "Migration to pebble completed"
+    else
+        echo "Pebble migration has already been performed"
+    fi
+}
+
+
 function restart() {
   # Moved while loop to after installation
   if [ -d ${FULA_PATH}/kubo ]; then
@@ -817,29 +860,31 @@ function restart() {
       fi
       sleep 20  # Wait for 5 seconds before checking again
   done
-  if [ -d /uniondrive ];then
-    sudo chmod -R 777 /uniondrive || { echo "chmod uniondrive failed" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo mkdir -p /uniondrive/ipfs_datastore || { echo "mkdir uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-    if [ -d /uniondrive/ipfs_datastore ]; then
-      sudo chmod -R 777 /uniondrive/ipfs_datastore || { echo "chmod uniondrive/ipfs_datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      sudo mkdir -p /uniondrive/ipfs_datastore/blocks || { echo "mkdir uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_datastore/blocks ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_datastore/blocks || { echo "chmod uniondrive/blocks failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs_datastore/datastore || { echo "mkdir uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_datastore/datastore ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_datastore/datastore || { echo "chmod uniondrive/datastore failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs_staging || { echo "mkdir uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs_staging ]; then
-        sudo chmod -R 777 /uniondrive/ipfs_staging || { echo "chmod uniondrive/ipfs_staging failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
-      sudo mkdir -p /uniondrive/ipfs-cluster || { echo "mkdir uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      if [ -d /uniondrive/ipfs-cluster ]; then
-        sudo chmod -R 777 /uniondrive/ipfs-cluster || { echo "chmod uniondrive/ipfs-cluster failed" | sudo tee -a $FULA_LOG_PATH; } || true
-      fi
+
+  #Migrating from leveldb to pebble
+  migrate_to_pebble
+
+  if [ -d /uniondrive ]; then
+    if [ "$(stat -c %a /uniondrive)" != "777" ]; then
+        echo "Changing permissions for contents of /uniondrive..."
+        find /uniondrive \( -type d -o -type f \) ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
+
+        # Create all directories in one command
+        sudo mkdir -p \
+            /uniondrive/ipfs_datastore/blocks \
+            /uniondrive/ipfs_datastore/datastore \
+            /uniondrive/ipfs_staging \
+            /uniondrive/ipfs-cluster || { 
+                echo "Failed to create one or more directories" | sudo tee -a $FULA_LOG_PATH
+            }
+
+        # Single chmod for all directories since parent directory permissions were already set
+        find /uniondrive -type d ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
+    else
+        echo "/uniondrive already has 777 permissions."
     fi
-  fi
+fi
+
   # Check if requests is installed
   python -c "import requests" 2>/dev/null || {
     echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH

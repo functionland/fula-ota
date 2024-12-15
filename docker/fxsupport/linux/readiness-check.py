@@ -190,6 +190,11 @@ def check_and_fix_ipfs_host():
         time.sleep(30)
         return True
     
+    if "could not get pinset from IPFS: Post" in ipfs_host_logs and "context deadline exceeded" in ipfs_host_logs:
+        logging.warning("IPFS Host issue 2 detected. Restarting the container.")
+        subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True)
+        return True
+    
     return False
 
 def check_and_fix_node():

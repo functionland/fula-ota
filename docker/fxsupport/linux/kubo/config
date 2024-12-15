@@ -50,10 +50,10 @@
           "child": {
             "compression": "none",
             "path": "/uniondrive/ipfs_datastore/datastore",
-            "type": "levelds"
+            "type": "pebbleds"
           },
           "mountpoint": "/",
-          "prefix": "leveldb.datastore",
+          "prefix": "pebble.datastore",
           "type": "measure"
         }
       ],
