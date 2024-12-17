@@ -865,7 +865,14 @@ function restart() {
   migrate_to_pebble
 
   if [ -d /uniondrive ]; then
-    if [ "$(stat -c %a /uniondrive)" != "777" ]; then
+    # Check if main directory or any of the required subdirectories don't have 777 permissions
+    if [ "$(stat -c %a /uniondrive)" != "777" ] || \
+       [ ! -d "/uniondrive/ipfs_datastore" ] || [ ! -d "/uniondrive/ipfs_staging" ] || [ ! -d "/uniondrive/ipfs-cluster" ] || [ ! -d "/uniondrive/chain" ] || \
+       [ -d "/uniondrive/ipfs_datastore" -a "$(stat -c %a /uniondrive/ipfs_datastore)" != "777" ] || \
+       [ -d "/uniondrive/ipfs_staging" -a "$(stat -c %a /uniondrive/ipfs_staging)" != "777" ] || \
+       [ -d "/uniondrive/chain" -a "$(stat -c %a /uniondrive/chain)" != "777" ] || \
+       [ -d "/uniondrive/ipfs-cluster" -a "$(stat -c %a /uniondrive/ipfs-cluster)" != "777" ]; then
+        
         echo "Changing permissions for contents of /uniondrive..."
         find /uniondrive \( -type d -o -type f \) ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
 
@@ -874,6 +881,7 @@ function restart() {
             /uniondrive/ipfs_datastore/blocks \
             /uniondrive/ipfs_datastore/datastore \
             /uniondrive/ipfs_staging \
+            /uniondrive/chain \
             /uniondrive/ipfs-cluster || { 
                 echo "Failed to create one or more directories" | sudo tee -a $FULA_LOG_PATH
             }
@@ -881,9 +889,10 @@ function restart() {
         # Single chmod for all directories since parent directory permissions were already set
         find /uniondrive -type d ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
     else
-        echo "/uniondrive already has 777 permissions."
+        echo "All required directories exist and have 777 permissions."
     fi
-fi
+  fi
+
 
   # Check if requests is installed
   python -c "import requests" 2>/dev/null || {
