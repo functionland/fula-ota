@@ -246,6 +246,49 @@ directory mask = 0777"
     echo "Storage access setup completed."
 }
 
+function setup_firewall() {
+  all_success=true
+  dpkg -s iptables-persistent >/dev/null 2>&1 || {
+        echo "iptables-persistent not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        sudo apt-get install -y iptables-persistent || {
+            echo "Could not install iptables-persistent" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
+        }
+  }
+
+  # Check and install dnsutils
+  dpkg -s dnsutils >/dev/null 2>&1 || {
+        echo "dnsutils not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+        sudo apt-get install -y dnsutils || {
+            echo "Could not install dnsutils" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
+        }
+  }
+
+  if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
+    cp ${INSTALLATION_FULA_DIR}/firewall.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/firewall.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+  mv ${FULA_PATH}/firewall.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  if [ -f "$FULA_PATH/firewall.sh" ]; then 
+    # Check if firewall.sh is executable 
+    if [ ! -x "$FULA_PATH/firewall.sh" ]; then 
+      echo "$FULA_PATH/firewall.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+      sudo chmod +x $FULA_PATH/firewall.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file firewall.sh" | sudo tee -a $FULA_LOG_PATH; }
+    fi 
+  fi
+  
+  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
+    systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  fi
+  systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing firewall.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing firewall Finished" | sudo tee -a $FULA_LOG_PATH
+  
+  if $all_success; then
+    return 0
+  else
+      return 1
+  fi
+}
+
 # Functions
 function install() {
   arch=${1:-RK1}  # Set arch based on the provided argument, default to RK1
@@ -272,6 +315,7 @@ function install() {
   if check_internet; then
     echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     sudo apt-get update || { echo "Could not update before install" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+
     # Check if pip is installed
     command -v pip >/dev/null 2>&1 || {
       echo >&2 "pip not found, installing..."
@@ -498,6 +542,9 @@ function install() {
       sudo chmod +x $FULA_PATH/plugins.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file plugins.sh" | sudo tee -a $FULA_LOG_PATH; }
     fi 
   fi
+
+  echo "Installing Firewall ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+  setup_firewall || { echo "Error while setup_firewall" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
 
   echo "Installing Fula ..." 2>&1 | sudo tee -a $FULA_LOG_PATH
   echo "Pulling Images..." 2>&1 | sudo tee -a $FULA_LOG_PATH
@@ -785,6 +832,10 @@ function restart() {
     if [ -f ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh ]; then
       sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh || { echo "chmod ipfs-cluster/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
+  fi
+  
+  if [ ! -f ${SYSTEMD_PATH}/firewall.service ];then
+    setup_firewall || { echo "Error setting up firewall" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true

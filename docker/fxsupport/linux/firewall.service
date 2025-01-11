@@ -1,0 +1,19 @@
+[Unit]
+Description=Initial Firewall
+DefaultDependencies=no
+After=network.target ssh.service
+Wants=network.target ssh.service
+Before=network-pre.target
+StartLimitIntervalSec=1200
+StartLimitBurst=10
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /usr/bin/fula/firewall.sh
+TimeoutStartSec=0
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target
