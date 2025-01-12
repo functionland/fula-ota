@@ -66,18 +66,22 @@ disable_root_ssh() {
 
 # Function to resolve domain to IPs
 get_domain_ips() {
+    sudo ufw disable
     dig +short "$1" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b"
 }
 
 get_domain_ips6() {
+    sudo ufw disable
     dig +short AAAA "$1" | grep -oE "([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"
 }
 
 # Docker Hub resolution with timeout and fallback
 resolve_docker_domains() {
     local domain="$1"
+    sudo ufw disable
     # Set a timeout of 2 seconds for dig
-    local ips=$(dig +short +time=2 +tries=1 "$domain" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b")
+    local ips
+    ips=$(dig +short +time=2 +tries=1 "$domain" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b")
     
     # If dig fails, use hardcoded IPs as fallback
     if [ -z "$ips" ]; then
@@ -87,6 +91,9 @@ resolve_docker_domains() {
                 ;;
             "hub.docker.com")
                 ips="34.195.82.38 52.203.198.227 52.55.168.20"
+                ;;
+            "registry-1.docker.io")
+                ips="54.236.113.205 54.198.86.24 54.227.20.253"
                 ;;
         esac
     fi
@@ -101,38 +108,39 @@ iptables -t nat -X
 iptables -t mangle -F
 iptables -t mangle -X
 
-ip6tables -F
-ip6tables -X
-ip6tables -t nat -F
-ip6tables -t nat -X
-ip6tables -t mangle -F
-ip6tables -t mangle -X
-
 # Set default policies to DROP
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
 iptables -P OUTPUT DROP
 
-ip6tables -P INPUT DROP
-ip6tables -P FORWARD DROP
-ip6tables -P OUTPUT DROP
-
-# Allow loopback
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
-
-ip6tables -A INPUT -i lo -j ACCEPT
-ip6tables -A OUTPUT -o lo -j ACCEPT
+if [ -f /proc/net/if_inet6 ]; then
+    ip6tables -F
+    ip6tables -X
+    ip6tables -t nat -F
+    ip6tables -t nat -X
+    ip6tables -t mangle -F
+    ip6tables -t mangle -X
+    ip6tables -P INPUT DROP
+    ip6tables -P FORWARD DROP
+    ip6tables -P OUTPUT DROP
+fi
 
 # Allow established connections
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+if [ -f /proc/net/if_inet6 ]; then
+    ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+
+    ip6tables -A INPUT -i lo -j ACCEPT
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+fi
+
 
 # Port 40001 and 4001 - all traffic
-for port in 40001 4001 9096 32200 9094 9095 3500 30335 9945; do
+for port in 40001 4001 9096 32200 9094 9095 3500 30335 9945 5001; do
     iptables -A INPUT -p tcp --dport $port -j ACCEPT
     iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
     iptables -A INPUT -p udp --dport $port -j ACCEPT
@@ -185,8 +193,10 @@ declare -a IPS6=(
 )
 
 for ip in "${IPS6[@]}"; do
-    ip6tables -A INPUT -s $ip -j ACCEPT
-    ip6tables -A OUTPUT -d $ip -j ACCEPT
+    if [ -f /proc/net/if_inet6 ]; then
+        ip6tables -A INPUT -s $ip -j ACCEPT
+        ip6tables -A OUTPUT -d $ip -j ACCEPT
+    fi
 done
 
 # Define local network ranges
@@ -211,64 +221,93 @@ for net in "${LOCAL_NETS[@]}"; do
 done
 
 
-# Docker Hub dynamic IP resolution
-for domain in "index.docker.io" "hub.docker.com" "registry-1.docker.io"; do
-    echo "Resolving $domain..."
-    
-    # IPv4 rules
-    for ip in $(resolve_docker_domains "$domain"); do
-        if [ -n "$ip" ]; then
-            iptables -A INPUT -s "$ip" -j ACCEPT
-            iptables -A OUTPUT -d "$ip" -j ACCEPT
-	    iptables -A INPUT -d $ip -p tcp --dport 443 -j ACCEPT
-	    iptables -A OUTPUT -d $ip -p tcp --dport 443 -j ACCEPT
-        fi
-    done
-    
-    # Only attempt IPv6 if IPv6 is enabled
-    if [ -f /proc/net/if_inet6 ]; then
-        for ip in $(dig +short +time=2 +tries=1 AAAA "$domain" | grep -v "^;;"); do
-            if [ -n "$ip" ]; then
-                ip6tables -A INPUT -s "$ip" -j ACCEPT
-                ip6tables -A OUTPUT -d "$ip" -j ACCEPT
-            fi
-        done
+is_valid_ipv6() {
+    local ip="$1"
+    dot_count=$(echo "$ip" | tr -cd ':' | wc -c)
+    if [ -n "$ip" ] && [ "$dot_count" -gt 3 ]; then
+        return 0
+    else 
+        return 1
     fi
-done
+}
 
-# GitHub dynamic IP resolution
-for domain in "github.com" "raw.githubusercontent.com"; do
-    for ip in $(get_domain_ips "$domain"); do
-        iptables -A INPUT -s $ip -j ACCEPT
-        iptables -A OUTPUT -d $ip -j ACCEPT
-	iptables -A INPUT -d $ip -p tcp --dport 443 -j ACCEPT
-	iptables -A OUTPUT -d $ip -p tcp --dport 443 -j ACCEPT
-    done
-    for ip in $(get_domain_ips6 "$domain"); do
-        ip6tables -A INPUT -s $ip -j ACCEPT
-        ip6tables -A OUTPUT -d $ip -j ACCEPT
-    done
-done
-
-# Allow APT repositories
-# Common APT repository domains
-apt_domains=(
+valid_domains=(
+    "index.docker.io" 
+    "hub.docker.com" 
+    "registry-1.docker.io" 
+    "download.docker.com"
+    "github.com" 
+    "raw.githubusercontent.com"
     "deb.debian.org"
     "security.debian.org"
     "archive.ubuntu.com"
     "security.ubuntu.com"
     "ports.ubuntu.com"
-)
+    "apt.armbian.com"
+    "github.armbian.com"
+    "armbian.chi.auroradev.org"
+    "armbian.tnahosting.net"
+    "mirrors.jevincanders.net"
 
-for domain in "${apt_domains[@]}"; do
-    for ip in $(get_domain_ips "$domain"); do
-        iptables -A OUTPUT -p tcp --dport 80 -d $ip -j ACCEPT
-        iptables -A OUTPUT -p tcp --dport 443 -d $ip -j ACCEPT
+)
+# Docker Hub dynamic IP resolution
+for domain in "${valid_domains[@]}"; do
+    echo "Resolving $domain..."
+    
+    # IPv4 rules
+    for ip in $(resolve_docker_domains "$domain"); do
+        # Count dots in the IP address
+        dot_count=$(echo "$ip" | tr -cd '.' | wc -c)
+        
+        if [ -n "$ip" ] && [ "$dot_count" -eq 3 ]; then
+            echo "allowing ${ip} for ${domain}"
+            sudo iptables -A INPUT -s "$ip" -j ACCEPT
+            echo "sudo iptables -A OUTPUT -d ${ip} -j ACCEPT"
+            sudo iptables -A OUTPUT -d "$ip" -j ACCEPT
+        else
+            echo "Invalid IP address: ${ip}"
+        fi
     done
+    
+    # Only attempt IPv6 if IPv6 is enabled
+    if [ -f /proc/net/if_inet6 ]; then
+        sudo ufw disable
+        for ip in $(dig +short +time=2 +tries=1 AAAA "$domain" | grep -v "^;;"); do
+            if [ -n "$ip" ] && is_valid_ipv6 "$ip"; then
+                echo "Valid IPv6: $ip for $domain"
+                sudo ip6tables -A INPUT -s "$ip" -j ACCEPT
+                sudo ip6tables -A OUTPUT -d "$ip" -j ACCEPT
+            else
+                echo "Invalid IPv6 address: $ip"
+            fi
+        done
+    fi
 done
 
+# Allow Docker's default bridge
+iptables -A INPUT -i docker0 -j ACCEPT
+iptables -A OUTPUT -o docker0 -j ACCEPT
+
+iptables -A OUTPUT -j DROP
+iptables -A INPUT -j DROP
+
+ip6tables -A INPUT -i docker0 -j ACCEPT
+ip6tables -A OUTPUT -o docker0 -j ACCEPT
+
+ip6tables -A OUTPUT -j DROP
+ip6tables -A INPUT -j DROP
+
 # Save rules
-iptables-save > /etc/iptables/rules.v4
-ip6tables-save > /etc/iptables/rules.v6
+if ! iptables-save > /etc/iptables/rules.v4; then
+    echo "Failed to save IPv4 rules"
+    exit 1
+fi
+if ! ip6tables-save > /etc/iptables/rules.v6; then
+    echo "Failed to save IPv6 rules"
+    exit 1
+fi
+
+systemctl restart iptables
 
 disable_root_ssh
+sed -i '/nameserver/c\nameserver 8.8.8.8' /etc/resolv.conf

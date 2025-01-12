@@ -741,7 +741,7 @@ function dockerComposeUp() {
         # Pull the failed service's image and try to start the service again
         (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
         echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
-        disown
+        disown $!
         
       fi
     else
@@ -839,6 +839,9 @@ function restart() {
   fi
 
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
   
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
