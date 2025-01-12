@@ -263,10 +263,10 @@ for domain in "${valid_domains[@]}"; do
         dot_count=$(echo "$ip" | tr -cd '.' | wc -c)
         
         if [ -n "$ip" ] && [ "$dot_count" -eq 3 ]; then
-            echo "allowing ${ip} for ${domain}"
             sudo iptables -A INPUT -s "$ip" -j ACCEPT
-            echo "sudo iptables -A OUTPUT -d ${ip} -j ACCEPT"
             sudo iptables -A OUTPUT -d "$ip" -j ACCEPT
+            sudo iptables -A OUTPUT -d "$ip" -p tcp --dport 80 -j ACCEPT
+            sudo iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
         else
             echo "Invalid IP address: ${ip}"
         fi
@@ -290,6 +290,11 @@ done
 # Allow Docker's default bridge
 iptables -A INPUT -i docker0 -j ACCEPT
 iptables -A OUTPUT -o docker0 -j ACCEPT
+
+iptables -N DOCKER
+iptables -t nat -N DOCKER
+iptables -t nat -A PREROUTING -j DOCKER
+iptables -t nat -A OUTPUT -j DOCKER
 
 iptables -A INPUT -p tcp --dport 2375 -j ACCEPT
 iptables -A INPUT -p tcp --dport 2376 -j ACCEPT

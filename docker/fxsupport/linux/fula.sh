@@ -248,40 +248,45 @@ directory mask = 0777"
 
 function setup_firewall() {
   all_success=true
-  dpkg -s iptables-persistent >/dev/null 2>&1 || {
-        echo "iptables-persistent not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-        sudo apt-get install -y iptables-persistent || {
-            echo "Could not install iptables-persistent" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
-        }
-  }
+  sudo systemctl stop docker.socket
+  sudo systemctl stop docker
+  if [ ! -f ${SYSTEMD_PATH}/firewall.service ];then
+    dpkg -s iptables-persistent >/dev/null 2>&1 || {
+          echo "iptables-persistent not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+          sudo apt-get install -y iptables-persistent || {
+              echo "Could not install iptables-persistent" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
+          }
+    }
 
-  # Check and install dnsutils
-  dpkg -s dnsutils >/dev/null 2>&1 || {
-        echo "dnsutils not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-        sudo apt-get install -y dnsutils || {
-            echo "Could not install dnsutils" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
-        }
-  }
+    # Check and install dnsutils
+    dpkg -s dnsutils >/dev/null 2>&1 || {
+          echo "dnsutils not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+          sudo apt-get install -y dnsutils || {
+              echo "Could not install dnsutils" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
+          }
+    }
 
-  if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
-    cp ${INSTALLATION_FULA_DIR}/firewall.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.sh" | sudo tee -a $FULA_LOG_PATH; } || true
-    cp ${INSTALLATION_FULA_DIR}/firewall.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    if [ "$(readlink -f .)" != "$(readlink -f $FULA_PATH)" ]; then
+      cp ${INSTALLATION_FULA_DIR}/firewall.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+      cp ${INSTALLATION_FULA_DIR}/firewall.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    fi
+    mv ${FULA_PATH}/firewall.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    if [ -f "$FULA_PATH/firewall.sh" ]; then 
+      # Check if firewall.sh is executable 
+      if [ ! -x "$FULA_PATH/firewall.sh" ]; then 
+        echo "$FULA_PATH/firewall.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
+        sudo chmod +x $FULA_PATH/firewall.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file firewall.sh" | sudo tee -a $FULA_LOG_PATH; }
+      fi 
+    fi
+    
+    if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
+      systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+    fi
+    systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing firewall.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+    echo "Installing firewall Finished" | sudo tee -a $FULA_LOG_PATH
   fi
-  mv ${FULA_PATH}/firewall.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying firewall.service" | sudo tee -a $FULA_LOG_PATH; } || true
-  if [ -f "$FULA_PATH/firewall.sh" ]; then 
-    # Check if firewall.sh is executable 
-    if [ ! -x "$FULA_PATH/firewall.sh" ]; then 
-      echo "$FULA_PATH/firewall.sh is not executable, changing permissions..." | sudo tee -a $FULA_LOG_PATH
-      sudo chmod +x $FULA_PATH/firewall.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error chmod file firewall.sh" | sudo tee -a $FULA_LOG_PATH; }
-    fi 
-  fi
-  
-  if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then
-    systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error daemon reload" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
-  fi
-  systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing firewall.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
-  echo "Installing firewall Finished" | sudo tee -a $FULA_LOG_PATH
-  
+  sudo systemctl start docker.socket
+  sudo systemctl start docker
   if $all_success; then
     return 0
   else
@@ -687,24 +692,24 @@ function dockerComposeUp() {
 
     # Check for internet connectivity before pulling from Docker Hub
     if check_internet; then
-      echo "Internet is available. Attempting to pull $service image"
-      if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
-        echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
-        pullFailed=1
-      else
-        # Save the newly pulled image to tar file
-        echo "Saving $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
-        if ! docker save "$image" -o "$tar_path.tmp" 2>/dev/null; then
-          echo "Failed to save $image to $tar_path.tmp" | sudo tee -a $FULA_LOG_PATH
+        echo "Internet is available. Attempting to pull $service image"
+        if ! timeout 600 docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
+            echo "$service image pull failed (timeout after 5 minutes), using local version" | sudo tee -a $FULA_LOG_PATH
+            pullFailed=1
         else
-          # Safely replace the existing tar file
-          mv -f "$tar_path.tmp" "$tar_path" 2>/dev/null || rm -f "$tar_path.tmp"
-          echo "Successfully saved $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+            # Save the newly pulled image to tar file
+            echo "Saving $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+            if ! timeout 600 docker save "$image" -o "$tar_path.tmp" 2>/dev/null; then
+                echo "Failed to save $image to $tar_path.tmp" | sudo tee -a $FULA_LOG_PATH
+            else
+                # Safely replace the existing tar file
+                mv -f "$tar_path.tmp" "$tar_path" 2>/dev/null || rm -f "$tar_path.tmp"
+                echo "Successfully saved $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+            fi
         fi
-      fi
     else
-      pullFailed=1
-      echo "Internet is not available. Skipping pull for $service"
+        pullFailed=1
+        echo "Internet is not available. Skipping pull for $service"
     fi
 
     # Check if a tar file for the service exists and load it
@@ -718,7 +723,7 @@ function dockerComposeUp() {
     echo "Starting $service..." | sudo tee -a $FULA_LOG_PATH
 
     # Try to start the service
-    if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
+    if ! timeout 600  docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate "$service"; then
       echo "$service failed to start. Attempting to stop, remove and restart..." | sudo tee -a $FULA_LOG_PATH
 
       # Get the container ID for the specific service
@@ -834,9 +839,8 @@ function restart() {
     fi
   fi
   
-  if [ ! -f ${SYSTEMD_PATH}/firewall.service ];then
-    #setup_firewall || { echo "Error setting up firewall" | sudo tee -a $FULA_LOG_PATH; } || true
-  fi
+  
+  setup_firewall || { echo "Error setting up firewall" | sudo tee -a $FULA_LOG_PATH; } || true
 
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true
 
