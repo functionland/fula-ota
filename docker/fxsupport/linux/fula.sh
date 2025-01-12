@@ -835,7 +835,7 @@ function restart() {
   fi
   
   if [ ! -f ${SYSTEMD_PATH}/firewall.service ];then
-    setup_firewall || { echo "Error setting up firewall" | sudo tee -a $FULA_LOG_PATH; } || true
+    #setup_firewall || { echo "Error setting up firewall" | sudo tee -a $FULA_LOG_PATH; } || true
   fi
 
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true

@@ -233,8 +233,11 @@ is_valid_ipv6() {
 
 valid_domains=(
     "index.docker.io" 
-    "hub.docker.com" 
-    "registry-1.docker.io" 
+    "docker.io"
+    "docker.com"
+    "hub.docker.com"
+    "docs.docker.com"
+    "registry-1.docker.io"
     "production.cloudflare.docker.com"
     "download.docker.com"
     "github.com" 
@@ -288,8 +291,17 @@ done
 iptables -A INPUT -i docker0 -j ACCEPT
 iptables -A OUTPUT -o docker0 -j ACCEPT
 
+iptables -A INPUT -p tcp --dport 2375 -j ACCEPT
+iptables -A INPUT -p tcp --dport 2376 -j ACCEPT
+
+iptables -A OUTPUT -j DROP
+iptables -A INPUT -j DROP
+
 ip6tables -A INPUT -i docker0 -j ACCEPT
 ip6tables -A OUTPUT -o docker0 -j ACCEPT
+
+ip6tables -A OUTPUT -j DROP
+ip6tables -A INPUT -j DROP
 
 # Save rules
 if ! iptables-save > /etc/iptables/rules.v4; then
