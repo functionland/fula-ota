@@ -235,6 +235,7 @@ valid_domains=(
     "index.docker.io" 
     "hub.docker.com" 
     "registry-1.docker.io" 
+    "production.cloudflare.docker.com"
     "download.docker.com"
     "github.com" 
     "raw.githubusercontent.com"
@@ -248,7 +249,6 @@ valid_domains=(
     "armbian.chi.auroradev.org"
     "armbian.tnahosting.net"
     "mirrors.jevincanders.net"
-
 )
 # Docker Hub dynamic IP resolution
 for domain in "${valid_domains[@]}"; do
@@ -288,14 +288,8 @@ done
 iptables -A INPUT -i docker0 -j ACCEPT
 iptables -A OUTPUT -o docker0 -j ACCEPT
 
-iptables -A OUTPUT -j DROP
-iptables -A INPUT -j DROP
-
 ip6tables -A INPUT -i docker0 -j ACCEPT
 ip6tables -A OUTPUT -o docker0 -j ACCEPT
-
-ip6tables -A OUTPUT -j DROP
-ip6tables -A INPUT -j DROP
 
 # Save rules
 if ! iptables-save > /etc/iptables/rules.v4; then
