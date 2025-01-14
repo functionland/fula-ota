@@ -3,21 +3,45 @@ set -e
 set -o pipefail
 package_installed=true
 
-# Check and install iptables-persistent
-if ! dpkg -l | grep -q "^ii.*iptables-persistent"; then
-    echo >&2 "iptables-persistent not found, installing..."
-    
-    # Pre-configure package to avoid prompts
-    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
-    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
-    
-    # Install package non-interactively
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent; then
-        echo "Could not install iptables-persistent"
-        exit 1
+install_and_setup_firewalld() {
+    # Check if firewalld is already installed
+    if ! dpkg -l | grep -q firewalld; then
+        # Ensure non-interactive installation
+        export DEBIAN_FRONTEND=noninteractive
+        
+        # Update package list
+        apt-get update -qq
+        
+        # Disable UFW if it exists and is active
+        if command -v ufw >/dev/null 2>&1; then
+            systemctl disable --now ufw >/dev/null 2>&1
+        fi
+        
+        # Install firewalld
+        apt-get install -y firewalld >/dev/null 2>&1
+        package_installed=false
     fi
-    package_installed=false
-fi
+    
+    # Check if firewalld is enabled, if not enable it
+    if ! systemctl is-enabled --quiet firewalld; then
+        systemctl enable firewalld >/dev/null 2>&1
+    fi
+    
+    # Check if firewalld is running, if not start it
+    if ! systemctl is-active --quiet firewalld; then
+        systemctl start firewalld >/dev/null 2>&1
+    fi
+    
+    # Verify firewalld is running
+    if firewall-cmd --state >/dev/null 2>&1; then
+        echo "Firewalld is installed, enabled, and running"
+        return 0
+    else
+        echo "Failed to setup firewalld"
+        return 1
+    fi
+}
+
 
 # Check and install dnsutils
 if ! dpkg -l | grep -q "^ii.*dnsutils"; then
@@ -129,59 +153,65 @@ is_valid_ipv6() {
     fi
 }
 
+systemctl stop iptables
+systemctl stop ip6tables
+systemctl disable iptables
+systemctl disable ip6tables
 
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P OUTPUT ACCEPT
+# Stop and disable ufw if it exists
+systemctl stop ufw || true
+systemctl disable ufw || true
 
-sudo iptables -F INPUT
-sudo iptables -F OUTPUT
+# Enable and start firewalld
+install_and_setup_firewalld
 
-# Allow established connections
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
-
-if [ -f /proc/net/if_inet6 ]; then
-    ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-
-    ip6tables -A INPUT -i lo -j ACCEPT
-    ip6tables -A OUTPUT -o lo -j ACCEPT
+# Check if zone exists before creating it
+if ! firewall-cmd --get-zones | grep -q "docker-custom"; then
+    firewall-cmd --permanent --new-zone=docker-custom
+    firewall-cmd --reload
+else
+    echo "Zone docker-custom already exists"
 fi
 
 
-# Port 40001 and 4001 - all traffic
-for port in 40001 4001 9096 32200 9094 9095 3500 30335 9945 5001; do
-    iptables -A INPUT -p tcp --dport $port -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
-    iptables -A INPUT -p udp --dport $port -j ACCEPT
-    iptables -A OUTPUT -p udp --dport $port -j ACCEPT
+# Set default zone
+firewall-cmd --set-default-zone=docker-custom
+firewall-cmd --runtime-to-permanent
+
+
+# Allow loopback interface
+firewall-cmd --permanent --zone=docker-custom --add-interface=lo
+
+# Add specific ports
+echo "Whitelisting needed ports on tcp/udp"
+PORTS=(40001 4001 9096 32200 9094 9095 3500 30335 9945 5001)
+for port in "${PORTS[@]}"; do
+    firewall-cmd --permanent --zone=docker-custom --add-port=${port}/tcp
+    firewall-cmd --permanent --zone=docker-custom --add-port=${port}/udp
 done
 
-for port in 40001 4001 30335 32200 9094 5001; do
-    iptables -A INPUT -p tcp -s 127.0.0.1 --dport $port -j ACCEPT
-    iptables -A OUTPUT -p tcp --sport $port -j ACCEPT
+# Add localhost specific ports
+echo "Whitelisting needed ports from localhost on tcp"
+LOCALHOST_PORTS=(40001 4001 30335 32200 9094 5001)
+for port in "${LOCALHOST_PORTS[@]}"; do
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=127.0.0.1 port port=${port} protocol=tcp accept"
 done
 
 # Allow DNS resolution
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A INPUT -p udp --sport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-iptables -A INPUT -p tcp --sport 53 -j ACCEPT
+echo "allow dns"
+firewall-cmd --permanent --zone=docker-custom --add-service=dns
 
-
-# Port 80, 443, ping - specific IPs
-for ip in 8.8.8.8 4.4.4.4 8.8.4.4; do
-    iptables -A OUTPUT -p tcp --dport 80 -d $ip -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 443 -d $ip -j ACCEPT
-    iptables -A INPUT -s $ip -p icmp -j ACCEPT
-	iptables -A OUTPUT -d $ip -p icmp -j ACCEPT
+# Add specific IPs for HTTP/HTTPS
+echo "Whitelisting 8.8.8.8"
+SPECIFIC_IPS=(8.8.8.8 4.4.4.4 8.8.4.4)
+for ip in "${SPECIFIC_IPS[@]}"; do
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 destination address=${ip} port port=80 protocol=tcp accept"
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 destination address=${ip} port port=443 protocol=tcp accept"
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=${ip} protocol value=icmp accept"
 done
 
-# Whitelist specific IPs for all ports
+# Whitelist specific IPs
+echo "Whitelisting known IPs"
 declare -a IPS=(
     "209.126.1.139"
     "209.145.51.240"
@@ -194,52 +224,46 @@ declare -a IPS=(
 )
 
 for ip in "${IPS[@]}"; do
-    iptables -A INPUT -s $ip -j ACCEPT
-    iptables -A OUTPUT -d $ip -j ACCEPT
-
-    # Ping protocol
-    iptables -A INPUT -s $ip -p icmp --icmp-type echo-reply -j ACCEPT
-    iptables -A OUTPUT -d $ip -p icmp --icmp-type echo-request -j ACCEPT
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=${ip} accept"
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 destination address=${ip} accept"
 done
 
-
+echo "Whitelisting known IP6s"
 # IPv6 addresses
-declare -a IPS6=(
-    "2a10:1fc0:c::954a:2386"
-    "2a10:1fc0:c::fc0b:1ac3"
-    "2a10:1fc0:c::6548:cfcf"
-    "2a10:1fc0:c::918c:b2a8"
-)
+if [ -f /proc/net/if_inet6 ]; then
+    declare -a IPS6=(
+        "2a10:1fc0:c::954a:2386"
+        "2a10:1fc0:c::fc0b:1ac3"
+        "2a10:1fc0:c::6548:cfcf"
+        "2a10:1fc0:c::918c:b2a8"
+    )
+    
+    for ip in "${IPS6[@]}"; do
+        firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv6 source address=${ip} accept"
+        firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv6 destination address=${ip} accept"
+    done
+fi
 
-for ip in "${IPS6[@]}"; do
-    if [ -f /proc/net/if_inet6 ]; then
-        ip6tables -A INPUT -s $ip -j ACCEPT
-        ip6tables -A OUTPUT -d $ip -j ACCEPT
-    fi
-done
-
-# Define local network ranges
+# Local networks
+echo "Whitelisting local network"
 declare -a LOCAL_NETS=(
     "192.168.0.0/16"
     "172.16.0.0/12"
     "10.0.0.0/8"
 )
 
-# Allow ping and SSH for local networks
 for net in "${LOCAL_NETS[@]}"; do
-    # Allow incoming pings
-    iptables -A INPUT -s $net -p icmp --icmp-type echo-request -j ACCEPT
-    iptables -A OUTPUT -d $net -p icmp --icmp-type echo-reply -j ACCEPT
-    
-    # Allow outgoing pings
-    iptables -A OUTPUT -d $net -p icmp --icmp-type echo-request -j ACCEPT
-    iptables -A INPUT -s $net -p icmp --icmp-type echo-reply -j ACCEPT
-
-    iptables -A INPUT -p tcp --dport 22 -s $net -j ACCEPT
-    iptables -A OUTPUT -p tcp --sport 22 -d $net -j ACCEPT
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=${net} protocol value=icmp accept"
+    firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=${net} service name=ssh accept"
 done
 
+# Docker domains resolution function
+resolve_docker_domains() {
+    dig +short "$1" | grep -v "^;"
+}
 
+# Add Docker related domains
+echo "Whitelisting known domains"
 valid_domains=(
     "index.docker.io" 
     "docker.io"
@@ -267,81 +291,28 @@ valid_domains=(
     "node3.functionyard.fx.land"
     "api.node3.functionyard.fx.land"
 )
-# Docker Hub dynamic IP resolution
+
 for domain in "${valid_domains[@]}"; do
     echo "Resolving $domain..."
-    
-    # IPv4 rules
     for ip in $(resolve_docker_domains "$domain"); do
-        # Count dots in the IP address
-        dot_count=$(echo "$ip" | tr -cd '.' | wc -c)
-        
-        if [ -n "$ip" ] && [ "$dot_count" -eq 3 ]; then
-            iptables -A OUTPUT -d "$ip" -p tcp --dport 80 -j ACCEPT
-            iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-
-            iptables -A INPUT -s "$ip" -p icmp --icmp-type echo-reply -j ACCEPT
-            iptables -A OUTPUT -d "$ip" -p icmp --icmp-type echo-request -j ACCEPT
-            echo "Added IPv4: $ip for $domain"
-        else
-            echo "Invalid IP address: ${ip}"
+        if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$ip"
+            firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 destination address=${ip} port port=80 protocol=tcp accept"
+            firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 destination address=${ip} port port=443 protocol=tcp accept"
         fi
     done
-    
-    # Only attempt IPv6 if IPv6 is enabled
-    if [ -f /proc/net/if_inet6 ]; then
-        sudo ufw disable || true
-        for ip in $(dig +short +time=2 +tries=1 AAAA "$domain" | grep -v "^;;"); do
-            if [ -n "$ip" ] && is_valid_ipv6 "$ip"; then
-                echo "Valid IPv6: $ip for $domain"
-                sudo ip6tables -A INPUT -s "$ip" -j ACCEPT
-                sudo ip6tables -A OUTPUT -d "$ip" -j ACCEPT
-            else
-                echo "Invalid IPv6 address: $ip"
-            fi
-        done
-    fi
 done
 
-INTERFACES=$(detect_interfaces)
-for interface in $INTERFACES; do
-    echo "Setting up rules for interface: $interface"
-    # Allow hotspot network
-    iptables -I DOCKER-USER -i "$interface" -s 10.42.0.0/24 -j ACCEPT
-    # Allow server port
-    iptables -I DOCKER-USER -p tcp --dport 3500 -s 10.42.0.0/24 -j ACCEPT
-    iptables -I DOCKER-USER -p tcp --sport 3500 -m state --state ESTABLISHED,RELATED -j ACCEPT
-done
+firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=10.42.0.0/24 accept"
+firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=10.42.0.0/24 port port=3500 protocol=tcp accept"
 
-iptables -A INPUT -s 127.0.0.1 -p tcp --dport 2375 -j ACCEPT
-iptables -A INPUT -s 127.0.0.1 -p tcp --dport 2376 -j ACCEPT
+# Docker daemon ports
+firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=127.0.0.1 port port=2375 protocol=tcp accept"
+firewall-cmd --permanent --zone=docker-custom --add-rich-rule="rule family=ipv4 source address=127.0.0.1 port port=2376 protocol=tcp accept"
 
-iptables -A OUTPUT -j DROP
-iptables -A INPUT -j DROP
+# Reload firewall to apply all changes
+firewall-cmd --reload
 
-ip6tables -A OUTPUT -j DROP
-ip6tables -A INPUT -j DROP
-
-save_rules() {
-    if command -v netfilter-persistent &> /dev/null; then
-        netfilter-persistent save
-    elif [ -d "/etc/iptables" ]; then
-        iptables-save > /etc/iptables/rules.v4
-        ip6tables-save > /etc/iptables/rules.v6
-    else
-        mkdir -p /etc/iptables
-        iptables-save > /etc/iptables/rules.v4
-        ip6tables-save > /etc/iptables/rules.v6
-    fi
-}
-
-
-# Save rules
-save_rules
-iptables-save | uniq | iptables-restore
-
-systemctl daemon-reload
-systemctl restart iptables
 
 disable_root_ssh
 
