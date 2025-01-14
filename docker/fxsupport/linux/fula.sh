@@ -248,12 +248,10 @@ directory mask = 0777"
 
 function setup_firewall() {
   all_success=true
-  sudo systemctl stop docker.socket
-  sudo systemctl stop docker
   if [ ! -f ${SYSTEMD_PATH}/firewall.service ];then
     dpkg -s iptables-persistent >/dev/null 2>&1 || {
           echo "iptables-persistent not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-          sudo apt-get install -y iptables-persistent || {
+          sudo DEBIAN_FRONTEND=noninteractive  apt-get install -y iptables-persistent || {
               echo "Could not install iptables-persistent" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
           }
     }
@@ -261,7 +259,7 @@ function setup_firewall() {
     # Check and install dnsutils
     dpkg -s dnsutils >/dev/null 2>&1 || {
           echo "dnsutils not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
-          sudo apt-get install -y dnsutils || {
+          sudo DEBIAN_FRONTEND=noninteractive  apt-get install -y dnsutils || {
               echo "Could not install dnsutils" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false;
           }
     }
@@ -284,9 +282,9 @@ function setup_firewall() {
     fi
     systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing firewall.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     echo "Installing firewall Finished" | sudo tee -a $FULA_LOG_PATH
+    sudo dpkg --configure -a
   fi
-  sudo systemctl start docker.socket
-  sudo systemctl start docker
+
   if $all_success; then
     return 0
   else
@@ -1233,6 +1231,12 @@ case $1 in
       restart_uniondrive=true
     fi
 
+    # Check and update uniondrive.service
+    if copy_service_file "${FULA_PATH}/firewall.service" "$SYSTEMD_PATH/firewall.service" "firewall"; then
+      systemd_reload_needed=true
+      restart_firewall=true
+    fi
+
     # Reload systemd if needed
     if [ "$systemd_reload_needed" = true ]; then
       echo "Reloading systemd" | sudo tee -a $FULA_LOG_PATH
@@ -1249,6 +1253,11 @@ case $1 in
       if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
         echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
       fi
+    fi
+
+    if [ "$restart_firewall" = true ]; then
+      echo "firewall.service has changed, restarting firewall" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart firewall
     fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH

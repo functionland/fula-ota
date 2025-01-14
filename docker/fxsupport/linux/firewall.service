@@ -1,14 +1,16 @@
 [Unit]
 Description=Initial Firewall
 DefaultDependencies=no
-After=network.target ssh.service
-Wants=network.target ssh.service
-Before=network-pre.target
+After=network.target ssh.service docker.service
+Wants=network.target ssh.service docker.service
+Requires=docker.service
 StartLimitIntervalSec=1200
 StartLimitBurst=10
 
 [Service]
 Type=oneshot
+User=root
+Group=root
 RemainAfterExit=yes
 ExecStart=/bin/bash /usr/bin/fula/firewall.sh
 TimeoutStartSec=0

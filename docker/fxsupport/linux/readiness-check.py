@@ -307,6 +307,51 @@ def check_external_drive():
         logging.error(f"Unexpected error in check_external_drive: {e}")
         return False
 
+def is_docker_running():
+    result = subprocess.run(["systemctl", "is-active", "docker"], capture_output=True, text=True)
+    return result.stdout.strip() == "active"
+
+def check_and_fix_docker():
+    def check_docker_status():
+        result = subprocess.run(["systemctl", "status", "docker"], capture_output=True, text=True)
+        return "failed" not in result.stdout.lower()
+
+    def reset_docker():
+        commands = [
+            ["sudo", "systemctl", "stop", "docker"],
+            ["sudo", "rm", "-rf", "/var/lib/docker/overlay2"],
+            ["sudo", "rm", "-rf", "/var/lib/docker/image"],
+            ["sudo", "mkdir", "-p", "/var/lib/docker/overlay2"],
+            ["sudo", "mkdir", "-p", "/var/lib/docker/image"],
+            ["sudo", "systemctl", "daemon-reload"],
+            ["sudo", "systemctl", "start", "docker"]
+        ]
+        for cmd in commands:
+            subprocess.run(cmd, capture_output=True)
+
+    # Check if Docker is running
+    if is_docker_running():
+        return True
+
+    # First restart attempt
+    subprocess.run(["sudo", "systemctl", "restart", "docker"], capture_output=True)
+    time.sleep(5)  # Wait for Docker to start
+
+    if is_docker_running() and check_docker_status():
+        return True
+
+    # If first restart failed, try reset procedure
+    reset_docker()
+    time.sleep(5)
+
+    if is_docker_running() and check_docker_status():
+        return True
+
+    # If all attempts failed, turn on red LED
+    subprocess.run(["sudo", "python", LED_PATH, "red", "1800"], capture_output=True)
+    return False
+
+
 def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
@@ -460,25 +505,31 @@ def main():
                 time.sleep(10)
         else:
             logging.info("check_conditions failed")
-            # Check if 'fula_go' exists in `docker ps -a`
-            docker_ps_a_output = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
-            docker_ps_output = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
-
-            if "fula_go" in docker_ps_a_output and \
-                all(container in docker_ps_output for container in ["fula_fxsupport", "fula_updater"]) and \
-                fula_restart_attempts < 4:
-                    logging.info("fula_go container found but is not running. Attempting to restart fula.service")
-                    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+            # Check if Docker is running and fix if needed
+            if not is_docker_running():
+                if not check_and_fix_docker():
+                    logging.error("Docker service failed to start after recovery attempts")
+                    time.sleep(5)
+                    result = subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True)
+                    time.sleep(5)
                     if result.returncode == 0:
-                        logging.info("fula.service restarted successfully.")
+                        logging.info("docker.service restarted successfully.")
                         if result.stdout:
                             logging.info(f"Restart output: {result.stdout}")
+                        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                        time.sleep(40)
                     else:
-                        logging.error("Failed to restart fula.service.")
+                        logging.error("Failed to restart docker.service.")
                         if result.stderr:
                             logging.error(f"Restart error: {result.stderr}")
+                    continue
+                else:
+                    subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                    time.sleep(40)
+                    continue
 
-                    fula_restart_attempts += 1
+            subprocess.run(["sudo", "python", LED_PATH, "red", "10"], capture_output=True)
+
             time.sleep(20)
 
 if __name__ == "__main__":

@@ -1,22 +1,37 @@
 #!/bin/bash
+set -e
+set -o pipefail
+package_installed=true
 
 # Check and install iptables-persistent
-dpkg -s iptables-persistent >/dev/null 2>&1 || {
+if ! dpkg -l | grep -q "^ii.*iptables-persistent"; then
     echo >&2 "iptables-persistent not found, installing..."
-    sudo apt-get install -y iptables-persistent || {
+    
+    # Pre-configure package to avoid prompts
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+    
+    # Install package non-interactively
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent; then
         echo "Could not install iptables-persistent"
         exit 1
-    }
-}
+    fi
+    package_installed=false
+fi
 
 # Check and install dnsutils
-dpkg -s dnsutils >/dev/null 2>&1 || {
+if ! dpkg -l | grep -q "^ii.*dnsutils"; then
     echo >&2 "dnsutils not found, installing..."
-    sudo apt-get install -y dnsutils || {
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y dnsutils; then
         echo "Could not install dnsutils"
         exit 1
-    }
-}
+    fi
+    package_installed=false
+fi
+
+if ! ${package_installed}; then
+    sudo dpkg --configure -a
+fi
 
 disable_root_ssh() {
     local sshd_config="/etc/ssh/sshd_config"
@@ -66,19 +81,19 @@ disable_root_ssh() {
 
 # Function to resolve domain to IPs
 get_domain_ips() {
-    sudo ufw disable
+    sudo ufw disable || true
     dig +short "$1" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b"
 }
 
 get_domain_ips6() {
-    sudo ufw disable
+    sudo ufw disable || true
     dig +short AAAA "$1" | grep -oE "([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"
 }
 
 # Docker Hub resolution with timeout and fallback
 resolve_docker_domains() {
     local domain="$1"
-    sudo ufw disable
+    sudo ufw disable || true
     # Set a timeout of 2 seconds for dig
     local ips
     ips=$(dig +short +time=2 +tries=1 "$domain" | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b")
@@ -100,34 +115,33 @@ resolve_docker_domains() {
     echo "$ips"
 }
 
-# Clear existing rules and set default policies
-iptables -F
-iptables -X
-iptables -t nat -F
-iptables -t nat -X
-iptables -t mangle -F
-iptables -t mangle -X
+detect_interfaces() {
+    ip -br link show | grep -v '^lo' | grep 'UP' | awk '{print $1}'
+}
 
-# Set default policies to DROP
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT DROP
+is_valid_ipv6() {
+    local ip="$1"
+    dot_count=$(echo "$ip" | tr -cd ':' | wc -c)
+    if [ -n "$ip" ] && [ "$dot_count" -gt 2 ]; then
+        return 0
+    else 
+        return 1
+    fi
+}
 
-if [ -f /proc/net/if_inet6 ]; then
-    ip6tables -F
-    ip6tables -X
-    ip6tables -t nat -F
-    ip6tables -t nat -X
-    ip6tables -t mangle -F
-    ip6tables -t mangle -X
-    ip6tables -P INPUT DROP
-    ip6tables -P FORWARD DROP
-    ip6tables -P OUTPUT DROP
-fi
+
+sudo iptables -P INPUT ACCEPT
+sudo iptables -P OUTPUT ACCEPT
+
+sudo iptables -F INPUT
+sudo iptables -F OUTPUT
 
 # Allow established connections
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
 
 if [ -f /proc/net/if_inet6 ]; then
     ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -145,6 +159,11 @@ for port in 40001 4001 9096 32200 9094 9095 3500 30335 9945 5001; do
     iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
     iptables -A INPUT -p udp --dport $port -j ACCEPT
     iptables -A OUTPUT -p udp --dport $port -j ACCEPT
+done
+
+for port in 40001 4001 30335 32200 9094 5001; do
+    iptables -A INPUT -p tcp -s 127.0.0.1 --dport $port -j ACCEPT
+    iptables -A OUTPUT -p tcp --sport $port -j ACCEPT
 done
 
 # Allow DNS resolution
@@ -221,16 +240,6 @@ for net in "${LOCAL_NETS[@]}"; do
 done
 
 
-is_valid_ipv6() {
-    local ip="$1"
-    dot_count=$(echo "$ip" | tr -cd ':' | wc -c)
-    if [ -n "$ip" ] && [ "$dot_count" -gt 3 ]; then
-        return 0
-    else 
-        return 1
-    fi
-}
-
 valid_domains=(
     "index.docker.io" 
     "docker.io"
@@ -252,6 +261,11 @@ valid_domains=(
     "armbian.chi.auroradev.org"
     "armbian.tnahosting.net"
     "mirrors.jevincanders.net"
+    "google.com"
+    "relay.dev.fx.land"
+    "node.functionyard.fx.land"
+    "node3.functionyard.fx.land"
+    "api.node3.functionyard.fx.land"
 )
 # Docker Hub dynamic IP resolution
 for domain in "${valid_domains[@]}"; do
@@ -263,10 +277,12 @@ for domain in "${valid_domains[@]}"; do
         dot_count=$(echo "$ip" | tr -cd '.' | wc -c)
         
         if [ -n "$ip" ] && [ "$dot_count" -eq 3 ]; then
-            sudo iptables -A INPUT -s "$ip" -j ACCEPT
-            sudo iptables -A OUTPUT -d "$ip" -j ACCEPT
-            sudo iptables -A OUTPUT -d "$ip" -p tcp --dport 80 -j ACCEPT
-            sudo iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+            iptables -A OUTPUT -d "$ip" -p tcp --dport 80 -j ACCEPT
+            iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+
+            iptables -A INPUT -s "$ip" -p icmp --icmp-type echo-reply -j ACCEPT
+            iptables -A OUTPUT -d "$ip" -p icmp --icmp-type echo-request -j ACCEPT
+            echo "Added IPv4: $ip for $domain"
         else
             echo "Invalid IP address: ${ip}"
         fi
@@ -274,7 +290,7 @@ for domain in "${valid_domains[@]}"; do
     
     # Only attempt IPv6 if IPv6 is enabled
     if [ -f /proc/net/if_inet6 ]; then
-        sudo ufw disable
+        sudo ufw disable || true
         for ip in $(dig +short +time=2 +tries=1 AAAA "$domain" | grep -v "^;;"); do
             if [ -n "$ip" ] && is_valid_ipv6 "$ip"; then
                 echo "Valid IPv6: $ip for $domain"
@@ -287,38 +303,75 @@ for domain in "${valid_domains[@]}"; do
     fi
 done
 
-# Allow Docker's default bridge
-iptables -A INPUT -i docker0 -j ACCEPT
-iptables -A OUTPUT -o docker0 -j ACCEPT
+INTERFACES=$(detect_interfaces)
+for interface in $INTERFACES; do
+    echo "Setting up rules for interface: $interface"
+    # Allow hotspot network
+    iptables -I DOCKER-USER -i "$interface" -s 10.42.0.0/24 -j ACCEPT
+    # Allow server port
+    iptables -I DOCKER-USER -p tcp --dport 3500 -s 10.42.0.0/24 -j ACCEPT
+    iptables -I DOCKER-USER -p tcp --sport 3500 -m state --state ESTABLISHED,RELATED -j ACCEPT
+done
 
-iptables -N DOCKER
-iptables -t nat -N DOCKER
-iptables -t nat -A PREROUTING -j DOCKER
-iptables -t nat -A OUTPUT -j DOCKER
-
-iptables -A INPUT -p tcp --dport 2375 -j ACCEPT
-iptables -A INPUT -p tcp --dport 2376 -j ACCEPT
+iptables -A INPUT -s 127.0.0.1 -p tcp --dport 2375 -j ACCEPT
+iptables -A INPUT -s 127.0.0.1 -p tcp --dport 2376 -j ACCEPT
 
 iptables -A OUTPUT -j DROP
 iptables -A INPUT -j DROP
 
-ip6tables -A INPUT -i docker0 -j ACCEPT
-ip6tables -A OUTPUT -o docker0 -j ACCEPT
-
 ip6tables -A OUTPUT -j DROP
 ip6tables -A INPUT -j DROP
 
-# Save rules
-if ! iptables-save > /etc/iptables/rules.v4; then
-    echo "Failed to save IPv4 rules"
-    exit 1
-fi
-if ! ip6tables-save > /etc/iptables/rules.v6; then
-    echo "Failed to save IPv6 rules"
-    exit 1
-fi
+save_rules() {
+    if command -v netfilter-persistent &> /dev/null; then
+        netfilter-persistent save
+    elif [ -d "/etc/iptables" ]; then
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
+    else
+        mkdir -p /etc/iptables
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
+    fi
+}
 
+
+# Save rules
+save_rules
+iptables-save | uniq | iptables-restore
+
+systemctl daemon-reload
 systemctl restart iptables
 
 disable_root_ssh
-sed -i '/nameserver/c\nameserver 8.8.8.8' /etc/resolv.conf
+
+# Check if resolvconf is installed
+# Function to check if resolv.conf is valid
+check_resolv_conf() {
+    if [ ! -f /etc/resolv.conf ] || ! grep -q "^nameserver" /etc/resolv.conf; then
+        echo "Invalid or missing resolv.conf, recreating..."
+        sudo rm -f /etc/resolv.conf
+        sudo bash -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+        sudo chmod 644 /etc/resolv.conf
+    fi
+
+    # Verify DNS resolution works
+    if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        echo "DNS resolution failed, recreating resolv.conf..."
+        sudo rm -f /etc/resolv.conf
+        sudo bash -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+        sudo chmod 644 /etc/resolv.conf
+    fi
+}
+check_resolv_conf
+
+if ! dpkg -l | grep -q "^ii.*resolvconf"; then
+    # Install and configure resolvconf
+    sudo DEBIAN_FRONTEND=noninteractive apt install resolvconf
+    sudo systemctl enable resolvconf.service
+    sudo systemctl start resolvconf.service
+    sudo bash -c 'echo "nameserver 8.8.8.8" > /etc/resolvconf/resolv.conf.d/head'
+    sudo resolvconf -u
+else
+    echo "resolvconf is already installed"
+fi
