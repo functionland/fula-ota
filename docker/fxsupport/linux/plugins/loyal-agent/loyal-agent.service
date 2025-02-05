@@ -1,0 +1,14 @@
+[Unit]
+Description=Loyal Agent
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/home/pi/.internal/plugins/loyal-agent
+ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/plugins/loyal-agent/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/plugins/loyal-agent/docker-compose.yml down
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
