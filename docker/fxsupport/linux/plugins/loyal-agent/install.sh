@@ -27,18 +27,18 @@ USER="pi"
 PLUGIN_NAME="loyal-agent"
 INTERNAL_DIR="/home/$USER/.internal"
 LOYAL_AGENT_DIR="$INTERNAL_DIR/plugins/$PLUGIN_NAME"
+mkdir -p "$INTERNAL_DIR/plugins"
+mkdir -p "$LOYAL_AGENT_DIR"
 PLUGIN_EXEC_DIR="/usr/bin/fula/plugins/${PLUGIN_NAME}"
-VENV_DIR="$LOYAL_AGENT_DIR/venv"
 
 # Create necessary directories
 mkdir -p "$INTERNAL_DIR/plugins"
-mkdir -p "$LOYAL_AGENT_DIR"
 
 sudo bash ${PLUGIN_EXEC_DIR}/custom/fix_freq_rk3588.sh
 
 mkdir -p /uniondrive/loyal-agent
 mkdir -p /uniondrive/loyal-agent/model
-wget -O /uniondrive/loyal-agent/model https://functionyard.fx.land/deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm
+wget -N -P /uniondrive/loyal-agent/model/ https://functionyard.fx.land/deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm
 
 # Copy service file
 cp "${PLUGIN_EXEC_DIR}/loyal-agent.service" "/etc/systemd/system/"
@@ -47,6 +47,7 @@ sleep 1
 # Copy docker-compose file
 
 cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$LOYAL_AGENT_DIR/"
+cp "${PLUGIN_EXEC_DIR}/.env" "$LOYAL_AGENT_DIR/"
 sync
 sleep 1
 # Reload systemd
@@ -59,5 +60,8 @@ sleep 1
 systemctl enable loyal-agent.service
 
 echo "Loyal agent installed successfully."
+sync 
+sleep 1
+systemctl start loyal-agent.service
 
 exit 0
