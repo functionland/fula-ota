@@ -8,6 +8,15 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# Check if RAM is greater than 15 GB
+RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+RAM_GB=$((RAM_KB / 1024 / 1024))
+
+if [ "$RAM_GB" -le 15 ]; then
+  echo "Insufficient RAM. At least 15 GB of RAM is required."
+  exit 1
+fi
+
 # Check if streamr service is already installed
 if systemctl list-unit-files | grep -q loyal-agent.service; then
   echo "Loyal agent service is already installed."
