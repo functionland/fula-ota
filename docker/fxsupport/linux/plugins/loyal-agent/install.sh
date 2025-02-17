@@ -38,7 +38,7 @@ sudo bash ${PLUGIN_EXEC_DIR}/custom/fix_freq_rk3588.sh
 
 mkdir -p /uniondrive/loyal-agent
 mkdir -p /uniondrive/loyal-agent/model
-wget -N -P /uniondrive/loyal-agent/model/ https://functionyard.fx.land/deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm
+nohup wget -b -N -P /uniondrive/loyal-agent/model/ https://functionyard.fx.land/deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm &> /uniondrive/loyal-agent/model/wget.log &
 
 # Copy service file
 cp "${PLUGIN_EXEC_DIR}/loyal-agent.service" "/etc/systemd/system/"
