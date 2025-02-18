@@ -59,6 +59,25 @@ sleep 1
 # Enable the service
 systemctl enable loyal-agent.service
 
+# Wait for the file to finish downloading
+echo "Waiting for the file to be fully downloaded..."
+while true; do
+    # Check if wget is still running
+    if pgrep -f "wget.*deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm" > /dev/null; then
+        echo "Download in progress..."
+        sleep 10  # Wait for 10 seconds before checking again
+    else
+        # Check if the file exists and is fully downloaded
+        if [ -f "/uniondrive/loyal-agent/model/deepseek-llm-7b-chat-rk3588-w8a8_g256-opt-1-hybrid-ratio-0.5.rkllm" ]; then
+            echo "File downloaded successfully."
+            break
+        else
+            echo "Download failed or incomplete. Exiting."
+            exit 1
+        fi
+    fi
+done
+
 echo "Loyal agent installed successfully."
 sync 
 sleep 1
