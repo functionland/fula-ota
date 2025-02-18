@@ -34,6 +34,10 @@
         {
             "order": 2,
             "description": "Click Install"
+        },
+        {
+            "order": 3,
+            "description": "After installation is finished, please give it some minutes to finalize downloading hte model before using it"
         }
     ],
     "requiredInputs": [

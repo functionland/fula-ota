@@ -1,6 +1,7 @@
 services:
   loyal-agent:
     image: functionland/loyal-agent:latest
+    container_name: loyal-agent
     security_opt:
       - systempaths=unconfined
     devices:
