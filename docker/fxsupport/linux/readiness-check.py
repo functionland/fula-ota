@@ -1,3 +1,4 @@
+# Watcher for Fula tower v1.2
 import os
 import subprocess
 import time
@@ -5,6 +6,7 @@ import logging
 import sys
 import requests
 import re
+import threading
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
@@ -18,6 +20,79 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
 )
+
+# Global variables to control LED flashing
+led_flash_thread = None
+led_flash_stop_event = None
+
+def start_led_flash(color, interval=1):
+    """
+    Start flashing the LED with the specified color at the given interval.
+    Uses threading instead of temporary files.
+    
+    Args:
+        color: The color to flash
+        interval: Time in seconds between flashes
+    """
+    global led_flash_thread, led_flash_stop_event
+    
+    # Stop any existing flash thread
+    stop_led_flash()
+    
+    # Create a new stop event
+    led_flash_stop_event = threading.Event()
+    
+    def flash_led_worker():
+        """Worker function that flashes the LED until stopped."""
+        while led_flash_stop_event and not led_flash_stop_event.is_set():
+            try:
+                # Turn on LED
+                subprocess.run(
+                    ["sudo", "python", LED_PATH, color, str(interval)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False
+                )
+                
+                # Wait for the interval or until stopped
+                if led_flash_stop_event and led_flash_stop_event.wait(timeout=interval):
+                    break
+                    
+            except Exception as e:
+                logging.error(f"Error in LED flash thread: {str(e)}")
+                # Brief pause to prevent CPU spinning in case of repeated errors
+                time.sleep(0.5)
+                
+        logging.debug("LED flash thread exiting")
+    
+    # Create and start the thread
+    led_flash_thread = threading.Thread(target=flash_led_worker, daemon=True)
+    led_flash_thread.start()
+    logging.info(f"Started LED flashing with color {color}")
+
+def stop_led_flash():
+    """
+    Stop the flashing LED thread if it exists.
+    This only terminates our flashing thread, not other LED control processes.
+    """
+    global led_flash_thread, led_flash_stop_event
+    
+    if led_flash_thread and led_flash_thread.is_alive():
+        if led_flash_stop_event:
+            # Signal the thread to stop
+            led_flash_stop_event.set()
+            
+            # Wait for the thread to exit (with timeout)
+            led_flash_thread.join(timeout=2.0)
+            
+            if led_flash_thread.is_alive():
+                logging.warning("LED flash thread did not exit cleanly")
+            else:
+                logging.info("Stopped LED flashing thread")
+        
+        # Reset the globals
+        led_flash_thread = None
+        led_flash_stop_event = None
 
 def get_wifi_info_and_ping():
     try:
@@ -98,29 +173,104 @@ def attempt_wifi_connection():
     config_yaml_path = os.path.join(HOME_PATH, ".internal", "config.yaml")
     if os.path.exists(config_yaml_path):
         logging.info("config.yaml exists, checking for non-FxBlox WiFi connections")
+        # LED flashing yellow code here to indicate connection attempt
+        start_led_flash("yellow")
         connections_output = subprocess.getoutput("sudo nmcli con show | grep wifi")
         wifi_connections = [line.split()[0] for line in connections_output.split('\n') if "wifi" in line and "FxBlox" not in line]
-
+        
         wifi_connected = False
+        connections_to_remove = []
+        
         for wifi_con in wifi_connections:
             logging.info(f"Attempting to connect to {wifi_con}")
-            result = subprocess.run(["sudo", "nmcli", "con", "up", wifi_con], capture_output=True)
+            
+            # Try to connect to the WiFi network
+            result = subprocess.run(["sudo", "nmcli", "con", "up", wifi_con], 
+                                   capture_output=True, text=True, timeout=30)
+            
             if result.returncode == 0:
                 logging.info(f"Successfully connected to {wifi_con}")
-                wifi_connected = True
-                break
+                # stop LED flashing yellow code here
+                stop_led_flash()
+                # LED flashing blue code here to indicate connection successful
+                start_led_flash("blue")
+                
+                # Verify internet connectivity by pinging a reliable server
+                ping_result = subprocess.run(["ping", "-c", "3", "-W", "5", "8.8.8.8"], 
+                                           capture_output=True, text=True)
+                
+                if ping_result.returncode == 0:
+                    logging.info(f"Internet connection verified for {wifi_con}")
+                    wifi_connected = True
+                    # stop LED flashing blue code here
+                    stop_led_flash()
+                    # LED flashing green code here to indicate ping successful
+                    start_led_flash("green")
+                    break
+                else:
+                    # LED flashing yellow code here to indicate connection attempt
+                    stop_led_flash()
+                    start_led_flash("yellow")
+                    logging.warning(f"Connected to {wifi_con} but no internet access")
+                    # Disconnect from this network as it has no internet
+                    subprocess.run(["sudo", "nmcli", "con", "down", wifi_con], 
+                                  capture_output=True, text=True)
             else:
-                logging.error(f"Failed to connect to {wifi_con}")
-                if result.stderr:
-                    logging.error(f"nmcli error: {result.stderr}")
-
+                # Check specific error conditions that indicate the network is unreachable
+                error_output = result.stderr.lower()
+                if any(err in error_output for err in [
+                    "no carrier", 
+                    "connection activation failed",
+                    "timeout",
+                    "authentication required",
+                    "wrong password",
+                    "not found"
+                ]):
+                    logging.error(f"Connection to {wifi_con} failed permanently: {error_output}")
+                    connections_to_remove.append(wifi_con)
+                else:
+                    logging.error(f"Failed to connect to {wifi_con}: {error_output}")
+        
+        # Remove networks that failed with permanent errors
+        for conn_name in connections_to_remove:
+            try:
+                logging.warning(f"Removing problematic WiFi connection: {conn_name}")
+                remove_result = subprocess.run(["sudo", "nmcli", "con", "delete", conn_name], 
+                                             capture_output=True, text=True, timeout=10)
+                
+                if remove_result.returncode == 0:
+                    logging.info(f"Successfully removed WiFi connection: {conn_name}")
+                else:
+                    logging.error(f"Failed to remove WiFi connection {conn_name}: {remove_result.stderr}")
+            except (subprocess.SubprocessError, subprocess.TimeoutExpired) as e:
+                logging.error(f"Error while removing WiFi connection {conn_name}: {str(e)}")
+        
+        # Check if we removed any bad connections
+        if len(connections_to_remove) > 0:
+            logging.info(f"Removed {len(connections_to_remove)} problematic WiFi connections. Rebooting system.")
+            stop_led_flash()
+            # Turn LED purple for 5 seconds
+            subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True)
+            time.sleep(5)  # Wait for LED to show for 5 seconds
+            # Reboot the system
+            subprocess.run(["sudo", "reboot"], capture_output=True)
+            # Exit function as system is rebooting
+            return None
+            
+        connections_to_remove = []
+        # If no successful connection, log the result but don't start hotspot
         if not wifi_connected:
             logging.info("No successful WiFi connections, defaulting to FxBlox hotspot")
-            subprocess.run(["sudo", "nmcli", "con", "up", "FxBlox"], capture_output=True)
+            # LED status update code here
+            stop_led_flash()
+            subprocess.run(["sudo", "python", LED_PATH, "red", "5"], capture_output=True)
+            # stop LED flashing all codes here
+            # Note: Hotspot will be started by another script
 
     else:
-        logging.info("config.yaml does not exist, attempting to start FxBlox hotspot")
-        subprocess.run(["sudo", "nmcli", "con", "up", "FxBlox"], capture_output=True)
+        logging.info("config.yaml does not exist, another script will handle hotspot")
+        # LED status update code here
+        subprocess.run(["sudo", "python", LED_PATH, "cyan", "5"], capture_output=True)
 
     return None
 
@@ -183,7 +333,7 @@ def check_and_fix_ipfs_host():
         ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
         if os.path.exists(ipfs_dir):
             subprocess.run(["sudo", "rm", "-rf", ipfs_dir])
-            logging.info("Ipfs Blocks directory contents removed.")
+            logging.info("Ipfs Blocks directory removed.")
         else:
             logging.warning("Ipfs Blocks directory not found.")
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
@@ -193,6 +343,30 @@ def check_and_fix_ipfs_host():
     if "could not get pinset from IPFS: Post" in ipfs_host_logs and "context deadline exceeded" in ipfs_host_logs:
         logging.warning("IPFS Host issue 2 detected. Restarting the container.")
         subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True)
+        return True
+
+    if "failed to open pebble database: pebble: database" in ipfs_host_logs:
+        logging.warning("IPFS Host issue 3 detected. Restarting the container.")
+        subprocess.run(["sudo", "docker", "stop", "ipfs_host"], capture_output=True)
+
+        time.sleep(10)
+        ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
+        if os.path.exists(ipfs_dir):
+            subprocess.run(["sudo", "rm", "-rf", ipfs_dir])
+            logging.info("Ipfs Blocks directory removed.")
+        else:
+            logging.warning("Ipfs Blocks directory not found.")
+
+        ipfs_datastore_dir = "/uniondrive/ipfs_datastore/datastore"
+        ipfs_datastore_dir_content = "/uniondrive/ipfs_datastore/datastore/*"
+        if os.path.exists(ipfs_datastore_dir):
+            subprocess.run(["sudo", "rm", "-rf", ipfs_datastore_dir_content])
+            logging.info("Ipfs Datastore directory contents removed.")
+        else:
+            logging.warning("Ipfs Datastore directory not found.")
+
+        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        time.sleep(30)
         return True
     
     return False
@@ -318,9 +492,9 @@ def monitor_docker_logs_and_restart():
     restart_attempts = 0
     if check_external_drive():
         # a partition needs reformatting, skip the loop and go to partition section
-        restart_attempts = 3
+        restart_attempts = 4
 
-    while restart_attempts < 3:
+    while restart_attempts < 4:
         logging.info("Entered into monitor while loop")
         time.sleep(450)
         get_wifi_info_and_ping()
@@ -345,7 +519,7 @@ def monitor_docker_logs_and_restart():
         else:
             logging.info("condition_check inside monitor passed")
 
-        while "active" not in docker_service_status and restart_attempts < 3:
+        while "active" not in docker_service_status and restart_attempts < 4:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
             subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
             subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True)
@@ -398,7 +572,7 @@ def monitor_docker_logs_and_restart():
             
         fula_node_fixed = check_and_fix_node()
 
-    if restart_attempts >= 3:
+    if restart_attempts >= 4:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
         current_time = time.time()
         
