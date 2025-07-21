@@ -371,24 +371,6 @@ def check_and_fix_ipfs_host():
     
     return False
 
-def check_and_fix_node():
-    fula_node_logs = subprocess.getoutput("sudo docker logs fula_node --tail 5 2>&1")
-    
-    if "Invalid argument: Column families not opened:" in fula_node_logs:
-        logging.warning("Fula Node issue 1 detected. Attempting to fix.")
-        fula_node_dir = "/uniondrive/chain/chains/functionyard/db/full"
-        if os.path.exists(fula_node_dir):
-            subprocess.run(["sudo", "rm", "-rf", fula_node_dir])
-            logging.info("Fula Node directory contents removed.")
-        else:
-            logging.warning("Fula Node  directory not found.")
-
-        subprocess.run(["sudo", "docker", "restart", "fula_node"], capture_output=True)
-        time.sleep(30)
-        return True
-    
-    return False
-
 def check_internet_connection():
     try:
         requests.head("https://www.google.com", timeout=5)
@@ -569,8 +551,6 @@ def monitor_docker_logs_and_restart():
         ipfs_host_fixed = check_and_fix_ipfs_host()
         if ipfs_cluster_fixed or ipfs_host_fixed:
             restart_attempts += 1
-            
-        fula_node_fixed = check_and_fix_node()
 
     if restart_attempts >= 4:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")

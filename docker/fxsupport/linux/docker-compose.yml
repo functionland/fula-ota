@@ -133,43 +133,6 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-  
-  node:
-    image: $SUGARFUNGE_NODE
-    restart: always
-    container_name: fula_node
-    depends_on:
-      - fxsupport
-      - kubo
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    volumes:
-      - /home/pi/.internal/:/internal:rw,rshared
-      - shared-volume-external:/uniondrive:rw
-      - /home/pi/:/home:rw,rshared
-      - /media/pi/:/storage:rw,rshared
-      - /var/run/dbus:/var/run/dbus
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    privileged: true
-    # TODO: Correct ipfs inside node to accept localhost as parameter instead of using 127.0.0.1 to remove host mode and use host.docker.internal:5001
-    network_mode: "host"
-    # extra_hosts:
-    # - "host.docker.internal:host-gateway"
-    ports:
-      - "127.0.0.1:4000:4000" # API port
-      - "9945:9945" # Node Rpc Port
-      - "30335:30335" #Node Port
-    devices:
-       - /dev/fuse:/dev/fuse:rwm 
-    cap_add:
-      - ALL
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
 
   fxsupport:
     image: $FX_SUPPROT

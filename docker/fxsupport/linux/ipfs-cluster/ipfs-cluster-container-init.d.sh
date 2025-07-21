@@ -44,9 +44,6 @@ while ! check_files_and_folders || ! check_writable; do
 done
 
 poolName=""
-# URL to check
-cluster_url="https://api.node3.functionyard.fula.network" #This can be changed to blockchain api if we add metadata to each pool with 'creator_clusterpeerid' for example
-
 
 # Wait for CLUSTER_SECRET to be set
 poolName=$(grep 'poolName:' "${fula_file_path}" | cut -d':' -f2 | tr -d ' "')
@@ -59,35 +56,8 @@ while [ -z "$poolName" ] || [ "$poolName" = "0" ]; do
 done
 
 get_poolcreator_peerid() {
-  # Step 1: Call the URL to fetch pool data and save it to a temporary file
-  if ! curl -s -X POST -H 'Content-Type: application/json' -d "{\"pool_id\": $CLUSTER_CLUSTERNAME}" "$cluster_url/fula/pool" -o "/uniondrive/.tmp/pool_data.json"; then
-      echo "Failed to fetch pool data"
-      exit 1
-  fi
-
-  # Step 2: Parse the creator_clusterpeerid from the JSON response
-  creator_clusterpeerid=$(jq -r --arg CLUSTER_CLUSTERNAME "$CLUSTER_CLUSTERNAME" '.pools[] | select(.pool_id == ($CLUSTER_CLUSTERNAME | tonumber)) | .creator' "/uniondrive/.tmp/pool_data.json")
-
-  # Check if creator_clusterpeerid is empty or not found
-  if [ -z "$creator_clusterpeerid" ]; then
-      echo "Creator cluster peer ID not found."
-      exit 1
-  fi
-
-  # Step 3: Call the URL to fetch user data and save it to a temporary file
-  curl -s -X POST -H 'Content-Type: application/json' -d "{\"pool_id\": $CLUSTER_CLUSTERNAME}" "$cluster_url/fula/pool/users" -o "/uniondrive/.tmp/pool_users.json"
-
-  # Step 4: Find the peer_id corresponding to the creator account from the response
-  peer_id=$(jq -r --arg creator_clusterpeerid "$creator_clusterpeerid" '.users[] | select(.account == $creator_clusterpeerid) | .peer_id' "/uniondrive/.tmp/pool_users.json")
-
-  # Check if peer_id is empty or not found
-  if [ -z "$peer_id" ]; then
-      echo "Peer ID for the creator not found."
-      exit 1
-  fi
-
   # Step 5: Set CLUSTER_CRDT_TRUSTEDPEERS
-  export CLUSTER_CRDT_TRUSTEDPEERS="$peer_id"
+  export CLUSTER_CRDT_TRUSTEDPEERS="12D3KooWS79EhkPU7ESUwgG4vyHHzW9FDNZLoWVth9b5N5NSrvaj"
 }
 
 
@@ -100,27 +70,50 @@ secret=$(printf "%s" "${CLUSTER_CLUSTERNAME}" | sha256sum | cut -d' ' -f1)
 export CLUSTER_SECRET="${secret}"
 append_or_replace "/.env.cluster" "CLUSTER_SECRET" "${CLUSTER_SECRET}"
 
-node_account=$(cat "/internal/.secrets/account.txt")
-export CLUSTER_PEERNAME="${node_account}" #This is the node Aura account id
-append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
+# Function to get IPFS peer ID with fallback mechanisms
+get_ipfs_peer_id() {
+    peer_id=""
 
-# Perform a HEAD request to check the response code
-success=0
-while [ $success -eq 0 ]; do
-    echo "Request failed, retrying in 60 seconds..."
-    status_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H 'Content-Type: application/json' -d '{"pool_id": 1}' "$cluster_url/fula/pool")
-    case $status_code in
-    2*)
-        echo "Success (This indicates a 2xx response)"
-        success=1
-        ;;
-    *)
-        echo "Failure (This could indicate a non-2xx response, network error, etc.)"
-        sleep 60
-        ;;
-    esac
-done
-echo "Request to pool succeeded with response 200"
+    # Method 1: Try to get peer ID from IPFS identity file
+    if [ -f "/uniondrive/ipfs-cluster/identity.json" ]; then
+        peer_id=$(jq -r '.id // empty' "/uniondrive/ipfs-cluster/identity.json" 2>/dev/null)
+        if [ -n "$peer_id" ] && [ "$peer_id" != "null" ]; then
+            echo "Found peer ID from identity.json: $peer_id" >&2
+            echo "$peer_id"
+            return 0
+        fi
+    fi
+
+    # Method 2: Try to get peer ID from IPFS API
+    echo "Attempting to get peer ID from IPFS API..." >&2
+    max_attempts=10
+    attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        if nc -z 127.0.0.1 5001 2>/dev/null; then
+            peer_id=$(curl -s -X POST "http://127.0.0.1:5001/api/v0/id" 2>/dev/null | jq -r '.ID // empty' 2>/dev/null)
+            if [ -n "$peer_id" ] && [ "$peer_id" != "null" ] && [ "$peer_id" != "empty" ]; then
+                echo "Successfully retrieved peer ID from IPFS API: $peer_id" >&2
+                echo "$peer_id"
+                return 0
+            fi
+        fi
+        echo "Attempt $attempt/$max_attempts: IPFS API not ready, waiting 5 seconds..." >&2
+        sleep 5
+        attempt=$((attempt + 1))
+    done
+
+    # Method 3: Fallback to hostname-based ID
+    echo "Warning: Could not retrieve IPFS peer ID, using hostname-based fallback" >&2
+    peer_id="fula-peer-$(hostname)-$(date +%s)"
+    echo "$peer_id"
+    return 1
+}
+
+# Get the peer ID using the function above
+ipfs_peer_id=$(get_ipfs_peer_id)
+export CLUSTER_PEERNAME="${ipfs_peer_id}"
+append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
     
     mkdir -p /uniondrive/.tmp
     get_poolcreator_peerid
