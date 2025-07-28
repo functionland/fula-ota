@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const properties = [
                 { name: 'Fula Image Date', value: data.containerInfo_fula.created },
                 { name: 'FxSupport Image Date', value: data.containerInfo_fxsupport.created },
-                { name: 'Node Image Date', value: data.containerInfo_node.created },
                 { name: 'Hardware ID', value: data.hardwareID },
                 { name: 'OTA Version', value: data.ota_version }
             ];
