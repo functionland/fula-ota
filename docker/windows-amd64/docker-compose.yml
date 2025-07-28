@@ -127,39 +127,6 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  node:
-    image: ${SUGARFUNGE_NODE}
-    restart: always
-    container_name: fula_node
-    depends_on:
-      - fxsupport
-      - kubo
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    volumes:
-      - ${env:InstallationPath}/.internal:/internal:rw,shared
-      - ${env:ExternalDrive}/uniondrive:/uniondrive:rw,shared
-      - ${env:InstallationPath}:/home:rw,shared
-      - ${env:InstallationPath}/media:/storage:rw,shared
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    privileged: true
-    network_mode: "host"
-    ports:
-      - "127.0.0.1:4000:4000" # API port
-      - "9945:9945" # Node Rpc Port
-      - "30335:30335" #Node Port
-    devices:
-       - /dev/fuse:/dev/fuse:rwm 
-    cap_add:
-      - ALL
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-
   fxsupport:
     image: ${FX_SUPPROT}
     restart: always

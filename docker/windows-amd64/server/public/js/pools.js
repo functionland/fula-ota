@@ -5,7 +5,7 @@ let globalUserStatus;
 
 // Function to restart Docker containers
 async function restartDockerContainers() {
-    const containers = ['ipfs_host', 'ipfs_cluster', 'fula_go', 'fula_node'];
+    const containers = ['ipfs_host', 'ipfs_cluster', 'fula_go'];
     for (const container of containers) {
         try {
             await axios.post('/api/docker/restart', { container });

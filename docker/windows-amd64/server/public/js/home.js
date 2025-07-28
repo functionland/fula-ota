@@ -26,7 +26,7 @@ const checkDockerStatus = async (dockerName) => {
 
 // Function to update Docker information
 const updateDockerInfo = async () => {
-    const dockerNames = ['fula_go', 'fula_node', 'ipfs_host', 'ipfs_cluster', 'fula_fxsupport'];
+    const dockerNames = ['fula_go', 'ipfs_host', 'ipfs_cluster', 'fula_fxsupport'];
     for (const dockerName of dockerNames) {
         const statusElement = document.getElementById(`${dockerName}-status`);
         const hintElement = document.getElementById(`${dockerName}-hint`);

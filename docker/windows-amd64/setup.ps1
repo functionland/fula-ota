@@ -64,7 +64,6 @@ Write-Host "Creating .env file..."
 $envContent = @"
 GO_FULA=index.docker.io/$env:DOCKER_REPO/go-fula:$env:DEFAULT_TAG
 FX_SUPPROT=index.docker.io/$env:DOCKER_REPO/fxsupport:$env:DEFAULT_TAG
-SUGARFUNGE_NODE=index.docker.io/$env:DOCKER_REPO/node:$env:DEFAULT_TAG
 IPFS_CLUSTER=index.docker.io/$env:DOCKER_REPO/ipfs-cluster:$env:DEFAULT_TAG
 CURRENT_USER=$env:USERNAME
 EXTERNAL_DRIVE_PATH=$env:EXTERNAL_DRIVE_PATH

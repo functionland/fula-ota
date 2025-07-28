@@ -104,9 +104,6 @@ format_storage_devices() {
             continue  # Skip to the next device
         fi
         sudo docker stop fula_go 2>&1 | sudo tee -a $FULA_LOG_PATH | true
-        if sudo docker ps -a --format "table {{.Names}}" | grep -q "^fula_node$"; then
-            sudo docker stop fula_node 2>&1 | sudo tee -a $FULA_LOG_PATH | true
-        fi
         sudo docker stop ipfs_cluster 2>&1 | sudo tee -a $FULA_LOG_PATH | true
         sudo docker stop ipfs_host 2>&1 | sudo tee -a $FULA_LOG_PATH | true
         PARTITIONS=$(sudo fdisk -l "$DEVICE" | grep "^${DEVICE}[0-9]*")
