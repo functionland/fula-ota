@@ -185,7 +185,72 @@ setup_storage_access() {
         sudo chmod 777 -R "$shared_folder"
         sleep 1
         sleep 2
-        sudo systemctl restart smbd
+        
+        # Ensure Samba configuration and user are properly set up
+        echo "Verifying Samba configuration..."
+        
+        # Check and add SharedFolder configuration if missing
+        if ! grep -q "\[SharedFolder\]" "$smb_conf" 2>/dev/null; then
+            echo "Adding missing SharedFolder configuration..."
+            local smb_config="[SharedFolder]
+path = $shared_folder
+browseable = yes
+writable = yes
+guest ok = yes
+read only = no
+create mask = 0777
+directory mask = 0777"
+            echo "" | sudo tee -a "$smb_conf" > /dev/null
+            echo -e "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+        fi
+        
+        # Ensure pi user exists in Samba
+        if ! sudo pdbedit -L | grep -q "pi"; then
+            echo "Adding missing Samba user 'pi'..."
+            # Check if pi user exists in system
+            if ! id "pi" &>/dev/null; then
+                echo "Creating pi user..."
+                sudo useradd -m -s /bin/bash pi
+                echo "pi:fxblox" | sudo chpasswd
+            fi
+            
+            # Add pi user to Samba
+            if [ "${arch}" == "RPI4" ]; then
+                echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi 2>/dev/null || {
+                    echo -e "raspberry\nraspberry" | sudo smbpasswd pi
+                }
+            else
+                echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi 2>/dev/null || {
+                    echo -e "fxblox\nfxblox" | sudo smbpasswd pi
+                }
+            fi
+        fi
+        
+        # Check if smbd service exists and handle it properly
+        if service_exists "smbd"; then
+            echo "Restarting smbd service..."
+            sudo systemctl restart smbd
+        elif service_exists "samba"; then
+            echo "Restarting samba service..."
+            sudo systemctl restart samba
+        else
+            echo "Warning: Neither smbd nor samba service found. Installing and setting up Samba..."
+            # Install Samba if not already installed
+            if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
+                echo "Installing Samba..."
+                sudo apt update
+                sudo apt install -y samba samba-common-bin
+            fi
+            
+            # Enable and start the service
+            if service_exists "smbd"; then
+                sudo systemctl enable smbd
+                sudo systemctl start smbd
+            elif service_exists "samba"; then
+                sudo systemctl enable samba
+                sudo systemctl start samba
+            fi
+        fi
         return 0
     fi
 
@@ -220,26 +285,66 @@ read only = no
 create mask = 0777
 directory mask = 0777"
 
-    if [ ! -f "$smb_conf" ] || ! grep -q "\[SharedFolder\]" "$smb_conf"; then
-        echo "Configuring Samba..."
+    # Configure Samba - ensure SharedFolder section is added
+    if ! grep -q "\[SharedFolder\]" "$smb_conf" 2>/dev/null; then
+        echo "Adding SharedFolder configuration to Samba..."
+        echo "" | sudo tee -a "$smb_conf" > /dev/null
         echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
-    elif ! diff <(echo "$smb_config") <(sed -n '/\[SharedFolder\]/,/^$/p' "$smb_conf") > /dev/null; then
-        echo "Updating Samba configuration..."
-        sudo sed -i '/\[SharedFolder\]/,/^$/d' "$smb_conf"
-        echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+    else
+        echo "SharedFolder configuration already exists in Samba config."
+        # Update existing configuration if different
+        if ! diff <(echo "$smb_config") <(sed -n '/\[SharedFolder\]/,/^$/p' "$smb_conf" | head -n -1) > /dev/null 2>&1; then
+            echo "Updating existing SharedFolder configuration..."
+            sudo sed -i '/\[SharedFolder\]/,/^$/d' "$smb_conf"
+            echo "" | sudo tee -a "$smb_conf" > /dev/null
+            echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+        fi
     fi
 
-    # Set up Samba user
+    # Set up Samba user - ensure pi user exists in system first
     echo "Setting up Samba user..."
+    
+    # Check if pi user exists in system
+    if ! id "pi" &>/dev/null; then
+        echo "Creating pi user..."
+        sudo useradd -m -s /bin/bash pi
+        echo "pi:fxblox" | sudo chpasswd
+    fi
+    
+    # Add pi user to Samba with appropriate password
     if [ "${arch}" == "RPI4" ]; then
-        echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi
+        echo "Adding pi user to Samba with raspberry password..."
+        echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi 2>/dev/null || {
+            echo "Failed to add pi user to Samba, trying to update existing user..."
+            echo -e "raspberry\nraspberry" | sudo smbpasswd pi
+        }
     else
-        echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi
+        echo "Adding pi user to Samba with fxblox password..."
+        echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi 2>/dev/null || {
+            echo "Failed to add pi user to Samba, trying to update existing user..."
+            echo -e "fxblox\nfxblox" | sudo smbpasswd pi
+        }
+    fi
+    
+    # Verify Samba user was created
+    if sudo pdbedit -L | grep -q "pi"; then
+        echo "Samba user 'pi' successfully configured."
+    else
+        echo "Warning: Failed to configure Samba user 'pi'."
     fi
 
     # Restart Samba service
     echo "Restarting Samba service..."
-    sudo systemctl restart smbd
+    if service_exists "smbd"; then
+        sudo systemctl enable smbd
+        sudo systemctl restart smbd
+    elif service_exists "samba"; then
+        sudo systemctl enable samba
+        sudo systemctl restart samba
+    else
+        echo "Error: Neither smbd nor samba service found after installation. This should not happen."
+        return 1
+    fi
 
     # Create setup flag
     touch "$setup_flag"
