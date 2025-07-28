@@ -9,7 +9,7 @@ echo "=== Configuration Validation Tests ==="
 # Test 1: Check for remaining node references in scripts
 echo "1. Scanning for remaining node references..."
 
-SEARCH_DIRS="docker/fxsupport/linux docker/go-fula docker/ipfs-cluster"
+SEARCH_DIRS="../docker/fxsupport/linux ../docker/go-fula ../docker/ipfs-cluster"
 NODE_REFS=$(find $SEARCH_DIRS -type f \( -name "*.sh" -o -name "*.py" -o -name "*.yml" -o -name "*.yaml" \) -exec grep -l "fula_node\|sugarfunge.*node\|node\.functionyard\|api\.node3\.functionyard" {} \; 2>/dev/null || true)
 
 if [ -n "$NODE_REFS" ]; then

@@ -8,7 +8,7 @@ echo "=== Docker Compose Validation Tests ==="
 
 # Test 1: Validate docker-compose syntax
 echo "1. Testing docker-compose syntax..."
-cd docker/fxsupport/linux
+cd ../docker/fxsupport/linux
 if docker-compose -f docker-compose.yml config --quiet; then
     echo "✅ Docker compose syntax is valid"
 else

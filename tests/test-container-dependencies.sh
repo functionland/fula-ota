@@ -9,7 +9,7 @@ echo "=== Container Dependency Tests ==="
 # Test 1: Check if removing node service breaks dependencies
 echo "1. Testing container dependencies after node removal..."
 
-cd docker/fxsupport/linux
+cd ../docker/fxsupport/linux
 
 # Parse docker-compose to check dependencies
 echo "2. Analyzing service dependencies..."
