@@ -486,6 +486,19 @@ function install() {
     sudo chmod -R 755 ${FULA_PATH}/kubo
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
     sudo chmod -R 755 ${FULA_PATH}/plugins
+    
+    # Set execute permissions for shell scripts to prevent permission denied errors
+    sudo chmod +x ${FULA_PATH}/fula.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on fula.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/union-drive.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on union-drive.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/resize.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on resize.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/wifi.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on wifi.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/bluetooth.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on bluetooth.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/update.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on update.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/commands.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on commands.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/repairfs.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/check-mount.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/automount.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on automount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    sudo chmod +x ${FULA_PATH}/plugins.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on plugins.sh" | sudo tee -a $FULA_LOG_PATH; } || true
 
     cp ${INSTALLATION_FULA_DIR}/fula.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -627,6 +640,10 @@ function install() {
 
   systemctl enable fula-readiness-check.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing fula-readiness-check Finished" | sudo tee -a $FULA_LOG_PATH
+
+  # Install bootup reset service for fresh installations
+  install_bootup_reset || { echo "Error installing bootup reset service" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  echo "Installing bootup-reset service Finished" | sudo tee -a $FULA_LOG_PATH
 
   echo "Setting up cron job for manual update" | sudo tee -a $FULA_LOG_PATH
   create_cron 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not setup cron job" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
@@ -878,6 +895,335 @@ migrate_to_pebble() {
 }
 
 
+# Install bootup reset service for device reset functionality
+function install_bootup_reset() {
+  local service_name="bootup-reset"
+  local service_file="${SYSTEMD_PATH}/${service_name}.service"
+  local action_script="${FULA_PATH}/bootup_reset_action.py"
+  
+  echo "Checking bootup-reset service..." | sudo tee -a $FULA_LOG_PATH
+  
+  # Check if service already exists
+  if systemctl list-unit-files | grep -q "^${service_name}.service"; then
+    echo "bootup-reset service already exists, skipping installation" | sudo tee -a $FULA_LOG_PATH
+    return 0
+  fi
+  
+  echo "Installing bootup-reset service..." | sudo tee -a $FULA_LOG_PATH
+  
+  # Create the Python action script
+  cat > /tmp/bootup_reset_action.py << 'EOF'
+#!/usr/bin/env python3
+"""
+Bootup Reset Action Script
+Handles device reset logic based on boot frequency and WiFi connections
+"""
+
+import os
+import sys
+import time
+import subprocess
+import logging
+from pathlib import Path
+
+# Configuration
+HOME_DIR = "/home/pi"
+FULA_PATH = "/usr/bin/fula"
+BOOT_TIMESTAMP_FILE = f"{HOME_DIR}/boot.tmp"
+CONFIG_FILE = f"{HOME_DIR}/.internal/config.yaml"
+CONTROL_LED_SCRIPT = f"{FULA_PATH}/control_led.py"
+LOG_FILE = f"{HOME_DIR}/fula.sh.log"
+MAX_TIMESTAMP_RECORDS = 10
+RESET_TIME_WINDOW = 15 * 60  # 15 minutes in seconds
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, mode='a'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+def get_current_timestamp():
+    """Get current timestamp in seconds with time sync attempt"""
+    logger.info("=== Getting current timestamp ===")
+    
+    # Log system time info
+    try:
+        date_output = subprocess.run(['date'], capture_output=True, text=True)
+        logger.info(f"System date command output: {date_output.stdout.strip()}")
+    except Exception as e:
+        logger.error(f"Error getting system date: {e}")
+    
+    # Try to force time sync
+    try:
+        logger.info("Attempting to sync time with systemd-timesyncd...")
+        subprocess.run(['systemctl', 'restart', 'systemd-timesyncd'], check=False, timeout=5)
+        time.sleep(3)  # Wait for sync
+        
+        # Check if timedatectl is available
+        timedatectl_output = subprocess.run(['timedatectl', 'status'], capture_output=True, text=True, timeout=5)
+        if timedatectl_output.returncode == 0:
+            logger.info(f"timedatectl status: {timedatectl_output.stdout[:200]}...")  # Truncate long output
+    except Exception as e:
+        logger.warning(f"Time sync attempt failed: {e}")
+    
+    # Get timestamp
+    current_time = int(time.time())
+    logger.info(f"Final timestamp: {current_time}")
+    
+    # Flash yellow LED for 2 seconds to indicate timestamp recording
+    try:
+        subprocess.run(['python3', CONTROL_LED_SCRIPT, 'yellow', '2'], check=True, timeout=5)
+        logger.info("Flashed yellow LED for timestamp recording")
+    except Exception as e:
+        logger.warning(f"Failed to flash yellow LED: {e}")
+    
+    # Convert to human readable for logging
+    try:
+        human_time = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(current_time))
+        logger.info(f"Timestamp in human format: {human_time}")
+    except Exception as e:
+        logger.error(f"Error converting timestamp to human format: {e}")
+    
+    return current_time
+
+def read_boot_timestamps():
+    """Read last boot timestamps from file"""
+    timestamps = []
+    try:
+        if os.path.exists(BOOT_TIMESTAMP_FILE):
+            with open(BOOT_TIMESTAMP_FILE, 'r') as f:
+                lines = f.read().strip().split('\n')
+                # Get last 4 lines (or all if less than 4)
+                timestamps = [int(line.strip()) for line in lines[-4:] if line.strip().isdigit()]
+        logger.info(f"Read {len(timestamps)} timestamps from boot file")
+    except Exception as e:
+        logger.error(f"Error reading boot timestamps: {e}")
+    return timestamps
+
+def check_reset_conditions(timestamps, current_timestamp):
+    """Check if reset conditions are met"""
+    # Need at least 4 previous timestamps plus current one (total 5)
+    if len(timestamps) < 4:
+        logger.info(f"Only {len(timestamps)} previous timestamps, need 4 for reset check")
+        return False
+    
+    # Add current timestamp to check 5 total timestamps
+    all_timestamps = timestamps + [current_timestamp]
+    all_timestamps.sort()
+    
+    # Check if all 5 timestamps are within 15 minutes
+    time_window_check = (all_timestamps[-1] - all_timestamps[0]) <= RESET_TIME_WINDOW
+    logger.info(f"Time window check (15 min): {time_window_check} - Range: {all_timestamps[-1] - all_timestamps[0]} seconds")
+    
+    # Check for non-docker, non-FxBlox WiFi connections
+    wifi_check = has_user_wifi_connections()
+    logger.info(f"User WiFi connection check: {wifi_check}")
+    
+    return time_window_check and wifi_check
+
+def has_user_wifi_connections():
+    """Check if there are WiFi connections other than docker and FxBlox"""
+    try:
+        result = subprocess.run(['nmcli', 'con', 'show'], capture_output=True, text=True, check=True)
+        connections = result.stdout.strip().split('\n')[1:]  # Skip header
+        
+        for line in connections:
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 3:
+                name = parts[0]
+                conn_type = parts[2]
+                # Check for WiFi connections that are not docker or FxBlox
+                if conn_type == 'wifi' and name not in ['docker0', 'FxBlox']:
+                    logger.info(f"Found user WiFi connection: {name}")
+                    return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking WiFi connections: {e}")
+        return False
+
+def perform_reset_actions():
+    """Perform reset actions when conditions are met"""
+    logger.info("Reset conditions met, performing reset actions...")
+    
+    try:
+        # 1. Clear timestamp file content
+        with open(BOOT_TIMESTAMP_FILE, 'w') as f:
+            f.write('')
+        logger.info("Cleared boot timestamp file")
+        
+        # 2. Delete user WiFi connections (keep FxBlox and docker)
+        delete_user_wifi_connections()
+        
+        # 3. Delete config.yaml
+        if os.path.exists(CONFIG_FILE):
+            os.remove(CONFIG_FILE)
+            logger.info(f"Deleted {CONFIG_FILE}")
+        
+        # 4. Start LED flashing
+        start_led_flashing()
+        
+    except Exception as e:
+        logger.error(f"Error during reset actions: {e}")
+
+def delete_user_wifi_connections():
+    """Delete WiFi connections except FxBlox and docker"""
+    try:
+        result = subprocess.run(['nmcli', 'con', 'show'], capture_output=True, text=True, check=True)
+        connections = result.stdout.strip().split('\n')[1:]  # Skip header
+        
+        for line in connections:
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 3:
+                name = parts[0]
+                conn_type = parts[2]
+                # Delete WiFi connections that are not docker or FxBlox
+                if conn_type == 'wifi' and name not in ['docker0', 'FxBlox']:
+                    try:
+                        subprocess.run(['nmcli', 'con', 'delete', name], check=True)
+                        logger.info(f"Deleted WiFi connection: {name}")
+                    except subprocess.CalledProcessError as e:
+                        logger.error(f"Failed to delete WiFi connection {name}: {e}")
+    except Exception as e:
+        logger.error(f"Error deleting WiFi connections: {e}")
+
+def start_led_flashing():
+    """Flash LED blue for 5 seconds"""
+    try:
+        # Remove persistence file if it exists
+        persist_file = f"{HOME_DIR}/control_led.per"
+        if os.path.exists(persist_file):
+            os.remove(persist_file)
+            logger.info("Removed LED persistence file")
+        
+        if os.path.exists(CONTROL_LED_SCRIPT):
+            # Flash blue LED for 5 seconds
+            subprocess.run(['python3', CONTROL_LED_SCRIPT, 'blue', '5'], check=True, timeout=10)
+            logger.info("Flashed blue LED for 5 seconds")
+        else:
+            logger.warning(f"LED control script not found: {CONTROL_LED_SCRIPT}")
+    except Exception as e:
+        logger.error(f"Error flashing LED: {e}")
+
+def update_boot_timestamps(timestamps, current_timestamp):
+    """Update boot timestamps file with current timestamp"""
+    try:
+        # Add current timestamp
+        all_timestamps = timestamps + [current_timestamp]
+        # Keep only last MAX_TIMESTAMP_RECORDS
+        all_timestamps = all_timestamps[-MAX_TIMESTAMP_RECORDS:]
+        
+        # Write to file
+        os.makedirs(os.path.dirname(BOOT_TIMESTAMP_FILE), exist_ok=True)
+        with open(BOOT_TIMESTAMP_FILE, 'w') as f:
+            for ts in all_timestamps:
+                f.write(f"{ts}\n")
+        
+        logger.info(f"Updated boot timestamps file with {len(all_timestamps)} records")
+    except Exception as e:
+        logger.error(f"Error updating boot timestamps: {e}")
+
+def main():
+    """Main execution function"""
+    logger.info("=== Bootup Reset Action Started ===")
+    
+    try:
+        # 1. Record current timestamp
+        current_timestamp = get_current_timestamp()
+        logger.info(f"Current timestamp: {current_timestamp}")
+        
+        # 2. Read existing timestamps
+        timestamps = read_boot_timestamps()
+        
+        # 3. Check reset conditions
+        if check_reset_conditions(timestamps, current_timestamp):
+            # Flash purple LED with persist to indicate reset conditions met
+            try:
+                subprocess.run(['python3', CONTROL_LED_SCRIPT, 'light_purple', '999999', '--persist'], check=True, timeout=5)
+                logger.info("Flashed purple LED with persist for reset conditions")
+            except Exception as e:
+                logger.warning(f"Failed to flash purple LED: {e}")
+            
+            perform_reset_actions()
+            # After reset actions, record current timestamp in the now-empty file
+            update_boot_timestamps([], current_timestamp)
+            logger.info("Reset actions completed, recorded current timestamp")
+        else:
+            # Update timestamp file with current timestamp
+            update_boot_timestamps(timestamps, current_timestamp)
+            logger.info("Reset conditions not met, updated timestamp file")
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in main: {e}")
+        sys.exit(1)
+    
+    logger.info("=== Bootup Reset Action Completed ===")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+  # Move the script to the correct location with proper permissions
+  sudo mv /tmp/bootup_reset_action.py "$action_script" || {
+    echo "Error moving bootup reset action script" | sudo tee -a $FULA_LOG_PATH
+    return 1
+  }
+  sudo chmod +x "$action_script" || {
+    echo "Error setting permissions on bootup reset action script" | sudo tee -a $FULA_LOG_PATH
+    return 1
+  }
+  
+  # Create the systemd service file
+  cat > /tmp/bootup-reset.service << EOF
+[Unit]
+Description=Bootup Reset Service
+After=network.target time-sync.target systemd-timesyncd.service
+Wants=network.target time-sync.target
+Requires=network.target
+
+[Service]
+Type=oneshot
+User=root
+# Add a delay to ensure time is properly synchronized
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 ${action_script}
+StandardOutput=append:${FULA_LOG_PATH}
+StandardError=append:${FULA_LOG_PATH}
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  # Move service file to systemd directory
+  sudo mv /tmp/bootup-reset.service "$service_file" || {
+    echo "Error moving bootup reset service file" | sudo tee -a $FULA_LOG_PATH
+    return 1
+  }
+  
+  # Reload systemd and enable the service
+  sudo systemctl daemon-reload || {
+    echo "Error reloading systemd daemon" | sudo tee -a $FULA_LOG_PATH
+    return 1
+  }
+  
+  sudo systemctl enable "$service_name.service" || {
+    echo "Error enabling bootup-reset service" | sudo tee -a $FULA_LOG_PATH
+    return 1
+  }
+  
+  echo "Successfully installed bootup-reset service" | sudo tee -a $FULA_LOG_PATH
+  return 0
+}
+
 function restart() {
   # Moved while loop to after installation
   if [ -d ${FULA_PATH}/kubo ]; then
@@ -894,6 +1240,9 @@ function restart() {
   fi
   
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  # Install bootup reset service for backward compatibility with existing installations
+  install_bootup_reset || { echo "Error installing bootup reset service" | sudo tee -a $FULA_LOG_PATH; } || true
 
   sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true

@@ -70,16 +70,38 @@ else:
     # Test WiFi Module
     print("Testing WiFi Module:")
     # Keep checking for WiFi module every second until it's ready or until we've waited too long
-    timeout = time.time() + 60*1  # Maximum of 2 minutes wait time
+    timeout = time.time() + 60*1  # Maximum of 1 minute wait time
+    wifi_found = False
+    
     while True:
-        wifi_modules_output = run_command("iwconfig 2>&1 | grep -B 1 'wlan'")
-        if wifi_modules_output:
-            print(wifi_modules_output)
+        # Check for WiFi interfaces using multiple methods for better compatibility
+        # Method 1: Check iwconfig for any wireless interface
+        wifi_iwconfig = run_command("iwconfig 2>/dev/null | grep -E '(IEEE 802.11|ESSID|wireless)'")
+        
+        # Method 2: Check ip link for wireless interfaces
+        wifi_ip_link = run_command("ip link show | grep -E '(wlan|wl[a-zA-Z0-9]+)'")
+        
+        # Method 3: Check /sys/class/net for wireless interfaces
+        wifi_sys_net = run_command("find /sys/class/net -name 'wireless' -type d 2>/dev/null | head -1")
+        
+        # Method 4: Check nmcli for WiFi devices
+        wifi_nmcli = run_command("nmcli device status 2>/dev/null | grep wifi")
+        
+        if wifi_iwconfig or wifi_ip_link or wifi_sys_net or wifi_nmcli:
+            print("WiFi module detected:")
+            if wifi_iwconfig:
+                print(f"iwconfig output: {wifi_iwconfig[:200]}...")  # Truncate long output
+            if wifi_nmcli:
+                print(f"nmcli output: {wifi_nmcli}")
+            wifi_found = True
             break
         elif time.time() > timeout:
             print("No WiFi Module Found. Waited for 1 minute.")
+            print("Checked iwconfig, ip link, /sys/class/net, and nmcli")
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '5'])
             raise Exception("WiFi module not found")
+        
+        print("Waiting for 1 second...")
         time.sleep(1)  # Wait for a second before checking again
 
     # Test USB Ports
