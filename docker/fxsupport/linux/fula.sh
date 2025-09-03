@@ -1297,14 +1297,19 @@ function restart() {
     echo "Ran $UPDATE_SC" | sudo tee -a $FULA_LOG_PATH
   fi
 
-  # Check if the directory exists and the version file contains '15'
-    if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
-        # Use sed to replace '15' with '16' in the version file
-        if grep -q '^15$' "$VERSION_FILE"; then
-            sed -i 's/^15$/16/' "$VERSION_FILE"
-            echo "Updated version from 15 to 16 in $VERSION_FILE"
-        fi
-    fi
+  # Check if the directory exists and the version file contains '15' or '16'
+  if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
+      case "$(cat "$VERSION_FILE")" in
+          15)
+              sed -i 's/^15$/17/' "$VERSION_FILE"
+              echo "Updated version from 15 to 17 in $VERSION_FILE"
+              ;;
+          16)
+              sed -i 's/^16$/17/' "$VERSION_FILE"
+              echo "Updated version from 16 to 17 in $VERSION_FILE"
+              ;;
+      esac
+  fi
 
   # TODO: Find a better solution than opening the permission
   MOUNT_PATH="/uniondrive"

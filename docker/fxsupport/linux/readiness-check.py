@@ -326,6 +326,83 @@ def check_and_fix_ipfs_cluster():
 def check_and_fix_ipfs_host():
     ipfs_host_logs = subprocess.getoutput("sudo docker logs ipfs_host --tail 10 2>&1")
     
+    # Check for "error loading plugins" and handle corrupted config files
+    if "error loading plugins" in ipfs_host_logs:
+        logging.warning("IPFS Host 'error loading plugins' detected. Checking for corrupted config files.")
+        
+        # Check /home/pi/.internal/ipfs_data/config for null bytes
+        ipfs_config_path = "/home/pi/.internal/ipfs_data/config"
+        if os.path.exists(ipfs_config_path):
+            try:
+                with open(ipfs_config_path, 'rb') as f:
+                    content = f.read()
+                if b'\x00' in content:  # Check for null bytes (^@)
+                    logging.warning(f"Null bytes found in {ipfs_config_path}. Deleting corrupted config.")
+                    subprocess.run(["sudo", "rm", "-f", ipfs_config_path], capture_output=True, check=True)
+                    logging.info(f"Deleted corrupted IPFS config: {ipfs_config_path}")
+            except Exception as e:
+                logging.error(f"Error checking IPFS config file: {str(e)}")
+        
+        # Check /home/pi/.internal/config.yaml for null bytes
+        config_yaml_path = "/home/pi/.internal/config.yaml"
+        if os.path.exists(config_yaml_path):
+            try:
+                with open(config_yaml_path, 'rb') as f:
+                    content = f.read()
+                if b'\x00' in content:  # Check for null bytes (^@)
+                    logging.warning(f"Null bytes found in {config_yaml_path}. Deleting corrupted config.")
+                    subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
+                    logging.info(f"Deleted corrupted config.yaml: {config_yaml_path}")
+            except Exception as e:
+                logging.error(f"Error checking config.yaml file: {str(e)}")
+        
+        # Remove active WiFi connection (excluding docker0 and FxBlox)
+        try:
+            active_connections = subprocess.check_output(
+                ["sudo", "nmcli", "con", "show", "--active"], 
+                universal_newlines=True
+            )
+            
+            for line in active_connections.split('\n'):
+                if 'wifi' in line.lower() and 'fxblox' not in line.lower() and 'docker0' not in line.lower():
+                    wifi_name = line.split()[0]
+                    logging.warning(f"Removing active WiFi connection: {wifi_name}")
+                    subprocess.run(
+                        ["sudo", "nmcli", "con", "delete", wifi_name], 
+                        capture_output=True, check=True
+                    )
+                    logging.info(f"Successfully removed WiFi connection: {wifi_name}")
+                    break
+        except Exception as e:
+            logging.error(f"Error removing WiFi connection: {str(e)}")
+        
+        # Restart fula service
+        logging.info("Restarting fula service after fixing error loading plugins issue.")
+        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+        time.sleep(30)
+        return True
+    
+    # Check for migration permission error
+    if "embedded migration fs-repo-16-to-17 failed: open /internal/ipfs_data/version: permission denied" in ipfs_host_logs:
+        logging.warning("IPFS Host migration permission error detected. Fixing version file.")
+        
+        version_file_path = "/home/pi/.internal/ipfs_data/version"
+        try:
+            # Write "17" to the version file (no newline)
+            process = subprocess.Popen(["echo", "-n", "17"], stdout=subprocess.PIPE)
+            subprocess.run(["sudo", "tee", version_file_path], 
+                         stdin=process.stdout, capture_output=True, check=True)
+            process.stdout.close()
+            logging.info(f"Successfully updated {version_file_path} with version 17")
+            
+            # Restart fula service
+            logging.info("Restarting fula service after fixing migration permission issue.")
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            return True
+        except Exception as e:
+            logging.error(f"Error fixing migration permission issue: {str(e)}")
+    
     if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs or "Error: directory missing SHARDING file:" in ipfs_host_logs or "mkdir /uniondrive/ipfs_datastore/blocks/X3: no such file or directory" in ipfs_host_logs:
         logging.warning("IPFS Host issue 1 detected. Attempting to fix.")
         subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
