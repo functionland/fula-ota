@@ -324,7 +324,7 @@ def check_and_fix_ipfs_cluster():
 
 
 def check_and_fix_ipfs_host():
-    ipfs_host_logs = subprocess.getoutput("sudo docker logs ipfs_host --tail 10 2>&1")
+    ipfs_host_logs = subprocess.getoutput("sudo docker logs ipfs_host --tail 17 2>&1")
     
     # Check for "error loading plugins" and handle corrupted config files
     if "error loading plugins" in ipfs_host_logs:
@@ -402,6 +402,44 @@ def check_and_fix_ipfs_host():
             return True
         except Exception as e:
             logging.error(f"Error fixing migration permission issue: {str(e)}")
+    
+    # Check for version mismatch errors and fix version file
+    version_file_path = "/home/pi/.internal/ipfs_data/version"
+    if "Error: Your programs version (17) is lower than your repos" in ipfs_host_logs:
+        logging.warning("IPFS Host version mismatch detected (program version 17 lower than repo). Updating version file to 17.")
+        try:
+            # Write "17" to the version file (no newline)
+            process = subprocess.Popen(["echo", "-n", "17"], stdout=subprocess.PIPE)
+            subprocess.run(["sudo", "tee", version_file_path], 
+                         stdin=process.stdout, capture_output=True, check=True)
+            process.stdout.close()
+            logging.info(f"Successfully updated {version_file_path} with version 17")
+            
+            # Restart fula service
+            logging.info("Restarting fula service after fixing version mismatch.")
+            subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True, check=True)
+            time.sleep(30)
+            return True
+        except Exception as e:
+            logging.error(f"Error fixing version mismatch (17): {str(e)}")
+    
+    if "Error: Your programs version (16) is lower than your repos" in ipfs_host_logs:
+        logging.warning("IPFS Host version mismatch detected (program version 16 lower than repo). Updating version file to 16.")
+        try:
+            # Write "16" to the version file (no newline)
+            process = subprocess.Popen(["echo", "-n", "16"], stdout=subprocess.PIPE)
+            subprocess.run(["sudo", "tee", version_file_path], 
+                         stdin=process.stdout, capture_output=True, check=True)
+            process.stdout.close()
+            logging.info(f"Successfully updated {version_file_path} with version 16")
+            
+            # Restart fula service
+            logging.info("Restarting fula service after fixing version mismatch.")
+            subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True, check=True)
+            time.sleep(30)
+            return True
+        except Exception as e:
+            logging.error(f"Error fixing version mismatch (16): {str(e)}")
     
     if "Error: invalid or no prefix in shard identifier:" in ipfs_host_logs or "Error: directory missing SHARDING file:" in ipfs_host_logs or "mkdir /uniondrive/ipfs_datastore/blocks/X3: no such file or directory" in ipfs_host_logs:
         logging.warning("IPFS Host issue 1 detected. Attempting to fix.")

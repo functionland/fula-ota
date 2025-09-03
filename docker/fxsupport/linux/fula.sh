@@ -1299,6 +1299,7 @@ function restart() {
 
   # Check if the directory exists and the version file contains '15' or '16'
   if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
+      chmod 777 "$VERSION_FILE"
       case "$(cat "$VERSION_FILE")" in
           15)
               sed -i 's/^15$/17/' "$VERSION_FILE"
