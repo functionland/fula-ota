@@ -115,6 +115,19 @@ is_interface_ready() {
     fi
 }
 
+check_lan() {
+    # Check if there's an active wired (ethernet) connection
+    # Get active connections and check for ethernet type
+    active_connections=$(nmcli -t -f TYPE,NAME connection show --active | grep "ethernet")
+    
+    if [ -n "$active_connections" ]; then
+        log "Wired (LAN) connection detected: $active_connections"
+        return 0
+    else
+        return 1
+    fi
+}
+
 check_interfaces() {
     # Check for required commands
     if ! command -v ip > /dev/null 2>&1; then
@@ -171,6 +184,13 @@ check_interfaces() {
     interface_connected=false
     # Loop through each interface and check its status
     while ! $interface_connected; do
+        # Check if LAN connection is available
+        if check_lan; then
+            log "LAN connection is available. Proceeding without waiting for wireless."
+            interface_connected=true
+            break
+        fi
+        
         for interface in $interfaces; do
             log "Checking wireless interface: $interface"
             
