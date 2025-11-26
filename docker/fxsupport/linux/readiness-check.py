@@ -165,7 +165,7 @@ def check_wifi_connection():
     logging.info(f"Active connections: {output}")  # Log the output for debugging
     if "FxBlox" in output:
         return "FxBlox"
-    elif "wifi" in output:
+    elif "wifi" in output or "ethernet" in output:
         return "other"
     return None
 
