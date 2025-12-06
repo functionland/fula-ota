@@ -1582,8 +1582,19 @@ case $1 in
 
   sleep 15
   # Get the creation time of the Docker image "functionland/fxsupport:release"
-  last_pull_time_docker=$(sudo docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "1970-01-01T00:00:00Z")
-  last_pull_time_docker=$(date -d"$last_pull_time_docker" +%s)
+  last_pull_time_docker_raw=$(sudo docker inspect --format='{{.Created}}' "$FX_SUPPROT" 2>/dev/null || echo "")
+  # Parse the ISO 8601 date format - try multiple methods for compatibility
+  if [ -n "$last_pull_time_docker_raw" ]; then
+    # Try GNU date first (works on most full Linux distros)
+    last_pull_time_docker=$(date -d"$last_pull_time_docker_raw" +%s 2>/dev/null) || \
+    # Try parsing ISO 8601 format manually (for BusyBox/embedded systems)
+    # Extract date part and convert: 2025-12-05T10:30:00.123456789Z -> 2025-12-05 10:30:00
+    last_pull_time_docker=$(date -d"$(echo "$last_pull_time_docker_raw" | sed 's/T/ /; s/\.[0-9]*Z$//')" +%s 2>/dev/null) || \
+    # Fallback: use 0 (epoch) if all parsing fails
+    last_pull_time_docker=0
+  else
+    last_pull_time_docker=0
+  fi
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
