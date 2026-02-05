@@ -7,6 +7,8 @@ import sys
 import requests
 import re
 import threading
+import shutil
+import yaml
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
@@ -24,6 +26,124 @@ logging.basicConfig(
 # Global variables to control LED flashing
 led_flash_thread = None
 led_flash_stop_event = None
+
+# YAML invalid control characters (all control chars except tab, newline, carriage return)
+YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
+
+
+def has_yaml_invalid_chars(content):
+    """Check for control characters that YAML parsers reject.
+
+    YAML allows: tab (0x09), newline (0x0A), carriage return (0x0D)
+    YAML rejects: all other control characters (0x00-0x08, 0x0B-0x0C, 0x0E-0x1F)
+
+    Args:
+        content: bytes content to check
+
+    Returns:
+        tuple: (has_invalid, list of (byte_value, position) for invalid chars found)
+    """
+    invalid_found = []
+    for i, byte in enumerate(content):
+        if byte in YAML_INVALID_CHARS:
+            invalid_found.append((byte, i))
+    return (len(invalid_found) > 0, invalid_found)
+
+
+def validate_yaml_syntax(file_path):
+    """Validate YAML file syntax.
+
+    Args:
+        file_path: Path to the YAML file to validate
+
+    Returns:
+        tuple: (is_valid, error_message or None)
+    """
+    try:
+        with open(file_path, 'r') as f:
+            yaml.safe_load(f)
+        return True, None
+    except yaml.YAMLError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, str(e)
+
+
+def backup_config_if_valid(config_path):
+    """Create backup of config if it's valid YAML.
+
+    Args:
+        config_path: Path to the config file
+
+    Returns:
+        bool: True if backup was created successfully
+    """
+    backup_path = config_path + ".backup"
+    try:
+        is_valid, _ = validate_yaml_syntax(config_path)
+        if is_valid:
+            shutil.copy2(config_path, backup_path)
+            logging.info(f"Created backup: {backup_path}")
+            return True
+        else:
+            logging.debug(f"Config not valid, skipping backup: {config_path}")
+            return False
+    except Exception as e:
+        logging.error(f"Error creating backup of {config_path}: {e}")
+        return False
+
+
+def restore_config_from_backup(config_path):
+    """Restore config from backup if available and valid.
+
+    Args:
+        config_path: Path to the config file to restore
+
+    Returns:
+        bool: True if config was restored successfully
+    """
+    backup_path = config_path + ".backup"
+    if os.path.exists(backup_path):
+        try:
+            is_valid, _ = validate_yaml_syntax(backup_path)
+            if is_valid:
+                shutil.copy2(backup_path, config_path)
+                logging.info(f"Restored config from backup: {backup_path}")
+                return True
+            else:
+                logging.warning(f"Backup file is not valid YAML: {backup_path}")
+        except Exception as e:
+            logging.error(f"Error restoring config from backup: {e}")
+    return False
+
+
+def check_disk_space(path="/uniondrive", min_gb=1):
+    """Check if path has at least min_gb free space.
+
+    Args:
+        path: Path to check disk space for
+        min_gb: Minimum free space in gigabytes
+
+    Returns:
+        tuple: (has_space, free_gb) - True if enough space, and the actual free GB
+    """
+    try:
+        if not os.path.exists(path):
+            logging.warning(f"Path does not exist for disk space check: {path}")
+            return True, -1  # Don't block on missing path
+
+        stat = os.statvfs(path)
+        free_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
+
+        if free_gb < min_gb:
+            logging.warning(f"Low disk space on {path}: {free_gb:.2f}GB free (minimum: {min_gb}GB)")
+            return False, free_gb
+
+        logging.debug(f"Disk space OK on {path}: {free_gb:.2f}GB free")
+        return True, free_gb
+    except Exception as e:
+        logging.error(f"Failed to check disk space on {path}: {e}")
+        return True, -1  # Don't block on error
 
 def start_led_flash(color, interval=1):
     """
@@ -329,30 +449,56 @@ def check_and_fix_ipfs_host():
     # Check for "error loading plugins" and handle corrupted config files
     if "error loading plugins" in ipfs_host_logs:
         logging.warning("IPFS Host 'error loading plugins' detected. Checking for corrupted config files.")
-        
-        # Check /home/pi/.internal/ipfs_data/config for null bytes
+
+        # Check /home/pi/.internal/ipfs_data/config for invalid control characters
         ipfs_config_path = "/home/pi/.internal/ipfs_data/config"
         if os.path.exists(ipfs_config_path):
             try:
                 with open(ipfs_config_path, 'rb') as f:
                     content = f.read()
-                if b'\x00' in content:  # Check for null bytes (^@)
-                    logging.warning(f"Null bytes found in {ipfs_config_path}. Deleting corrupted config.")
+                has_invalid, invalid_chars = has_yaml_invalid_chars(content)
+                if has_invalid:
+                    # Log the specific corruption found
+                    char_summary = ", ".join([f"0x{byte:02x} at pos {pos}" for byte, pos in invalid_chars[:5]])
+                    if len(invalid_chars) > 5:
+                        char_summary += f" ... and {len(invalid_chars) - 5} more"
+                    logging.warning(f"Invalid control characters found in {ipfs_config_path}: {char_summary}")
                     subprocess.run(["sudo", "rm", "-f", ipfs_config_path], capture_output=True, check=True)
                     logging.info(f"Deleted corrupted IPFS config: {ipfs_config_path}")
             except Exception as e:
                 logging.error(f"Error checking IPFS config file: {str(e)}")
-        
-        # Check /home/pi/.internal/config.yaml for null bytes
+
+        # Check /home/pi/.internal/config.yaml for invalid control characters
         config_yaml_path = "/home/pi/.internal/config.yaml"
         if os.path.exists(config_yaml_path):
             try:
                 with open(config_yaml_path, 'rb') as f:
                     content = f.read()
-                if b'\x00' in content:  # Check for null bytes (^@)
-                    logging.warning(f"Null bytes found in {config_yaml_path}. Deleting corrupted config.")
-                    subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
-                    logging.info(f"Deleted corrupted config.yaml: {config_yaml_path}")
+                has_invalid, invalid_chars = has_yaml_invalid_chars(content)
+                if has_invalid:
+                    # Log the specific corruption found
+                    char_summary = ", ".join([f"0x{byte:02x} at pos {pos}" for byte, pos in invalid_chars[:5]])
+                    if len(invalid_chars) > 5:
+                        char_summary += f" ... and {len(invalid_chars) - 5} more"
+                    logging.warning(f"Invalid control characters found in {config_yaml_path}: {char_summary}")
+
+                    # Try to restore from backup first
+                    if restore_config_from_backup(config_yaml_path):
+                        logging.info("Config restored from backup in check_and_fix_ipfs_host.")
+                    else:
+                        # No valid backup, delete corrupted config
+                        subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
+                        logging.info(f"Deleted corrupted config.yaml: {config_yaml_path}")
+                else:
+                    # No control char issues, but check YAML syntax too
+                    is_valid, yaml_error = validate_yaml_syntax(config_yaml_path)
+                    if not is_valid:
+                        logging.warning(f"YAML syntax error in {config_yaml_path}: {yaml_error}")
+                        if restore_config_from_backup(config_yaml_path):
+                            logging.info("Config restored from backup after YAML syntax error.")
+                        else:
+                            subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
+                            logging.info(f"Deleted config.yaml with syntax error: {config_yaml_path}")
             except Exception as e:
                 logging.error(f"Error checking config.yaml file: {str(e)}")
         
@@ -486,6 +632,134 @@ def check_and_fix_ipfs_host():
     
     return False
 
+
+def check_and_fix_config_yaml():
+    """Check fula_go container logs for config.yaml errors and fix them.
+
+    This function monitors fula_go logs for YAML parsing errors that indicate
+    config.yaml corruption, including:
+    - "yaml: control characters are not allowed"
+    - "Failed to unmarshal YAML config"
+    - "Failed to read YAML config"
+    - "parsing config.yaml:"
+    - "Unable to load Yaml file '/internal/config.yaml'"
+    - initipfs/initipfscluster exit code errors
+
+    Returns:
+        bool: True if an issue was detected and fixed, False otherwise
+    """
+    try:
+        # Check fula_go container logs for config errors
+        fula_go_logs = subprocess.getoutput("sudo docker logs fula_go --tail 50 2>&1")
+
+        # Error patterns from go-fula source code
+        config_error_patterns = [
+            "yaml: control characters are not allowed",
+            "Failed to unmarshal YAML config",
+            "Failed to read YAML config",
+            "parsing config.yaml:",
+            "Unable to load Yaml file '/internal/config.yaml'",
+            "Unable to load Yaml file",
+            "Unmarshal failed",
+            "The initipfs exited with an error: Exit code",
+            "The initipfscluster exited with an error: Exit code",
+        ]
+
+        config_error_found = False
+        matched_pattern = None
+        for pattern in config_error_patterns:
+            if pattern in fula_go_logs:
+                config_error_found = True
+                matched_pattern = pattern
+                break
+
+        if not config_error_found:
+            return False
+
+        logging.warning(f"Config YAML error detected in fula_go logs: '{matched_pattern}'")
+
+        config_yaml_path = "/home/pi/.internal/config.yaml"
+
+        if not os.path.exists(config_yaml_path):
+            logging.info(f"Config file does not exist: {config_yaml_path}")
+            # Restart fula service to regenerate config
+            logging.info("Restarting fula service to regenerate config.")
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            return True
+
+        # Check for invalid control characters
+        try:
+            with open(config_yaml_path, 'rb') as f:
+                content = f.read()
+
+            has_invalid, invalid_chars = has_yaml_invalid_chars(content)
+
+            if has_invalid:
+                # Log the specific corruption found
+                char_summary = ", ".join([f"0x{byte:02x} at pos {pos}" for byte, pos in invalid_chars[:5]])
+                if len(invalid_chars) > 5:
+                    char_summary += f" ... and {len(invalid_chars) - 5} more"
+                logging.warning(f"Invalid control characters found in {config_yaml_path}: {char_summary}")
+
+                # Try to restore from backup first
+                if restore_config_from_backup(config_yaml_path):
+                    logging.info("Config restored from backup. Restarting fula service.")
+                    subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                    time.sleep(30)
+                    return True
+
+                # No valid backup, delete corrupted config
+                logging.warning(f"No valid backup available. Deleting corrupted config: {config_yaml_path}")
+                subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
+                logging.info(f"Deleted corrupted config.yaml: {config_yaml_path}")
+
+                # Restart fula service
+                logging.info("Restarting fula service after removing corrupted config.")
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                time.sleep(30)
+                return True
+
+        except Exception as e:
+            logging.error(f"Error checking config.yaml for invalid chars: {e}")
+
+        # Also validate YAML syntax
+        is_valid, yaml_error = validate_yaml_syntax(config_yaml_path)
+        if not is_valid:
+            logging.warning(f"YAML syntax error in {config_yaml_path}: {yaml_error}")
+
+            # Try to restore from backup first
+            if restore_config_from_backup(config_yaml_path):
+                logging.info("Config restored from backup after YAML syntax error. Restarting fula service.")
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                time.sleep(30)
+                return True
+
+            # No valid backup, delete corrupted config
+            logging.warning(f"No valid backup available. Deleting config with syntax error: {config_yaml_path}")
+            subprocess.run(["sudo", "rm", "-f", config_yaml_path], capture_output=True, check=True)
+            logging.info(f"Deleted config.yaml with syntax error: {config_yaml_path}")
+
+            # Restart fula service
+            logging.info("Restarting fula service after removing config with syntax error.")
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            time.sleep(30)
+            return True
+
+        # Config appears valid but error was still detected - try restart anyway
+        logging.info("Config appears valid but error was detected. Restarting fula service.")
+        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+        time.sleep(30)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error during config.yaml fix: {str(e)}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error in check_and_fix_config_yaml: {str(e)}")
+        return False
+
+
 def check_internet_connection():
     try:
         requests.head("https://www.google.com", timeout=5)
@@ -494,6 +768,7 @@ def check_internet_connection():
     except requests.ConnectionError:
         logging.error("No internet connection available.")
         return False
+
 
 def safe_run(command):
     try:
@@ -659,12 +934,24 @@ def monitor_docker_logs_and_restart():
             # If all containers are running and logs are clean, reset attempts and continue monitoring
             restart_attempts = 0
             subprocess.run(["sudo", "python", LED_PATH, "green", "1"], capture_output=True)
+
+            # Create backup of valid config.yaml when system is healthy
+            config_yaml_path = "/home/pi/.internal/config.yaml"
+            if os.path.exists(config_yaml_path):
+                backup_config_if_valid(config_yaml_path)
         else:
             restart_attempts += 1
-        
+
+        # Check disk space before running fixes (low disk can cause corruption)
+        has_space, free_gb = check_disk_space("/uniondrive", min_gb=1)
+        if not has_space:
+            logging.warning(f"Low disk space detected ({free_gb:.2f}GB). This may cause config corruption.")
+
+        # Run all fix checks
         ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
         ipfs_host_fixed = check_and_fix_ipfs_host()
-        if ipfs_cluster_fixed or ipfs_host_fixed:
+        config_yaml_fixed = check_and_fix_config_yaml()
+        if ipfs_cluster_fixed or ipfs_host_fixed or config_yaml_fixed:
             restart_attempts += 1
 
     if restart_attempts >= 4:
