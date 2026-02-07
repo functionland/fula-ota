@@ -16,6 +16,15 @@ COMMAND_PARTITION_PATH = os.path.join(HOME_PATH, "commands/.command_partition")
 REBOOT_FLAG_PATH = os.path.join(HOME_PATH, ".reboot_flag")
 LED_PATH = os.path.join(FULA_PATH, "control_led.py")
 
+RELAY_MULTIADDR = "/dns/relay.dev.fx.land/tcp/4001/p2p/12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"
+IPFS_API_URL = "http://127.0.0.1:5001"
+BOOTSTRAP_PEERS = [
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+    "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+    "/ip4/172.65.0.13/tcp/4009/p2p/QmcfgsJsMtx6qJb74akCw1M24X1zFwgGo11h1cuhwQjtJP",
+]
+
 # Configure logging to write to standard output
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +35,9 @@ logging.basicConfig(
 # Global variables to control LED flashing
 led_flash_thread = None
 led_flash_stop_event = None
+
+# Counter for consecutive relay connection failures with broken swarm
+relay_fail_count = 0
 
 # YAML invalid control characters (all control chars except tab, newline, carriage return)
 YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
@@ -501,27 +513,7 @@ def check_and_fix_ipfs_host():
                             logging.info(f"Deleted config.yaml with syntax error: {config_yaml_path}")
             except Exception as e:
                 logging.error(f"Error checking config.yaml file: {str(e)}")
-        
-        # Remove active WiFi connection (excluding docker0 and FxBlox)
-        try:
-            active_connections = subprocess.check_output(
-                ["sudo", "nmcli", "con", "show", "--active"], 
-                universal_newlines=True
-            )
-            
-            for line in active_connections.split('\n'):
-                if 'wifi' in line.lower() and 'fxblox' not in line.lower() and 'docker0' not in line.lower():
-                    wifi_name = line.split()[0]
-                    logging.warning(f"Removing active WiFi connection: {wifi_name}")
-                    subprocess.run(
-                        ["sudo", "nmcli", "con", "delete", wifi_name], 
-                        capture_output=True, check=True
-                    )
-                    logging.info(f"Successfully removed WiFi connection: {wifi_name}")
-                    break
-        except Exception as e:
-            logging.error(f"Error removing WiFi connection: {str(e)}")
-        
+
         # Restart fula service
         logging.info("Restarting fula service after fixing error loading plugins issue.")
         subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
@@ -629,7 +621,82 @@ def check_and_fix_ipfs_host():
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
         time.sleep(30)
         return True
-    
+
+    # Relay connection check
+    global relay_fail_count
+
+    if not check_internet_connection():
+        return False
+
+    try:
+        requests.post(IPFS_API_URL + "/api/v0/id", timeout=10)
+    except Exception:
+        logging.info("IPFS API not responding, skipping relay check.")
+        return False
+
+    config_yaml_path = os.path.join(HOME_PATH, ".internal", "config.yaml")
+    if not os.path.exists(config_yaml_path):
+        logging.info("config.yaml does not exist, skipping relay check (device not configured).")
+        return False
+
+    try:
+        relay_response = requests.post(
+            IPFS_API_URL + "/api/v0/swarm/connect",
+            params={"arg": RELAY_MULTIADDR},
+            timeout=15
+        )
+        relay_json = relay_response.json()
+        relay_strings = relay_json.get("Strings", [])
+
+        if any("success" in s.lower() for s in relay_strings):
+            logging.info("Relay connection successful.")
+            relay_fail_count = 0
+            return False
+
+        logging.warning(f"Relay connection failed: {relay_strings}")
+    except Exception as e:
+        logging.warning(f"Relay connection attempt failed: {e}")
+
+    # Relay failed — verify swarm health by connecting to bootstrap peers
+    bootstrap_successes = 0
+    for peer in BOOTSTRAP_PEERS:
+        try:
+            resp = requests.post(
+                IPFS_API_URL + "/api/v0/swarm/connect",
+                params={"arg": peer},
+                timeout=10
+            )
+            peer_json = resp.json()
+            peer_strings = peer_json.get("Strings", [])
+            if any("success" in s.lower() for s in peer_strings):
+                bootstrap_successes += 1
+        except Exception:
+            pass
+
+    if bootstrap_successes >= 2:
+        logging.info(
+            f"Relay unreachable but swarm healthy ({bootstrap_successes}/{len(BOOTSTRAP_PEERS)} bootstrap peers connected). "
+            "Not incrementing failure count."
+        )
+        relay_fail_count = 0
+        return False
+
+    # Swarm is broken — increment failure counter
+    relay_fail_count += 1
+    if relay_fail_count >= 5:
+        logging.warning(
+            f"Relay and swarm connectivity failed {relay_fail_count} consecutive times. "
+            "Restarting fula.service."
+        )
+        relay_fail_count = 0
+        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+        time.sleep(30)
+        return True
+
+    logging.info(
+        f"Relay and swarm connectivity failed ({relay_fail_count}/5). "
+        "Will retry next cycle."
+    )
     return False
 
 
