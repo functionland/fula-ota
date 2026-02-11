@@ -237,7 +237,7 @@ process_active_plugins_changes() {
     done < "$ACTIVE_PLUGINS_FILE"
 
     # Process new plugins (not in old_plugins1)
-    for plugin in "${new_plugins[@]}"; do
+    for plugin in "${new_plugins1[@]}"; do
         if ! printf '%s\n' "${old_plugins1[@]}" | grep -q "^$plugin$"; then
             log_message "New plugin detected: $plugin"
             if ! process_plugin "$plugin" "install"; then
@@ -413,21 +413,25 @@ while $running; do
         sleep 2
         continue
     fi
-    
+
+    # Ensure lock is released even if an unexpected error occurs
+    trap 'release_lock; trap - ERR' ERR
+
     if [ -s "$UPDATE_PLUGIN_FILE" ]; then
         log_message "Changes detected in update-plugins.txt"
         process_plugin_updates
     fi
-    
+
     log_message "Processing active plugins changes"
     process_active_plugins_changes "${old_plugins[@]}"
-    
+
     if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
         old_plugins=()
     else
         mapfile -t old_plugins < "$ACTIVE_PLUGINS_FILE"
     fi
-    
+
+    trap - ERR
     release_lock
     
     log_message "Finished processing changes"

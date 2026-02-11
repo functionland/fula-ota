@@ -474,6 +474,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/update_kubo_config.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update_kubo_config.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/automount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/version $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file version" | sudo tee -a $FULA_LOG_PATH; } || true
 
@@ -1367,6 +1368,163 @@ function restart() {
   #setup samba for blox storage access /uniondrive/fxblox
   setup_storage_access
   sleep 2
+
+  # Merge kubo config updates from template into deployed config
+  if [ -f "${FULA_PATH}/update_kubo_config.py" ]; then
+    echo "Running kubo config merge..." | sudo tee -a $FULA_LOG_PATH
+    python3 ${FULA_PATH}/update_kubo_config.py 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "kubo config merge failed" | sudo tee -a $FULA_LOG_PATH; } || true
+  else
+    echo "update_kubo_config.py not found, running inline fallback merge..." | sudo tee -a $FULA_LOG_PATH
+    python3 - "${HOME_DIR}" "${FULA_PATH}" <<'PYEOF' 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "inline kubo config merge failed" | sudo tee -a $FULA_LOG_PATH; } || true
+import json, sys, os, shutil
+from copy import deepcopy
+
+home_dir = sys.argv[1]
+fula_path = sys.argv[2]
+deployed_path = os.path.join(home_dir, ".internal", "ipfs_data", "config")
+template_path = os.path.join(fula_path, "kubo", "config")
+template_copy_path = os.path.join(home_dir, ".internal", "ipfs_config")
+
+if not os.path.isfile(deployed_path):
+    print("kubo_config_merge_inline: deployed config not found, skipping")
+    sys.exit(0)
+
+try:
+    with open(deployed_path) as f:
+        deployed = json.load(f)
+except Exception as e:
+    print(f"kubo_config_merge_inline: failed to read deployed config: {e}")
+    sys.exit(0)
+
+# Always use hardcoded values in the inline fallback.
+# The on-device template file may also be stale (same problem we're fixing),
+# so we cannot trust it as source of truth here.
+template = {
+        "Bootstrap": [
+            "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+            "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+            "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+            "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+            "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+            "/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+            "/ip4/172.65.0.13/tcp/4009/p2p/QmcfgsJsMtx6qJb74akCw1M24X1zFwgGo11h1cuhwQjtJP"
+        ],
+        "Peering": {"Peers": [
+            {"Addrs": ["/dns/relay.dev.fx.land/tcp/4001"],
+             "ID": "12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"}
+        ]},
+        "Swarm": {
+            "ConnMgr": {"HighWater": 200, "LowWater": 50, "GracePeriod": "20s"},
+            "RelayClient": {
+                "Enabled": True,
+                "StaticRelays": [
+                    "/dns/relay.dev.fx.land/tcp/4001/p2p/12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"
+                ]
+            }
+        },
+        "Experimental": {
+            "FilestoreEnabled": False,
+            "Libp2pStreamMounting": True,
+            "OptimisticProvide": True,
+            "OptimisticProvideJobsPoolSize": 60,
+            "P2pHttpProxy": False,
+            "StrategicProviding": False,
+            "UrlstoreEnabled": False
+        },
+        "Addresses": {"Swarm": [
+            "/ip4/0.0.0.0/tcp/4001", "/ip6/::/tcp/4001",
+            "/ip4/0.0.0.0/udp/4001/quic-v1",
+            "/ip4/0.0.0.0/udp/4001/quic-v1/webtransport",
+            "/ip6/::/udp/4001/quic-v1",
+            "/ip6/::/udp/4001/quic-v1/webtransport"
+        ]},
+        "Discovery": {"MDNS": {"Enabled": True}}
+    }
+
+# Managed fields as (dotpath, getter-from-template)
+def get_nested(obj, keys):
+    cur = obj
+    for k in keys:
+        if not isinstance(cur, dict) or k not in cur:
+            return None, False
+        cur = cur[k]
+    return cur, True
+
+def set_nested(obj, keys, val):
+    cur = obj
+    for k in keys[:-1]:
+        if k not in cur or not isinstance(cur[k], dict):
+            cur[k] = {}
+        cur = cur[k]
+    cur[keys[-1]] = val
+
+MANAGED = [
+    ["Bootstrap"],
+    ["Peering", "Peers"],
+    ["Swarm", "RelayClient", "StaticRelays"],
+    ["Swarm", "RelayClient", "Enabled"],
+    ["Swarm", "ConnMgr"],
+    ["Experimental"],
+    ["Addresses", "Swarm"],
+    ["Discovery"],
+]
+
+result = deepcopy(deployed)
+changes = []
+for field_keys in MANAGED:
+    tmpl_val, found = get_nested(template, field_keys)
+    if not found:
+        continue
+    deployed_val, dfound = get_nested(result, field_keys)
+    if dfound and deployed_val == tmpl_val:
+        continue
+    set_nested(result, field_keys, deepcopy(tmpl_val))
+    changes.append(".".join(field_keys))
+
+if not changes:
+    print("kubo_config_merge_inline: config already up to date")
+    sys.exit(0)
+
+print(f"kubo_config_merge_inline: updating {len(changes)} field(s): {', '.join(changes)}")
+
+# Backup then write
+try:
+    shutil.copy2(deployed_path, deployed_path + ".bak")
+except Exception:
+    pass
+
+tmp = deployed_path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(result, f, indent=2)
+    f.write("\n")
+shutil.move(tmp, deployed_path)
+
+# Also update template copy if it exists
+if os.path.isfile(template_copy_path):
+    try:
+        with open(template_copy_path) as f:
+            tcopy = json.load(f)
+        tcopy_updated = deepcopy(tcopy)
+        for field_keys in MANAGED:
+            tmpl_val, found = get_nested(template, field_keys)
+            if not found:
+                continue
+            cv, cf = get_nested(tcopy_updated, field_keys)
+            if cf and cv == tmpl_val:
+                continue
+            set_nested(tcopy_updated, field_keys, deepcopy(tmpl_val))
+        tmp2 = template_copy_path + ".tmp"
+        with open(tmp2, "w") as f:
+            json.dump(tcopy_updated, f, indent=2)
+            f.write("\n")
+        shutil.move(tmp2, template_copy_path)
+        print("kubo_config_merge_inline: template copy updated")
+    except Exception as e:
+        print(f"kubo_config_merge_inline: could not update template copy: {e}")
+
+print("kubo_config_merge_inline: done")
+PYEOF
+  fi
 
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
