@@ -1,1 +1,0 @@
-(self.webpackChunkfula_webui=self.webpackChunkfula_webui||[]).push([[922],{40130:()=>{},21099:()=>{}}]);
