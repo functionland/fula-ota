@@ -38,7 +38,7 @@
     "@wagmi/connectors": "^5.1.1",
     "@wagmi/core": "^2.13.1",
     "@web3modal/wagmi": "^5.0.8",
-    "axios": "^1.7.2",
+    "axios": "^1.13.5",
     "base64-js": "^1.5.1",
     "body-parser": "^1.19.0",
     "buffer": "^6.0.3",
