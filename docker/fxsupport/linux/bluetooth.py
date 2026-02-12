@@ -60,11 +60,29 @@ NOTIFY_TIMEOUT = 25000
 
 os.environ["DBUS_TIMEOUT"] = "999"
 
+def get_bluetooth_name():
+    try:
+        output = subprocess.check_output(
+            ['sudo', 'cat', '/home/pi/.internal/box_props.json'],
+            timeout=5
+        ).decode('utf-8').strip()
+        data = json.loads(output)
+        peer_id = data.get('blox_peer_id', '')
+        # Extract peer ID before any newline (field contains extra text after \n)
+        peer_id = peer_id.split('\n')[0].strip()
+        if len(peer_id) >= 5:
+            return f"fulatower_{peer_id[-5:]}"
+    except Exception:
+        pass
+    return "fulatower_NEW"
+
 class FulatowerAdvertisement(Advertisement):
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
-        self.add_local_name("fulatower")
+        bt_name = get_bluetooth_name()
+        self.add_local_name(bt_name)
         self.include_tx_power = True
+        print(f"Bluetooth name: {bt_name}")
         print(f"Advertising service: {FulatowerService.FULATOWERSERVICE_SVC_UUID}")
 
 class FulatowerService(Service):
@@ -528,6 +546,7 @@ class CommandCharacteristic(Characteristic):
         if os.path.exists('/home/pi/reset.txt'):
             os.remove('/home/pi/reset.txt')
             self.remove_wifi_connections()
+            subprocess.call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml'])
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
             self.kill_led_processes()
             subprocess.call(['sudo', 'reboot'])
@@ -643,7 +662,7 @@ def setup_bluetooth():
 
     while connect_ongoing.is_set():
         try:
-            child.expect('\[agent\] Confirm passkey', timeout=240)
+            child.expect(r'\[agent\] Confirm passkey', timeout=240)
             child.sendline('yes')
         except pexpect.TIMEOUT:
             pass
