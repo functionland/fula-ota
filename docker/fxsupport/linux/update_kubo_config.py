@@ -44,6 +44,7 @@ MANAGED_FIELDS = [
     "Experimental",
     "Addresses.Swarm",
     "Discovery",
+    "Routing.AcceleratedDHTClient",
 ]
 
 # Fields that must NEVER be touched (even if present in template).
@@ -155,6 +156,28 @@ def merge_configs(template, deployed, logger):
     return result, changes
 
 
+def compute_dynamic_storage_max(config, logger):
+    """Set Datastore.StorageMax based on /uniondrive total space (80%)."""
+    try:
+        usage = shutil.disk_usage("/uniondrive")
+        total_gb = usage.total / (1024**3)
+        storage_max_gb = int(total_gb * 0.8)
+        storage_max_gb = max(storage_max_gb, 800)  # minimum 800GB floor
+        storage_max = f"{storage_max_gb}GB"
+
+        current = config.get("Datastore", {}).get("StorageMax", "")
+        if current != storage_max:
+            if "Datastore" not in config:
+                config["Datastore"] = {}
+            config["Datastore"]["StorageMax"] = storage_max
+            logger.info("StorageMax set to %s (drive total: %.0fGB)", storage_max, total_gb)
+            return True
+        return False
+    except (OSError, IOError) as e:
+        logger.warning("Could not detect /uniondrive size for StorageMax: %s", e)
+        return False
+
+
 def main():
     dry_run = "--dry-run" in sys.argv
 
@@ -185,6 +208,11 @@ def main():
 
     # Merge
     updated, changes = merge_configs(template, deployed, logger)
+
+    # Dynamic StorageMax — independent of managed fields merge
+    storage_changed = compute_dynamic_storage_max(updated, logger)
+    if storage_changed:
+        changes.append(("Datastore.StorageMax", "dynamic"))
 
     if not changes:
         logger.info("No config changes needed — deployed config is up to date")

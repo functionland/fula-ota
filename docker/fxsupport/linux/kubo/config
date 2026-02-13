@@ -61,7 +61,7 @@
       "type": "mount"
     },
     "StorageGCWatermark": 90,
-    "StorageMax": "20GB"
+    "StorageMax": "800GB"
   },
   "Discovery": {
     "MDNS": {
@@ -129,7 +129,7 @@
   },
   "Reprovider": {},
   "Routing": {
-    "AcceleratedDHTClient": false,
+    "AcceleratedDHTClient": true,
     "Methods": null,
     "Routers": null
   },

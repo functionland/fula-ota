@@ -1438,7 +1438,8 @@ template = {
             "/ip6/::/udp/4001/quic-v1",
             "/ip6/::/udp/4001/quic-v1/webtransport"
         ]},
-        "Discovery": {"MDNS": {"Enabled": True}}
+        "Discovery": {"MDNS": {"Enabled": True}},
+        "Routing": {"AcceleratedDHTClient": True}
     }
 
 # Managed fields as (dotpath, getter-from-template)
@@ -1467,6 +1468,7 @@ MANAGED = [
     ["Experimental"],
     ["Addresses", "Swarm"],
     ["Discovery"],
+    ["Routing", "AcceleratedDHTClient"],
 ]
 
 result = deepcopy(deployed)
@@ -1480,6 +1482,24 @@ for field_keys in MANAGED:
         continue
     set_nested(result, field_keys, deepcopy(tmpl_val))
     changes.append(".".join(field_keys))
+
+# Dynamic StorageMax based on /uniondrive available space
+import shutil as _shutil
+try:
+    _usage = _shutil.disk_usage("/uniondrive")
+    _total_gb = _usage.total / (1024**3)
+    _storage_max_gb = int(_total_gb * 0.8)
+    _storage_max_gb = max(_storage_max_gb, 800)  # minimum 800GB floor
+    _storage_max = f"{_storage_max_gb}GB"
+    if "Datastore" not in result:
+        result["Datastore"] = {}
+    old_max = result.get("Datastore", {}).get("StorageMax", "")
+    if old_max != _storage_max:
+        result["Datastore"]["StorageMax"] = _storage_max
+        changes.append("Datastore.StorageMax")
+        print(f"kubo_config_merge_inline: StorageMax set to {_storage_max} (drive total: {_total_gb:.0f}GB)")
+except Exception as _e:
+    print(f"kubo_config_merge_inline: could not detect /uniondrive size: {_e}")
 
 if not changes:
     print("kubo_config_merge_inline: config already up to date")

@@ -129,6 +129,31 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
 
         # Use jq to update the JSON file
         jq '
+            .cluster.connection_manager = {
+                "high_water": 400,
+                "low_water": 100,
+                "grace_period": "2m0s"
+            } |
+            .cluster.pubsub = {
+                "seen_messages_ttl": "30m0s",
+                "heartbeat_interval": "10s",
+                "d_factor": 8,
+                "history_gossip": 2,
+                "history_length": 6,
+                "flood_publish": false
+            } |
+            .cluster.dial_peer_timeout = "30s" |
+            .cluster.monitor_ping_interval = "60s" |
+            .cluster.peer_watch_interval = "60s" |
+            .cluster.pin_recover_interval = "8m0s" |
+            .cluster.state_sync_interval = "5m0s" |
+            .consensus.crdt.batching = {
+                "max_batch_size": 100,
+                "max_batch_age": "1m"
+            } |
+            .pin_tracker.stateless.concurrent_pins = 5 |
+            .ipfs_connector.ipfshttp.pin_timeout = "15m0s" |
+            .monitor.pubsubmon.check_interval = "1m" |
             .allocator = {
                 "balanced": {
                     "allocate_by": [
@@ -140,15 +165,15 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             } |
             .informer = {
                 "disk": {
-                    "metric_ttl": "30s",
+                    "metric_ttl": "10m",
                     "metric_type": "reposize"
                 },
                 "pinqueue": {
-                    "metric_ttl": "30s",
+                    "metric_ttl": "10m",
                     "weight_bucket_size": 100000
                 },
                 "tags": {
-                    "metric_ttl": "30s",
+                    "metric_ttl": "10m",
                     "tags": {
                         "group": "default"
                     }

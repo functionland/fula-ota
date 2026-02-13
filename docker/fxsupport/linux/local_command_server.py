@@ -14,7 +14,7 @@ class LocalCommandServer:
         }
         
         self.exec_commands = {
-            'partition': 'sudo touch ~/commands/.command_partition',
+            'partition': 'sudo touch /home/pi/commands/.command_partition',
             'node_delete': 'sudo rm -rf /uniondrive/chain/chains/functionyard/db/full/*',
             'ipfs_delete': 'sudo rm -rf /uniondrive/ipfs_datastore/blocks/*',
             'restart_fula': 'sudo systemctl restart fula',
@@ -25,7 +25,7 @@ class LocalCommandServer:
 
     def _combine_ls_outputs(self):
         commands = [
-            'ls ~/ -al',
+            'ls /home/pi -al',
             'ls / -al',
             'ls /usr/bin/fula',
             'ls /media/pi -al',
@@ -72,7 +72,7 @@ class LocalCommandServer:
 
     def _reset_system(self):
         try:
-            subprocess.check_call('sudo rm ~/.internal/config.yaml', shell=True)
+            subprocess.check_call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml'])
             subprocess.check_call('sudo reboot', shell=True)
             return "System reset initiated"
         except subprocess.CalledProcessError as e:
