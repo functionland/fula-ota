@@ -1,127 +1,268 @@
+# Fula OTA
 
-# Fula OTA based on docker solution
+Over-the-air update system for FxBlox devices. Manages Docker-based services for IPFS storage, cluster pinning, and the Fula protocol on ARM64 hardware (RK3588/RK1).
 
-## Linux Prequestics
+## Architecture Overview
 
-### Install Docker Engine
+Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
 
-```shell
+```
++---------------------+     +-------------------+     +---------------------+
+|     fxsupport       |     |       kubo        |     |    ipfs-cluster     |
+| (alpine, scripts)   |     | (ipfs/kubo:release|     | (functionland/      |
+|                     |     |  bridge network)  |     |  ipfs-cluster)      |
+| Carries all config  |     |                   |     |  host network       |
+| and scripts in      |     | Ports: 4001, 5001 |     |  Ports: 9094-9096   |
+| /linux/ directory   |     |  8081             |     |                     |
++---------------------+     +-------------------+     +---------------------+
+         |                           |                          |
+         | docker cp to             | IPFS block storage       | Cluster state
+         | /usr/bin/fula/           | /uniondrive/ipfs_*       | /uniondrive/ipfs-cluster/
+         v                          v                          v
++-------------------------------------------------------------------------+
+|                        /uniondrive (merged storage)                     |
+|                    union-drive.sh (mergerfs mount)                      |
++-------------------------------------------------------------------------+
+         |                                                      |
++--------+--------+     +-------------------+     +-------------+--------+
+|    go-fula       |     |    watchtower     |     |  fula.service       |
+| (functionland/   |     | (auto-updates)   |     |  (systemd)          |
+|  go-fula)        |     | polls Docker Hub |     |  runs fula.sh       |
+|  host network    |     | every 3600s      |     |                     |
+|  Port: 40001     |     +-------------------+     +---------------------+
++------------------+
+```
+
+### Container Details
+
+| Container | Image | Network | Purpose |
+|-----------|-------|---------|---------|
+| `fula_fxsupport` | `functionland/fxsupport:release` | default | Carries scripts and config files. Acts as a delivery mechanism — `fula.sh` copies `/linux/` from this container to `/usr/bin/fula/` on the host. |
+| `ipfs_host` | `ipfs/kubo:release` | bridge | IPFS node. Stores blocks on `/uniondrive`. Config template at `kubo/config`, runtime config at `/home/pi/.internal/ipfs_data/config`. |
+| `ipfs_cluster` | `functionland/ipfs-cluster:release` | host | IPFS Cluster follower node. Manages pin replication across the network. Config at `/uniondrive/ipfs-cluster/service.json`. |
+| `fula_go` | `functionland/go-fula:release` | host | Fula protocol: blockchain proxy, libp2p blox, WAP server. |
+| `fula_updater` | `containrrr/watchtower:latest` | default | Polls Docker Hub hourly for updated images, auto-restarts containers. |
+
+### Networking
+
+- **kubo** runs in Docker bridge networking (ports mapped: `4001:4001`, `5001:5001`)
+- **go-fula** and **ipfs-cluster** run with `network_mode: "host"` (direct host networking)
+- go-fula cannot reach kubo at `127.0.0.1` from host network — it uses the `docker0` bridge IP (typically `172.17.0.1`), auto-detected in `go-fula/blox/kubo_proxy.go`
+
+### Storage Layout
+
+```
+/uniondrive/                    # mergerfs mount (union of all attached drives)
+  ipfs_datastore/blocks/        # IPFS block storage (flatfs)
+  ipfs_datastore/datastore/     # IPFS metadata (pebble)
+  ipfs-cluster/                 # Cluster state, service.json, identity.json
+  ipfs_staging/                 # IPFS staging directory
+
+/home/pi/.internal/             # Device-internal state
+  ipfs_data/config              # Deployed kubo config (runtime)
+  ipfs_config                   # Template copy (used by initipfs)
+  config.yaml                   # Fula device config (pool, authorizer, etc.)
+
+/usr/bin/fula/                  # On-host scripts and configs (copied from fxsupport)
+  fula.sh                       # Main orchestrator script
+  docker-compose.yml            # Container definitions
+  .env                          # Image tags (GO_FULA, FX_SUPPROT, IPFS_CLUSTER)
+  .env.cluster                  # Cluster env var overrides
+  kubo/config                   # Kubo config template
+  kubo/kubo-container-init.d.sh # Kubo init script
+  ipfs-cluster/ipfs-cluster-container-init.d.sh  # Cluster init script
+  update_kubo_config.py         # Selective kubo config merger
+  union-drive.sh                # UnionDrive mount management
+  bluetooth.py                  # BLE command handler
+  local_command_server.py       # Local TCP command server
+  control_led.py                # LED control
+  ...
+```
+
+## Update Propagation Flow
+
+How code changes in this repo reach devices:
+
+```
+1. Push to GitHub repo
+2. GitHub Actions builds Docker images (on release) OR manual build
+3. Images pushed to Docker Hub (functionland/fxsupport:release, etc.)
+4. Watchtower on device detects updated images (polls hourly)
+5. fula.service triggers: fula.sh start
+6. First restart() — runs with CURRENT on-device files
+7. docker cp fula_fxsupport:/linux/. /usr/bin/fula/ — copies NEW files from updated fxsupport image
+8. If fula.sh itself changed -> second restart() — runs with NEW files
+```
+
+### Config Merge Flow (kubo)
+
+On every `fula.sh start` (before `docker-compose up`):
+
+1. `update_kubo_config.py` (or inline fallback in `fula.sh`) runs
+2. Reads the **template** (`/usr/bin/fula/kubo/config`) and the **deployed** config (`/home/pi/.internal/ipfs_data/config`)
+3. Merges only **managed fields** (Bootstrap, Peering, Swarm, Experimental, Routing, etc.) from template into deployed config
+4. **Preserved fields** (Identity, Datastore paths, API/Gateway addresses) are never touched
+5. Dynamic `StorageMax` is calculated as 80% of `/uniondrive` total space (minimum 800GB floor)
+6. Writes updated deployed config, then runs `docker-compose up`
+
+### Config Flow (ipfs-cluster)
+
+1. `.env.cluster` is loaded by docker-compose as `env_file` (injects env vars into container)
+2. `.env.cluster` is also bind-mounted at `/.env.cluster` inside the container
+3. `ipfs-cluster-container-init.d.sh` runs as entrypoint:
+   - Waits for pool name from `config.yaml`
+   - Generates cluster secret from pool name
+   - Runs `jq` to patch `service.json` with connection_manager, pubsub, batching, timeouts, informer settings
+   - Starts `ipfs-cluster-service daemon` with bootstrap address
+
+## Repository Structure
+
+```
+fula-ota/
+  docker/
+    build_and_push_images.sh    # Builds all 3 images and pushes to Docker Hub
+    env_release.sh              # Release env vars (image names, tags, branches)
+    env_test.sh                 # Test env vars (test tags)
+    env_release_amd64.sh        # AMD64 release env vars
+    run.sh                      # Local dev docker-compose runner
+    fxsupport/
+      Dockerfile                # alpine + COPY ./linux -> /linux
+      build.sh                  # buildx build + push
+      linux/                    # All on-device scripts and configs
+        docker-compose.yml      # Container orchestration
+        .env                    # Docker image tags
+        .env.cluster            # Cluster env var overrides
+        fula.sh                 # Main orchestrator (start/stop/restart/rebuild)
+        union-drive.sh          # mergerfs mount management
+        update_kubo_config.py   # Selective kubo config merger
+        kubo/
+          config                # Kubo config template
+          kubo-container-init.d.sh
+        ipfs-cluster/
+          ipfs-cluster-container-init.d.sh
+        bluetooth.py            # BLE setup and command handling
+        local_command_server.py # TCP command server
+        control_led.py          # LED control for device status
+        plugins/                # Optional plugin system (loyal-agent, streamr-node)
+        ...
+    go-fula/
+      Dockerfile                # Go build stage + alpine runtime
+      build.sh                  # Clones go-fula repo, buildx build + push
+      go-fula.sh                # Container entrypoint
+    ipfs-cluster/
+      Dockerfile                # Go build stage + alpine runtime
+      build.sh                  # Clones ipfs-cluster repo, buildx build + push
+  .github/workflows/
+    docker-image.yml            # Release CI: builds all images + uploads .tar to GitHub release
+    docker-image-test.yml       # Test CI
+  tests/                        # Shell-based test scripts
+  install-ubuntu.sh             # Ubuntu installation script
+```
+
+## Prerequisites
+
+### Docker Engine
+
+```bash
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 ```
 
-Optionally, manage Docker as a non-root user by following the instructions at [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user).
+Optionally manage Docker as a non-root user ([docs](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)):
 
-```shell
+```bash
 sudo groupadd docker
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-Install Docker Compose 1.29.2
+### Docker Compose
 
-```shell
+```bash
 sudo curl -L "https://github.com/docker/compose/releases/download/v2.16.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 ```
 
-Clone the repository to your system:
+### NetworkManager
 
-```shell
-git clone https://github.com/functionland/fula-ota
-```
-
-Install NetworkManager and set it to start automatically on boot
-```shell
+```bash
 sudo systemctl start NetworkManager
 sudo systemctl enable NetworkManager
 ```
-### Automount
 
-If your OS does not support auto-mounting you need to do this step. On raspberry pi, it is not needed as raspbian supports auto-mount, but on Armbian it is needed.
+### Dependencies
+
+```bash
+sudo apt-get install gcc python3-dev python-is-python3 python3-pip
+sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
+sudo apt install net-tools dnsmasq-base rfkill lshw
+```
+
+### Automount (Armbian only)
+
+Raspberry Pi OS handles auto-mounting natively. On Armbian, set up automount:
 
 #### 1. Install dependencies
 
-```
+```bash
 sudo apt install net-tools dnsmasq-base rfkill git
 ```
 
-#### 2. create automount script
+#### 2. Create automount script
 
-``` shell
+```bash
 sudo nano /usr/local/bin/automount.sh
 ```
 
-And then fill it with:
-
-```shell
+```bash
 #!/bin/bash
 
 MOUNTPOINT="/media/pi"
 DEVICE="/dev/$1"
 MOUNTNAME=$(echo $1 | sed 's/[^a-zA-Z0-9]//g')
 mkdir -p ${MOUNTPOINT}/${MOUNTNAME}
-    
-# Determine filesystem type
+
 FSTYPE=$(blkid -o value -s TYPE ${DEVICE})
-    
+
 if [ ${FSTYPE} = "ntfs" ]; then
-    # If filesystem is NTFS
-    # uid and gid specify the owner and the group of files. 
-    # dmask and fmask control the permissions for directories and files. 0000 gives everyone read and write access.
     mount -t ntfs -o uid=pi,gid=pi,dmask=0000,fmask=0000 ${DEVICE} ${MOUNTPOINT}/${MOUNTNAME}
 elif [ ${FSTYPE} = "vfat" ]; then
-    # If filesystem is FAT32
     mount -t vfat -o uid=pi,gid=pi,dmask=0000,fmask=0000 ${DEVICE} ${MOUNTPOINT}/${MOUNTNAME}
 else
-    # For other filesystem types
     mount ${DEVICE} ${MOUNTPOINT}/${MOUNTNAME}
-    # Changing owner for non-NTFS and non-FAT32 filesystems
     chown pi:pi ${MOUNTPOINT}/${MOUNTNAME}
 fi
 ```
 
-And make it executable:
-
-```shell
+```bash
 sudo chmod +x /usr/local/bin/automount.sh
 ```
 
-#### 3. create a service
+#### 3. Create udev rules and service
 
-##### 3.1. rules
-
-``` shell
+```bash
 sudo nano /etc/udev/rules.d/99-automount.rules
 ```
 
-and fill it with:
-
-```shell
+```
 ACTION=="add", KERNEL=="sd[a-z][0-9]", TAG+="systemd", ENV{SYSTEMD_WANTS}="automount@%k.service"
 ACTION=="add", KERNEL=="nvme[0-9]n[0-9]p[0-9]", TAG+="systemd", ENV{SYSTEMD_WANTS}="automount@%k.service"
-    
+
 ACTION=="remove", KERNEL=="sd[a-z][0-9]", RUN+="/bin/systemctl stop automount@%k.service"
 ACTION=="remove", KERNEL=="nvme[0-9]n[0-9]p[0-9]", RUN+="/bin/systemctl stop automount@%k.service"
 ```
 
-##### 3.2 service
-
-Create file:
-
-```shell
+```bash
 sudo nano /etc/systemd/system/automount@.service
 ```
 
- and add content:
-
-```shell
+```ini
 [Unit]
 Description=Automount disks
 BindsTo=dev-%i.device
 After=dev-%i.device
-    
+
 [Service]
 Type=oneshot
 RemainAfterExit=yes
@@ -129,64 +270,192 @@ ExecStart=/usr/local/bin/automount.sh %I
 ExecStop=/usr/bin/sh -c '/bin/umount /media/pi/$(echo %I | sed 's/[^a-zA-Z0-9]//g'); /bin/rmdir /media/pi/$(echo %I | sed 's/[^a-zA-Z0-9]//g')'
 ```
 
-And now restart the service with 
-
-```shell
+```bash
 sudo udevadm control --reload-rules
 sudo systemctl daemon-reload
 ```
 
-And you can check the status of each service (that is created per attached device):
+## Device Installation
 
-```shell
-    systemctl status automount@sda1.service
-```
-
-### Install Fula OTA 
-
-First install dependencies:
-
-```shell
-sudo apt-get install gcc python3-dev python-is-python3 python3-pip
-sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
-sudo apt install net-tools dnsmasq-base rfkill lshw
-```
-
-For board installation Navigate to the `fula` directory and give it permission to execute:
-
-```shell
-cd docker/fxsupport/linux
+```bash
+git clone https://github.com/functionland/fula-ota
+cd fula-ota/docker/fxsupport/linux
 sudo bash ./fula.sh rebuild
 sudo bash ./fula.sh start
 ```
 
-**THIS IS THE END OF INSTALLATION ON THE BOARD**
+## Building and Pushing Docker Images
 
-# Building Docker Images
+### Production Release (pushes to Docker Hub)
 
-If you want to build images and push to docker (not on the client) you can follow the below steps.
-
-Run following commands
-
-```shell
+```bash
 cd docker
-#for testing
-#source env_test.sh
-#for releasing
 source env_release.sh
 bash ./build_and_push_images.sh
 ```
 
-this command will push docker images into docker.io
+This builds and pushes all three images:
+- `functionland/fxsupport:release`
+- `functionland/go-fula:release`
+- `functionland/ipfs-cluster:release`
 
-## 📖 Script Commands Reference on rpi board
+### Test Build (with test tags)
+
+```bash
+cd docker
+source env_test.sh
+bash ./build_and_push_images.sh
+```
+
+## Testing Changes on a Live Device
+
+To test code changes from this repo on a device that is already running the production Docker images, **without** pushing to Docker Hub:
+
+### Method 1: Build fxsupport locally on device (recommended for script/config changes)
+
+If you only changed files under `docker/fxsupport/linux/` (scripts, configs, env files), this is the fastest approach since fxsupport is just an alpine image with file copies:
+
+```bash
+# On the device:
+
+# 1. Get the latest code
+cd /tmp && git clone --depth 1 https://github.com/functionland/fula-ota.git
+# Or if already cloned:
+cd /tmp/fula-ota && git pull
+
+# 2. Build fxsupport image locally (takes seconds)
+cd /tmp/fula-ota/docker/fxsupport
+sudo docker build --load -t functionland/fxsupport:release .
+
+# 3. Stop watchtower so it doesn't pull the old image from Docker Hub
+sudo docker stop fula_updater
+
+# 4. Restart fula — docker cp will now copy YOUR files from the local image
+sudo systemctl restart fula
+```
+
+### Method 2: Build all images locally on device
+
+If you also changed `go-fula` or `ipfs-cluster` code (Go compilation, takes longer):
+
+```bash
+# Build fxsupport (seconds)
+cd /tmp/fula-ota/docker/fxsupport
+sudo docker build --load -t functionland/fxsupport:release .
+
+# Build ipfs-cluster (requires Go compilation)
+cd /tmp/fula-ota/docker/ipfs-cluster
+git clone -b master https://github.com/ipfs-cluster/ipfs-cluster
+sudo docker build --load -t functionland/ipfs-cluster:release .
+
+# Build go-fula (requires Go compilation)
+cd /tmp/fula-ota/docker/go-fula
+git clone -b main https://github.com/functionland/go-fula
+sudo docker build --load -t functionland/go-fula:release .
+
+# Stop watchtower, restart
+sudo docker stop fula_updater
+sudo systemctl restart fula
+```
+
+### Method 3: Copy files directly (skip Docker build entirely)
+
+For rapid iteration, copy files directly and prevent `fula.sh` from overwriting them via `docker cp`:
+
+```bash
+# 1. Copy changed files
+sudo cp /tmp/fula-ota/docker/fxsupport/linux/.env.cluster /usr/bin/fula/.env.cluster
+sudo cp /tmp/fula-ota/docker/fxsupport/linux/ipfs-cluster/ipfs-cluster-container-init.d.sh /usr/bin/fula/ipfs-cluster/ipfs-cluster-container-init.d.sh
+sudo cp /tmp/fula-ota/docker/fxsupport/linux/kubo/config /usr/bin/fula/kubo/config
+sudo cp /tmp/fula-ota/docker/fxsupport/linux/fula.sh /usr/bin/fula/fula.sh
+sudo cp /tmp/fula-ota/docker/fxsupport/linux/update_kubo_config.py /usr/bin/fula/update_kubo_config.py
+
+# 2. Block docker cp from overwriting your files (valid for 24 hours)
+touch /home/pi/stop_docker_copy.txt
+
+# 3. Restart using your files
+sudo /usr/bin/fula/fula.sh restart
+
+# 4. When done testing, remove the block so normal OTA updates resume
+rm /home/pi/stop_docker_copy.txt
+```
+
+### Verification Commands
+
+```bash
+# Kubo StorageMax (should be ~80% of drive size, min 800GB)
+cat /home/pi/.internal/ipfs_data/config | jq '.Datastore.StorageMax'
+
+# Kubo AcceleratedDHTClient
+cat /home/pi/.internal/ipfs_data/config | jq '.Routing.AcceleratedDHTClient'
+# Expected: true
+
+# Cluster connection_manager
+cat /uniondrive/ipfs-cluster/service.json | jq '.cluster.connection_manager'
+# Expected: high_water: 400, low_water: 100
+
+# Cluster concurrent_pins
+cat /uniondrive/ipfs-cluster/service.json | jq '.pin_tracker.stateless.concurrent_pins'
+# Expected: 5
+
+# Cluster batching
+cat /uniondrive/ipfs-cluster/service.json | jq '.consensus.crdt.batching'
+# Expected: max_batch_size: 100, max_batch_age: "1m"
+
+# IPFS repo stats
+docker exec ipfs_host ipfs repo stat
+
+# IPFS DHT status (should show full routing table with AcceleratedDHTClient)
+docker exec ipfs_host ipfs stats dht
+
+# Cluster peers
+docker exec ipfs_cluster ipfs-cluster-ctl peers ls | wc -l
+```
+
+## fula.sh Commands
 
 Command | Description
----------------------- | ------------------------------------
-`install` | Start the installer.
-`start` | Start all containers.
-`restart`| Restart all containers (same as start).
-`stop` | Stop all containers.
-`rebuild`| Rebuild generated installation assets.
-`update`| Pull latest docker images.
+--- | ---
+`start` | Start all containers (runs config merge, docker-compose up).
+`restart` | Same as start.
+`stop` | Stop all containers (docker-compose down).
+`rebuild` | Full rebuild: install dependencies, copy files, docker-compose build.
+`update` | Pull latest docker images.
+`install` | Run the initial installer.
 `help` | List all commands.
+
+## Key Configuration Files
+
+### `.env.cluster` - Cluster Environment Overrides
+
+Env vars injected into the ipfs-cluster container. Key settings:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `CLUSTER_CONNMGR_HIGHWATER` | 400 | Max peer connections (prevents 60-node ceiling) |
+| `CLUSTER_CONNMGR_LOWWATER` | 100 | Connection pruning target |
+| `CLUSTER_MONITORPINGINTERVAL` | 60s | How often peers ping the monitor |
+| `CLUSTER_STATELESS_CONCURRENTPINS` | 5 | Parallel pin operations (lower for ARM I/O) |
+| `CLUSTER_IPFSHTTP_PINTIMEOUT` | 15m0s | Timeout for individual pin operations |
+| `CLUSTER_PINRECOVERINTERVAL` | 8m0s | How often to retry failed pins |
+
+### `kubo/config` - Kubo Config Template
+
+Template for IPFS node configuration. Managed fields are merged into the deployed config on every restart. Key settings:
+
+- `AcceleratedDHTClient: true` - Full Amino DHT routing table with parallel lookups
+- `StorageMax: "800GB"` - Static fallback; dynamically set to 80% of drive on startup
+- `ConnMgr.HighWater: 200` - IPFS swarm connection limit
+- `Libp2pStreamMounting: true` - Required for go-fula p2p protocol forwarding
+
+### `update_kubo_config.py` - Config Merger
+
+Selectively merges managed fields from template into deployed config while preserving device-specific settings (Identity, Datastore). Runs on every `fula.sh start`.
+
+## Notes
+
+- **Watchtower** polls Docker Hub every 3600 seconds (1 hour). After pushing new images, devices update within the next polling cycle.
+- **`stop_docker_copy.txt`** — when this file exists in `/home/pi/` and was modified within the last 24 hours, `fula.sh` skips the `docker cp` step. Useful for testing local file changes without them being overwritten.
+- **Kubo** uses the upstream `ipfs/kubo:release` image (not custom-built). Only the config template and init script are customized.
+- **go-fula** and **ipfs-cluster** are custom-built from source in their respective Dockerfiles using Go 1.25.
+- All containers except kubo run with `privileged: true` and `CAP_ADD: ALL`.
