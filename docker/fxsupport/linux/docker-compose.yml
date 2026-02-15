@@ -21,6 +21,11 @@ services:
       - WATCHTOWER_NO_PULL=false
       - WATCHTOWER_MONITOR_ONLY=false
       - WATCHTOWER_POLL_INTERVAL=3600
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     logging:
@@ -35,7 +40,6 @@ services:
     restart: always
     depends_on:
       - fxsupport
-    privileged: true
     volumes:
       - shared-volume-external:/uniondrive:rw
       - /media/pi:/storage:rw,shared
@@ -53,8 +57,8 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    cap_add:
-      - ALL
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     logging:
@@ -78,18 +82,13 @@ services:
       - /usr/bin/fula/.env.cluster:/.env.cluster
     entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
     network_mode: "host"
-    ports:
-      - "9094:9094" # API port
-      - "9095:9095" # Proxy API port
-      - "9096:9096" # Cluster swarm port
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    privileged: true
     env_file:
       - .env.cluster
-    cap_add:
-      - ALL
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     logging:
@@ -108,20 +107,25 @@ services:
       - $WPA_SUPLICANT_PATH/wpa_supplicant.conf:$WPA_SUPLICANT_PATH/wpa_supplicant.conf
       - /home/pi/.internal/:/internal:rw,rshared
       - shared-volume-external:/uniondrive:rw
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /etc/NetworkManager/system-connections:/etc/NetworkManager/system-connections
       - /home/pi/:/home:rw,rshared
       - /usr/bin/fula/.env.cluster:/.env.cluster
       - /usr/bin/fula/.env.gofula:/.env
     network_mode: "host"
-    ports:
-      - "40001:40001" #libp2p port
-      - "3500:3500" #Wap http server
     devices:
-       - /dev/fuse:/dev/fuse:rwm 
+       - /dev/fuse:/dev/fuse:rwm
     cap_add:
-      - ALL
-    privileged: true
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -143,10 +147,9 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    volumes:
-      - /media/pi/:/storage:rw,rshared
-      - /home/pi/.internal/:/internal:rw,rshared
-      - /home/pi/:/home:rw,rshared
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     depends_on:

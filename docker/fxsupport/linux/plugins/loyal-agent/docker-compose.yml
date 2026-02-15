@@ -4,6 +4,7 @@ services:
     container_name: loyal-agent
     security_opt:
       - systempaths=unconfined
+      - no-new-privileges:true
     devices:
       - /dev/dri:/dev/dri
     environment:

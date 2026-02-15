@@ -17,8 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /ipfs-cluster-service ./cmd/ipfs-cluste
 FROM alpine:3.17
 
 # Install necessary packages in a single RUN command to reduce layers
-RUN apk update && apk add --no-cache hostapd iw wireless-tools \
-    networkmanager-wifi networkmanager-cli jq dhcp iptables curl
+RUN apk update && apk add --no-cache jq curl
 
 WORKDIR /
 

@@ -4,6 +4,8 @@ services:
     image: streamr/node
     container_name: streamr-node
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "32200:32200"
     volumes:
