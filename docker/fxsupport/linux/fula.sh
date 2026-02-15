@@ -1551,6 +1551,18 @@ PYEOF
 
   echo "dockerComposeDown" | sudo tee -a $FULA_LOG_PATH
   dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeDown failed" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  # One-time migration: if kubo and cluster have the same PeerID (pre-separation state),
+  # delete the sentinel so kubo's init script waits for initipfs to write the derived identity.
+  # After the first successful migration, the config file already has the derived identity,
+  # so kubo can start immediately on subsequent boots (no delay).
+  kubo_pid=$(jq -r '.Identity.PeerID // empty' "${HOME_DIR}/.internal/ipfs_data/config" 2>/dev/null)
+  cluster_pid=$(jq -r '.id // empty' /uniondrive/ipfs-cluster/identity.json 2>/dev/null)
+  if [ -n "$kubo_pid" ] && [ -n "$cluster_pid" ] && [ "$kubo_pid" = "$cluster_pid" ]; then
+    echo "Kubo and cluster have same PeerID ($kubo_pid) — forcing identity re-derivation" | sudo tee -a $FULA_LOG_PATH
+    sudo rm -f ${HOME_DIR}/.internal/.ipfs_setup
+  fi
+
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
 

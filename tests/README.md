@@ -109,9 +109,15 @@ Usage on device
 
 ### Full test (build + deploy + verify):
 
+Remove Locks from hosts if any:
+
+```
+sudo sed -i '/hardening-test-pull-guard/d' /etc/hosts
+```
+
 ```
   sudo bash ./tests/test-device-hardening.sh
-  
+
   sudo bash ./tests/test-device-hardening.sh --reboot-prep
 ```
 
