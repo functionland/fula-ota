@@ -110,7 +110,7 @@ Usage on device
 ### Full test (build + deploy + verify):
 
 ```
-  sudo ./tests/test-device-hardening.sh --branch my-hardening-branch
+  sudo ./tests/test-device-hardening.sh --reboot-prep
 ```
 
 ### After reboot (Step 12), verify everything survived:
@@ -119,10 +119,10 @@ Usage on device
   sudo ./tests/test-device-hardening.sh --verify
 ```
 
-### If something breaks:
+### If something breaks or you want to restore normal operation:
 
 ```
-  sudo ./tests/test-device-hardening.sh --rollback
+  sudo ./tests/test-device-hardening.sh --finish
 ```
 
 The script is also registered in test-fula-system-complete.sh as a test suite.

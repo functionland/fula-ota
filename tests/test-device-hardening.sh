@@ -12,6 +12,13 @@
 #   ./test-device-hardening.sh --rollback   # Rollback to production images
 #   ./test-device-hardening.sh --skip-build # Deploy + verify, skip image builds
 #
+# Pull Protection:
+#   fula.sh dockerComposeUp() pulls from Docker Hub if internet is available,
+#   which would overwrite locally-built test images. To prevent this, the deploy
+#   phase temporarily blocks hub.docker.com in /etc/hosts (making fula.sh's
+#   check_internet() fail), then stops watchtower after containers are up.
+#   /etc/hosts is always restored (even on script failure) via an EXIT trap.
+#
 # IMPORTANT: This test modifies live system state (containers, systemd services).
 #            Run on a development/staging device, NOT production.
 
@@ -27,6 +34,11 @@ REPO_URL="https://github.com/functionland/fula-ota.git"
 REPO_LOCAL="/tmp/fula-ota"
 COMPOSE_FILE="${FULA_PATH}/docker-compose.yml"
 ENV_FILE="${FULA_PATH}/.env"
+
+# Pull protection state
+HOSTS_MODIFIED=false
+HOSTS_BACKUP="/tmp/etc-hosts-backup-hardening-test"
+IMAGE_DIGESTS_FILE="/tmp/hardening-test-image-digests"
 
 # Timeouts (seconds)
 CONTAINER_STARTUP_TIMEOUT=180
@@ -180,6 +192,76 @@ wait_for_all_containers() {
     return 0
 }
 
+# ─── Pull Protection ─────────────────────────────────────────────────────────
+# Prevents fula.sh dockerComposeUp() and watchtower from pulling Docker Hub
+# images, which would overwrite our locally-built test images.
+#
+# How it works:
+#   fula.sh check_internet() does: wget -q --spider --timeout=10 https://hub.docker.com
+#   By pointing hub.docker.com to 127.0.0.1 in /etc/hosts, wget fails,
+#   check_internet() returns false, and fula.sh skips ALL docker pulls.
+#   Watchtower is stopped after containers come up as a second safeguard.
+
+PULL_GUARD_MARKER="# hardening-test-pull-guard"
+
+block_docker_hub() {
+    log_info "Blocking Docker Hub to protect locally-built images..."
+
+    # Backup /etc/hosts
+    cp /etc/hosts "$HOSTS_BACKUP"
+    HOSTS_MODIFIED=true
+
+    # Add entries that make fula.sh check_internet() fail
+    # and prevent any stray docker pull from reaching the registry
+    if ! grep -q "$PULL_GUARD_MARKER" /etc/hosts; then
+        cat >> /etc/hosts <<EOF
+127.0.0.1 hub.docker.com $PULL_GUARD_MARKER
+127.0.0.1 registry-1.docker.io $PULL_GUARD_MARKER
+127.0.0.1 auth.docker.io $PULL_GUARD_MARKER
+127.0.0.1 production.cloudflare.docker.com $PULL_GUARD_MARKER
+EOF
+    fi
+
+    log_info "  /etc/hosts: Docker Hub domains blocked"
+    log_info "  fula.sh check_internet() will now return false"
+}
+
+unblock_docker_hub() {
+    if $HOSTS_MODIFIED && [[ -f "$HOSTS_BACKUP" ]]; then
+        cp "$HOSTS_BACKUP" /etc/hosts
+        rm -f "$HOSTS_BACKUP"
+        HOSTS_MODIFIED=false
+        log_info "  /etc/hosts: restored from backup"
+    elif $HOSTS_MODIFIED; then
+        # Backup missing — remove our lines by marker
+        sed -i "/$PULL_GUARD_MARKER/d" /etc/hosts
+        HOSTS_MODIFIED=false
+        log_info "  /etc/hosts: removed pull-guard entries"
+    fi
+}
+
+# Record image digests after local build, before deploy
+save_image_digests() {
+    log_info "Recording locally-built image digests..."
+    cat > "$IMAGE_DIGESTS_FILE" <<EOF
+fxsupport=$(docker inspect --format='{{.Id}}' functionland/fxsupport:release 2>/dev/null || echo "MISSING")
+ipfs-cluster=$(docker inspect --format='{{.Id}}' functionland/ipfs-cluster:release 2>/dev/null || echo "MISSING")
+go-fula=$(docker inspect --format='{{.Id}}' functionland/go-fula:release 2>/dev/null || echo "MISSING")
+kubo=$(docker inspect --format='{{.Id}}' ipfs/kubo:release 2>/dev/null || echo "MISSING")
+EOF
+    log_info "  Digests saved to $IMAGE_DIGESTS_FILE"
+}
+
+# Cleanup trap — always restore /etc/hosts even on script failure
+cleanup_pull_guard() {
+    if $HOSTS_MODIFIED; then
+        echo -e "${YELLOW}[CLEANUP] Restoring /etc/hosts...${NC}"
+        unblock_docker_hub
+    fi
+}
+
+trap cleanup_pull_guard EXIT
+
 # ─── Phase: BUILD (Steps 1-2) ────────────────────────────────────────────────
 
 phase_build() {
@@ -239,12 +321,18 @@ phase_build() {
     log_info "  kubo: pulled"
 
     log_info "All images ready."
+
+    # Record digests so we can verify they survive the deploy
+    save_image_digests
 }
 
 # ─── Phase: DEPLOY (Steps 3-6) ───────────────────────────────────────────────
 
 phase_deploy() {
     log_step "3" "Stop everything (simulates pre-update state)"
+
+    # Block Docker Hub BEFORE starting fula.service to prevent pulls
+    block_docker_hub
 
     log_info "Stopping fula.service..."
     systemctl stop fula 2>/dev/null || true
@@ -318,6 +406,17 @@ phase_deploy() {
         log_warn "Container states:"
         docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || true
     fi
+
+    # Stop watchtower to prevent it from pulling Docker Hub images
+    # (it polls every 3600s, but stop it immediately for safety)
+    log_info "Stopping watchtower to prevent Docker Hub pulls..."
+    docker stop fula_updater 2>/dev/null || true
+    log_info "  watchtower stopped (will be checked as 'not running' in verify phase)"
+
+    # Restore /etc/hosts — pulls are safe now since all containers are up
+    # and watchtower is stopped
+    unblock_docker_hub
+    log_info "Docker Hub unblocked. Local images are in use."
 }
 
 # ─── Phase: VERIFY (Steps 7-11) ──────────────────────────────────────────────
@@ -327,20 +426,25 @@ test_containers_running() {
     ((TESTS_TOTAL++))
     log_test "Step 7: Verifying all containers are running..."
 
-    local all_running=true
+    local all_ok=true
     for container in "${EXPECTED_CONTAINERS[@]}"; do
         local status
         status=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
         if [[ "$status" == "running" ]]; then
             log_info "  $container: running"
+        elif [[ "$container" == "fula_updater" && "$status" == "exited" ]]; then
+            # Watchtower was intentionally stopped after deploy to prevent
+            # Docker Hub pulls from overwriting locally-built test images.
+            # On --verify after reboot, it will be running normally.
+            log_info "  $container: $status (intentionally stopped to protect local images)"
         else
             log_info "  $container: $status"
-            all_running=false
+            all_ok=false
         fi
     done
 
-    if $all_running; then
-        log_pass "All 5 expected containers are running"
+    if $all_ok; then
+        log_pass "All expected containers are running (watchtower may be stopped for pull protection)"
     else
         log_fail "Not all containers are running"
     fi
@@ -350,7 +454,7 @@ test_container_images() {
     ((TESTS_TOTAL++))
     log_test "Step 7: Verifying container images..."
 
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" 2>&1 | tee -a "$TEST_LOG"
+    docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" 2>&1 | tee -a "$TEST_LOG"
     echo "" | tee -a "$TEST_LOG"
 
     # Just verify the expected image prefixes are present
@@ -379,6 +483,58 @@ test_container_images() {
         log_pass "All containers running expected images"
     else
         log_fail "Image mismatch detected"
+    fi
+}
+
+# Verify locally-built images were NOT replaced by Docker Hub pulls
+test_image_digests_survived() {
+    ((TESTS_TOTAL++))
+    log_test "Step 7: Verifying local images were not replaced by Docker Hub pulls..."
+
+    if [[ ! -f "$IMAGE_DIGESTS_FILE" ]]; then
+        log_warn "  No saved digests found (--build phase was skipped?)"
+        log_pass "Image digest check skipped (no baseline to compare)"
+        return
+    fi
+
+    local all_ok=true
+    local -A saved_digests
+
+    # Read saved digests
+    while IFS='=' read -r name digest; do
+        saved_digests["$name"]="$digest"
+    done < "$IMAGE_DIGESTS_FILE"
+
+    # Compare current image digests against saved
+    local -A image_map=(
+        ["fxsupport"]="functionland/fxsupport:release"
+        ["ipfs-cluster"]="functionland/ipfs-cluster:release"
+        ["go-fula"]="functionland/go-fula:release"
+        ["kubo"]="ipfs/kubo:release"
+    )
+
+    for name in "${!image_map[@]}"; do
+        local tag="${image_map[$name]}"
+        local current
+        current=$(docker inspect --format='{{.Id}}' "$tag" 2>/dev/null || echo "MISSING")
+        local saved="${saved_digests[$name]:-MISSING}"
+
+        if [[ "$saved" == "MISSING" ]]; then
+            log_info "  $name: no saved digest (skipped)"
+        elif [[ "$current" == "$saved" ]]; then
+            log_info "  $name: digest matches (local build survived)"
+        else
+            log_info "  $name: DIGEST CHANGED!"
+            log_info "    saved:   ${saved:0:30}..."
+            log_info "    current: ${current:0:30}..."
+            all_ok=false
+        fi
+    done
+
+    if $all_ok; then
+        log_pass "All locally-built images survived deploy (no Docker Hub overwrites)"
+    else
+        log_fail "Some images were replaced by Docker Hub pulls!"
     fi
 }
 
@@ -649,6 +805,7 @@ test_watchtower_readonly() {
     ((TESTS_TOTAL++))
     log_test "Step 10: watchtower has read-only rootfs..."
 
+    # docker inspect works on stopped containers too (reads config, not runtime state)
     local ro
     ro=$(docker inspect --format='{{.HostConfig.ReadonlyRootfs}}' fula_updater 2>/dev/null || echo "MISSING")
     log_info "  fula_updater read_only=$ro"
@@ -766,6 +923,7 @@ phase_verify() {
     log_step "7" "Verify ALL containers running"
     test_containers_running
     test_container_images
+    test_image_digests_survived
 
     log_step "8" "Verify services are healthy"
     test_kubo_api
@@ -796,10 +954,73 @@ phase_verify() {
     test_cluster_no_modprobe
 }
 
-# ─── Rollback ─────────────────────────────────────────────────────────────────
+# ─── Lifecycle phases ─────────────────────────────────────────────────────────
+
+# Prepare for reboot test (Step 12): block Docker Hub persistently so that
+# fula.sh cannot pull images or docker cp non-hardened files after reboot.
+phase_reboot_prep() {
+    log_info "Preparing device for reboot test..."
+
+    # Check if pull guard is already in place
+    if grep -q "$PULL_GUARD_MARKER" /etc/hosts 2>/dev/null; then
+        log_info "  Docker Hub already blocked in /etc/hosts"
+    else
+        block_docker_hub
+    fi
+
+    # Disable the EXIT trap — we WANT the block to persist across reboot
+    HOSTS_MODIFIED=false
+
+    log_info "Docker Hub is blocked persistently in /etc/hosts."
+    log_info "After reboot, fula.sh will skip all pulls and use local images."
+    echo ""
+    echo "Ready for reboot. Run these commands:"
+    echo "  sudo reboot"
+    echo "  # Wait ~3 minutes, then:"
+    echo "  sudo $0 --verify"
+    echo "  sudo $0 --finish"
+}
+
+# Restore normal device operation after testing is complete.
+phase_finish() {
+    log_info "Restoring normal device operation..."
+
+    # Remove Docker Hub block if present
+    if grep -q "$PULL_GUARD_MARKER" /etc/hosts 2>/dev/null; then
+        sed -i "/$PULL_GUARD_MARKER/d" /etc/hosts
+        HOSTS_MODIFIED=false
+        log_info "  /etc/hosts: Docker Hub unblocked"
+    else
+        log_info "  /etc/hosts: already clean"
+    fi
+
+    # Restart watchtower if it was stopped
+    local wt_status
+    wt_status=$(docker inspect --format='{{.State.Status}}' fula_updater 2>/dev/null || echo "missing")
+    if [[ "$wt_status" != "running" ]]; then
+        docker start fula_updater 2>/dev/null || true
+        log_info "  watchtower: restarted"
+    else
+        log_info "  watchtower: already running"
+    fi
+
+    # Clean up temp files
+    rm -f "$IMAGE_DIGESTS_FILE" "$HOSTS_BACKUP"
+
+    log_info "Device restored to normal operation."
+    log_info "  Watchtower will resume polling Docker Hub every 3600s."
+    log_info "  Next fula.sh restart will pull from Docker Hub as usual."
+}
 
 phase_rollback() {
     echo -e "${YELLOW}Rolling back to production Docker Hub images...${NC}"
+
+    # Ensure Docker Hub is accessible first
+    if grep -q "$PULL_GUARD_MARKER" /etc/hosts 2>/dev/null; then
+        sed -i "/$PULL_GUARD_MARKER/d" /etc/hosts
+        HOSTS_MODIFIED=false
+        log_info "  /etc/hosts: Docker Hub unblocked for pull"
+    fi
 
     log_info "Pulling original production images..."
     docker pull functionland/fxsupport:release
@@ -821,7 +1042,11 @@ phase_rollback() {
     log_info "Restarting fula.service with original config..."
     systemctl restart fula
 
-    log_info "Rollback complete. Run --verify to check system state."
+    # Clean up temp files
+    rm -f "$IMAGE_DIGESTS_FILE" "$HOSTS_BACKUP"
+
+    log_info "Rollback complete. Device is back to production state."
+    log_info "Run --verify to check system state."
 }
 
 # ─── Results summary ─────────────────────────────────────────────────────────
@@ -837,14 +1062,22 @@ print_results() {
     if [[ $TESTS_FAILED -eq 0 ]]; then
         echo -e "\n${GREEN}All tests passed!${NC}"
         echo ""
-        echo "Step 12 (manual): Reboot the device and re-run with --verify"
-        echo "  sudo reboot"
-        echo "  # Wait ~3 minutes, then:"
-        echo "  sudo ./test-device-hardening.sh --verify"
+        echo "Next steps:"
+        echo ""
+        echo "  Option A — Reboot test (Step 12, recommended):"
+        echo "    sudo $0 --reboot-prep       # Block Docker Hub for reboot"
+        echo "    sudo reboot"
+        echo "    # Wait ~3 minutes, then:"
+        echo "    sudo $0 --verify            # Re-verify after reboot"
+        echo "    sudo $0 --finish            # Restore normal operation"
+        echo ""
+        echo "  Option B — Done testing, restore normal operation:"
+        echo "    sudo $0 --finish"
     else
         echo -e "\n${RED}Some tests failed. Check $TEST_LOG for details.${NC}"
         echo ""
-        echo "To rollback: sudo ./test-device-hardening.sh --rollback"
+        echo "  To rollback to production: sudo $0 --rollback"
+        echo "  To restore normal state:   sudo $0 --finish"
     fi
 }
 
@@ -859,11 +1092,22 @@ usage() {
     echo "  --deploy       Deploy to device only (Steps 3-6)"
     echo "  --verify       Verify hardening only (Steps 7-11)"
     echo "  --skip-build   Deploy + verify, skip image builds"
+    echo ""
+    echo "Lifecycle:"
+    echo "  --reboot-prep  Block Docker Hub and prepare for reboot test (Step 12)"
+    echo "  --finish       Restore normal operation (unblock Hub, restart watchtower)"
     echo "  --rollback     Rollback to production Docker Hub images"
     echo ""
     echo "Options:"
     echo "  --branch NAME  Git branch to checkout (default: default branch)"
     echo "  --help         Show this help"
+    echo ""
+    echo "Typical workflow:"
+    echo "  sudo $0 --branch my-branch       # Full test (build+deploy+verify)"
+    echo "  sudo $0 --reboot-prep            # Prepare for reboot test"
+    echo "  sudo reboot                       # Reboot device"
+    echo "  sudo $0 --verify                  # Verify after reboot"
+    echo "  sudo $0 --finish                  # Restore normal operation"
 }
 
 main() {
@@ -871,6 +1115,8 @@ main() {
     local do_deploy=false
     local do_verify=false
     local do_rollback=false
+    local do_reboot_prep=false
+    local do_finish=false
     local explicit_phase=false
 
     while [[ $# -gt 0 ]]; do
@@ -885,6 +1131,10 @@ main() {
                 do_deploy=true; do_verify=true; explicit_phase=true; shift ;;
             --rollback)
                 do_rollback=true; explicit_phase=true; shift ;;
+            --reboot-prep)
+                do_reboot_prep=true; explicit_phase=true; shift ;;
+            --finish)
+                do_finish=true; explicit_phase=true; shift ;;
             --branch)
                 BRANCH="$2"; shift 2 ;;
             --help)
@@ -918,11 +1168,23 @@ main() {
 
     check_prerequisites
 
+    # Lifecycle commands — execute and exit
     if $do_rollback; then
         phase_rollback
         exit 0
     fi
 
+    if $do_reboot_prep; then
+        phase_reboot_prep
+        exit 0
+    fi
+
+    if $do_finish; then
+        phase_finish
+        exit 0
+    fi
+
+    # Test phases
     if $do_build; then
         phase_build
     fi
