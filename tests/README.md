@@ -102,3 +102,27 @@ These tests specifically validate that:
 5. Configuration files are clean of node references
 
 The test suite ensures the Fula-OTA system is ready for deployment on Armbian/Rockchip3588 after the complete removal of sugarfunge-node components.
+
+
+## Full test 
+Usage on device
+
+### Full test (build + deploy + verify):
+
+```
+  sudo ./tests/test-device-hardening.sh --branch my-hardening-branch
+```
+
+### After reboot (Step 12), verify everything survived:
+
+```
+  sudo ./tests/test-device-hardening.sh --verify
+```
+
+### If something breaks:
+
+```
+  sudo ./tests/test-device-hardening.sh --rollback
+```
+
+The script is also registered in test-fula-system-complete.sh as a test suite.

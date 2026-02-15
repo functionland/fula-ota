@@ -26,6 +26,7 @@ TEST_SUITES=(
     "tests/test-docker-services.sh"
     "tests/test-uniondrive-readiness.sh"
     "tests/test-go-fula-system-integration.sh"
+    "tests/test-device-hardening.sh"
 )
 
 # Test suite descriptions
@@ -37,6 +38,7 @@ declare -A TEST_DESCRIPTIONS=(
     ["tests/test-docker-services.sh"]="Docker Services (go-fula, kubo, ipfs-cluster, watchtower)"
     ["tests/test-uniondrive-readiness.sh"]="Uniondrive & Readiness Check (Armbian/Rockchip3588)"
     ["tests/test-go-fula-system-integration.sh"]="go-fula System Integration (WiFi, Hotspot, Storage)"
+    ["tests/test-device-hardening.sh"]="Device Integration: Docker Hardening (requires real device)"
 )
 
 # Results tracking
