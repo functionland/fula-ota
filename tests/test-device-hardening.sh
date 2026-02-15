@@ -381,6 +381,12 @@ phase_deploy() {
     log_step "4" "Simulate the production docker cp flow"
 
     log_info "4a. Starting fxsupport container (carries new files)..."
+    # Remove stale containers by name — Docker Compose tracks containers by ID
+    # in labels. If Step 3's compose-down already removed them, Compose still
+    # tries to "Recreate" by the old ID and fails with "No such container".
+    for c in fula_updater fula_fxsupport; do
+        docker rm -f "$c" 2>/dev/null || true
+    done
     $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d fxsupport
     sleep 5
 
