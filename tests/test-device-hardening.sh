@@ -299,7 +299,7 @@ phase_build() {
 
     # --- 2a. fxsupport ---
     log_info "2a. Building fxsupport image..."
-    docker build -t functionland/fxsupport:release \
+    docker build --no-cache -t functionland/fxsupport:release \
         -f "$REPO_LOCAL/docker/fxsupport/Dockerfile" \
         "$REPO_LOCAL/docker/fxsupport/"
     # Tag with .env name so docker-compose finds it
@@ -311,22 +311,25 @@ phase_build() {
 
     # --- 2b. ipfs-cluster ---
     log_info "2b. Building ipfs-cluster image (this may take 10-20 min)..."
-    if [[ ! -d "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" ]]; then
-        git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
-            "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
-    fi
-    docker build -t functionland/ipfs-cluster:release \
+    # Always fresh clone to ensure latest code from GitHub
+    rm -rf "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
+    git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
+        "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
+    log_info "  ipfs-cluster: cloned $(cd "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" && git log --oneline -1)"
+    docker build --no-cache -t functionland/ipfs-cluster:release \
         -f "$REPO_LOCAL/docker/ipfs-cluster/Dockerfile" \
         "$REPO_LOCAL/docker/ipfs-cluster/"
     log_info "  ipfs-cluster: built"
 
     # --- 2c. go-fula ---
     log_info "2c. Building go-fula image (this may take 15-25 min)..."
-    if [[ ! -d "$REPO_LOCAL/docker/go-fula/go-fula" ]]; then
-        git clone --depth 1 -b main https://github.com/functionland/go-fula \
-            "$REPO_LOCAL/docker/go-fula/go-fula"
-    fi
-    docker build -t functionland/go-fula:release \
+    # Always fresh clone to ensure latest code from GitHub
+    rm -rf "$REPO_LOCAL/docker/go-fula/go-fula"
+    git clone --depth 1 -b main https://github.com/functionland/go-fula \
+        "$REPO_LOCAL/docker/go-fula/go-fula"
+    log_info "  go-fula: cloned $(cd "$REPO_LOCAL/docker/go-fula/go-fula" && git log --oneline -1)"
+    # --no-cache ensures Docker doesn't reuse layers with stale source code
+    docker build --no-cache -t functionland/go-fula:release \
         -f "$REPO_LOCAL/docker/go-fula/Dockerfile" \
         "$REPO_LOCAL/docker/go-fula/"
     # Tag with .env name so docker-compose finds it
@@ -368,6 +371,12 @@ phase_deploy() {
         sleep 5
     fi
     log_info "All containers stopped."
+
+    # Remove tar backups so fula.sh can't load old images from them
+    # (fula.sh dockerComposeUp loads from .tar if pull fails and image is missing)
+    log_info "Removing old image tar backups..."
+    rm -f "${FULA_PATH}"/*.tar
+    log_info "  tar backups removed"
 
     log_step "4" "Simulate the production docker cp flow"
 
