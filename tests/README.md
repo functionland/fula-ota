@@ -110,6 +110,8 @@ Usage on device
 ### Full test (build + deploy + verify):
 
 ```
+  sudo bash ./tests/test-device-hardening.sh
+  
   sudo bash ./tests/test-device-hardening.sh --reboot-prep
 ```
 
