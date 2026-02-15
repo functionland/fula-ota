@@ -286,11 +286,27 @@ phase_build() {
 
     log_step "2" "Build ALL Docker images locally"
 
+    # Read .env to get the exact image references that docker-compose uses.
+    # The .env uses "index.docker.io/" prefixed names (e.g. index.docker.io/functionland/fxsupport:release)
+    # while "docker build -t functionland/fxsupport:release" creates "docker.io/functionland/fxsupport:release".
+    # Docker treats these as DIFFERENT images, so docker-compose can't find locally-built images.
+    # Fix: tag with BOTH the short form and the .env form.
+    local env_fxsupport env_gofula
+    env_fxsupport=$(grep '^FX_SUPPROT=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "")
+    env_gofula=$(grep '^GO_FULA=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "")
+    log_info "  .env FX_SUPPROT=$env_fxsupport"
+    log_info "  .env GO_FULA=$env_gofula"
+
     # --- 2a. fxsupport ---
     log_info "2a. Building fxsupport image..."
     docker build -t functionland/fxsupport:release \
         -f "$REPO_LOCAL/docker/fxsupport/Dockerfile" \
         "$REPO_LOCAL/docker/fxsupport/"
+    # Tag with .env name so docker-compose finds it
+    if [[ -n "$env_fxsupport" && "$env_fxsupport" != "functionland/fxsupport:release" ]]; then
+        docker tag functionland/fxsupport:release "$env_fxsupport"
+        log_info "  fxsupport: also tagged as $env_fxsupport"
+    fi
     log_info "  fxsupport: built"
 
     # --- 2b. ipfs-cluster ---
@@ -313,6 +329,11 @@ phase_build() {
     docker build -t functionland/go-fula:release \
         -f "$REPO_LOCAL/docker/go-fula/Dockerfile" \
         "$REPO_LOCAL/docker/go-fula/"
+    # Tag with .env name so docker-compose finds it
+    if [[ -n "$env_gofula" && "$env_gofula" != "functionland/go-fula:release" ]]; then
+        docker tag functionland/go-fula:release "$env_gofula"
+        log_info "  go-fula: also tagged as $env_gofula"
+    fi
     log_info "  go-fula: built"
 
     # --- 2d. kubo ---
