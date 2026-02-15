@@ -642,6 +642,9 @@ function install() {
   systemctl enable fula-readiness-check.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enableing fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
   echo "Installing fula-readiness-check Finished" | sudo tee -a $FULA_LOG_PATH
 
+  systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error enabling firewall.service" | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+  echo "Installing Firewall Finished" | sudo tee -a $FULA_LOG_PATH
+
   # Install bootup reset service for fresh installations
   install_bootup_reset || { echo "Error installing bootup reset service" | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   echo "Installing bootup-reset service Finished" | sudo tee -a $FULA_LOG_PATH
@@ -1783,23 +1786,23 @@ case $1 in
   done
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
     declare -A file_info
-    for file in fula.sh union-drive.sh; do
+    for file in fula.sh union-drive.sh firewall.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
         file_info["${file}"]="${size}:${mtime}"
       fi
     done
-  
+
     sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     sleep 2
     sync
 
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
-    # Check if fula.sh or union-drive.sh have changed
+    # Check if fula.sh, union-drive.sh, or firewall.sh have changed
     restart_uniondrive=false
     restart_fula=false
-    for file in fula.sh union-drive.sh; do
+    for file in fula.sh union-drive.sh firewall.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -1811,6 +1814,7 @@ case $1 in
           elif [ "$file" = "fula.sh" ]; then
             restart_fula=true
           fi
+          # firewall.sh changes are handled by unconditional re-apply at end of start
         fi
       fi
     done
@@ -1826,6 +1830,11 @@ case $1 in
     if copy_service_file "${FULA_PATH}/uniondrive.service" "$SYSTEMD_PATH/uniondrive.service" "uniondrive"; then
       systemd_reload_needed=true
       restart_uniondrive=true
+    fi
+
+    # Check and update firewall.service
+    if copy_service_file "${FULA_PATH}/firewall.service" "$SYSTEMD_PATH/firewall.service" "firewall"; then
+      systemd_reload_needed=true
     fi
 
     # Reload systemd if needed
@@ -1857,6 +1866,21 @@ case $1 in
   else
       echo "Starting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
       sudo systemctl start fula-plugins
+  fi
+
+  # Ensure firewall.service is enabled (covers existing devices that never re-run install)
+  # and re-apply firewall rules after container startup.
+  # Docker manipulates iptables during compose up, and reboots clear in-memory rules.
+  # Both operations are idempotent and take milliseconds.
+  if [ -f "${FULA_PATH}/firewall.sh" ] && [ -s "${FULA_PATH}/firewall.sh" ]; then
+    if [ -f "$SYSTEMD_PATH/firewall.service" ]; then
+      sudo systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    fi
+    echo "Applying firewall rules" | sudo tee -a $FULA_LOG_PATH
+    sudo chmod +x "${FULA_PATH}/firewall.sh"
+    sudo bash "${FULA_PATH}/firewall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
+      echo "WARNING: firewall.sh failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+    }
   fi
   ;;
 "stop")
