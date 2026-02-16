@@ -256,6 +256,32 @@ EOF
     log_info "  Digests saved to $IMAGE_DIGESTS_FILE"
 }
 
+# Replace /usr/bin/fula/*.tar with locally-built images so fula.sh
+# fallback (dockerComposeUp line 793) loads our builds, not Docker Hub.
+save_local_image_tars() {
+    log_info "Saving locally-built images as tar backups..."
+    # Service names must match docker-compose service names (fula.sh uses ${service}.tar)
+    docker save functionland/fxsupport:release -o "${FULA_PATH}/fxsupport.tar"
+    docker save functionland/ipfs-cluster:release -o "${FULA_PATH}/ipfs-cluster.tar"
+    docker save functionland/go-fula:release -o "${FULA_PATH}/go-fula.tar"
+    docker save ipfs/kubo:release -o "${FULA_PATH}/kubo.tar"
+    log_info "  tar backups replaced with locally-built images"
+}
+
+# Kill background pullFailedServices processes spawned by fula.sh dockerComposeUp
+# (nohup, line 822). These retry docker-compose pull every 360s and would replace
+# locally-built images once /etc/hosts is unblocked.
+kill_pull_background() {
+    local pids
+    pids=$(pgrep -f "pullFailedServices" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        log_info "  Killing background pullFailedServices: $pids"
+        kill $pids 2>/dev/null || true
+        sleep 2
+        kill -9 $pids 2>/dev/null || true
+    fi
+}
+
 # Cleanup trap — always restore /etc/hosts even on script failure
 cleanup_pull_guard() {
     if $HOSTS_MODIFIED; then
@@ -411,6 +437,10 @@ phase_deploy() {
     $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
     log_info "docker cp flow complete."
 
+    # Replace tar backups with locally-built images so fula.sh's fallback
+    # path (dockerComposeUp) loads our builds instead of Docker Hub versions.
+    save_local_image_tars
+
     log_step "5" "Update systemd service files"
 
     local services_updated=0
@@ -452,6 +482,9 @@ phase_deploy() {
     log_info "Stopping watchtower to prevent Docker Hub pulls..."
     docker stop fula_updater 2>/dev/null || true
     log_info "  watchtower stopped (will be checked as 'not running' in verify phase)"
+
+    # Kill any background pullFailedServices before unblocking Docker Hub
+    kill_pull_background
 
     # Restore /etc/hosts — pulls are safe now since all containers are up
     # and watchtower is stopped
@@ -513,10 +546,9 @@ phase_ota_sim() {
 
     block_docker_hub
 
-    # Remove tar backups so fula.sh uses our locally-built images (not cached tars)
-    log_info "Removing image tar backups..."
-    rm -f "${FULA_PATH}"/*.tar
-    log_info "  tar backups removed"
+    # Replace tar backups with locally-built images (not remove them).
+    # fula.sh's fallback loads from tar when pull fails — we want it to load OUR builds.
+    save_local_image_tars
 
     # Remove stop_docker_copy.txt — this is the key trigger.
     # fula.sh line 1799: if file missing or fxsupport image newer → docker cp runs
@@ -594,6 +626,9 @@ phase_ota_sim() {
 
     docker stop fula_updater 2>/dev/null || true
     log_info "  watchtower stopped"
+
+    # Kill any background pullFailedServices before unblocking Docker Hub
+    kill_pull_background
 
     unblock_docker_hub
     log_info "  Docker Hub unblocked"
