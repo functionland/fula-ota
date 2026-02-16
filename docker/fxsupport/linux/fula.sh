@@ -854,6 +854,15 @@ function dockerComposeDown() {
   if [ -n "$stale" ]; then
     echo "dockerComposeDown: removing dead containers: $stale" | sudo tee -a $FULA_LOG_PATH
     echo "$stale" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+
+    # docker rm -f often fails on Dead containers (filesystem cleanup stuck).
+    # Check if they survived and restart Docker daemon as last resort.
+    stale=$(docker ps -a --filter "label=com.docker.compose.project=fula" --filter "status=dead" -q 2>/dev/null || true)
+    if [ -n "$stale" ]; then
+      echo "dockerComposeDown: dead containers persist after rm -f, restarting docker daemon" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+      sleep 5
+    fi
   fi
 }
 

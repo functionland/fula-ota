@@ -303,6 +303,24 @@ cleanup_stale_containers() {
         echo "$stale" | xargs -r docker rm -f 2>/dev/null || true
     fi
 
+    # Check for Dead containers that docker rm -f couldn't remove.
+    # Dead state = Docker's filesystem cleanup failed; rm -f often doesn't work.
+    # Restarting the Docker daemon is the only reliable way to clear them.
+    local dead
+    dead=$(docker ps -a --filter "status=dead" -q 2>/dev/null || true)
+    if [[ -n "$dead" ]]; then
+        log_warn "Dead containers still present after rm -f, restarting Docker daemon..."
+        systemctl restart docker
+        sleep 5
+        # Verify they're gone
+        dead=$(docker ps -a --filter "status=dead" -q 2>/dev/null || true)
+        if [[ -n "$dead" ]]; then
+            log_warn "  Dead containers persist even after daemon restart: $dead"
+        else
+            log_info "  Docker restart cleared dead containers"
+        fi
+    fi
+
     log_info "  Container cleanup complete"
 }
 
