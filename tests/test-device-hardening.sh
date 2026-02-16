@@ -364,6 +364,14 @@ phase_build() {
 
     log_step "2" "Build ALL Docker images locally"
 
+    # Free disk space: remove Docker build cache and dangling images/layers.
+    # Without this, repeated builds fill /var/lib/docker and fail with
+    # "no space left on device" during go link.
+    log_info "Pruning Docker build cache and dangling images..."
+    docker builder prune -af 2>/dev/null || true
+    docker image prune -f 2>/dev/null || true
+    log_info "  prune complete"
+
     # Read .env to get the exact image references that docker-compose uses.
     # The .env uses "index.docker.io/" prefixed names (e.g. index.docker.io/functionland/fxsupport:release)
     # while "docker build -t functionland/fxsupport:release" creates "docker.io/functionland/fxsupport:release".
