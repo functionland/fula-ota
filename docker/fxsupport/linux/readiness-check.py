@@ -157,6 +157,40 @@ def check_disk_space(path="/uniondrive", min_gb=1):
         logging.error(f"Failed to check disk space on {path}: {e}")
         return True, -1  # Don't block on error
 
+def check_proxy_health():
+    """Check if go-fula proxy ports (4020/4021) are reachable.
+    These ports handle kubo->go-fula p2p stream forwarding for blockchain and ping.
+    """
+    import socket
+    ports_ok = True
+    for port in [4020, 4021]:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+                pass
+        except (ConnectionRefusedError, OSError, socket.timeout):
+            logging.warning(f"go-fula proxy port {port} is not reachable on 127.0.0.1")
+            ports_ok = False
+    return ports_ok
+
+
+def check_peerid_collision():
+    """Detect if kubo and ipfs-cluster have the same PeerID (known failure mode)."""
+    try:
+        kubo_resp = requests.post("http://127.0.0.1:5001/api/v0/id", timeout=10)
+        kubo_id = kubo_resp.json().get("ID", "")
+
+        cluster_resp = requests.get("http://127.0.0.1:9094/id", timeout=10)
+        cluster_id = cluster_resp.json().get("id", "")
+
+        if kubo_id and cluster_id and kubo_id == cluster_id:
+            logging.error(f"PeerID COLLISION: kubo and ipfs-cluster share PeerID {kubo_id}")
+            return True
+        return False
+    except Exception as e:
+        logging.debug(f"PeerID collision check skipped: {e}")
+        return False
+
+
 def start_led_flash(color, interval=1):
     """
     Start flashing the LED with the specified color at the given interval.
@@ -417,7 +451,8 @@ def check_and_fix_ipfs_cluster():
             time.sleep(10)
             pebble_dir = "/uniondrive/ipfs-cluster/pebble"
             if os.path.exists(pebble_dir):
-                subprocess.run(f"sudo rm -rf {pebble_dir}/*", shell=True, check=True)
+                subprocess.run(["sudo", "rm", "-rf", pebble_dir], capture_output=True, check=True)
+                subprocess.run(["sudo", "mkdir", "-p", pebble_dir], capture_output=True, check=True)
                 logging.info("Pebble directory contents removed.")
             else:
                 logging.warning("Pebble directory not found.")
@@ -441,10 +476,10 @@ def check_and_fix_ipfs_cluster():
         
         # Try to clear logs only if the container exists
         if cluster_error_found:
-            container_id = subprocess.getoutput("docker inspect --format='{{.Id}}' ipfs_cluster 2>/dev/null")
+            container_id = subprocess.getoutput("sudo docker inspect --format='{{.Id}}' ipfs_cluster 2>/dev/null")
             if container_id:
                 try:
-                    subprocess.run(["sudo", "truncate", "-s", "0", f"/var/lib/docker/containers/{container_id}/ipfs_cluster-json.log"], check=True)
+                    subprocess.run(["sudo", "truncate", "-s", "0", f"/var/lib/docker/containers/{container_id}/{container_id}-json.log"], check=True)
                     logging.info("fix applied and IPFS Cluster logs cleared successfully.")
                 except subprocess.CalledProcessError:
                     logging.warning("Failed to truncate logs, but applied with the fix of ipfs cluster")
@@ -585,14 +620,14 @@ def check_and_fix_ipfs_host():
         time.sleep(10)
         ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
         if os.path.exists(ipfs_dir):
-            subprocess.run(["sudo", "rm", "-rf", ipfs_dir])
+            subprocess.run(["sudo", "rm", "-rf", ipfs_dir], capture_output=True, check=True)
             logging.info("Ipfs Blocks directory removed.")
         else:
             logging.warning("Ipfs Blocks directory not found.")
         subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
         time.sleep(30)
         return True
-    
+
     if "could not get pinset from IPFS: Post" in ipfs_host_logs and "context deadline exceeded" in ipfs_host_logs:
         logging.warning("IPFS Host issue 2 detected. Restarting the container.")
         subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True)
@@ -605,15 +640,15 @@ def check_and_fix_ipfs_host():
         time.sleep(10)
         ipfs_dir = "/uniondrive/ipfs_datastore/blocks"
         if os.path.exists(ipfs_dir):
-            subprocess.run(["sudo", "rm", "-rf", ipfs_dir])
+            subprocess.run(["sudo", "rm", "-rf", ipfs_dir], capture_output=True, check=True)
             logging.info("Ipfs Blocks directory removed.")
         else:
             logging.warning("Ipfs Blocks directory not found.")
 
         ipfs_datastore_dir = "/uniondrive/ipfs_datastore/datastore"
-        ipfs_datastore_dir_content = "/uniondrive/ipfs_datastore/datastore/*"
         if os.path.exists(ipfs_datastore_dir):
-            subprocess.run(["sudo", "rm", "-rf", ipfs_datastore_dir_content])
+            subprocess.run(["sudo", "rm", "-rf", ipfs_datastore_dir], capture_output=True, check=True)
+            subprocess.run(["sudo", "mkdir", "-p", ipfs_datastore_dir], capture_output=True, check=True)
             logging.info("Ipfs Datastore directory contents removed.")
         else:
             logging.warning("Ipfs Datastore directory not found.")
@@ -924,7 +959,7 @@ def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
         subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
-        time.sleep(500)
+        time.sleep(120)
         return
     
     containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
@@ -998,6 +1033,26 @@ def monitor_docker_logs_and_restart():
                 break  # Break to re-check all containers after an attempt
             
         if all_containers_running:
+            # Check go-fula proxy health
+            if not check_proxy_health():
+                logging.warning("go-fula proxy ports unreachable. Restarting fula.service.")
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                time.sleep(30)
+                restart_attempts += 1
+                continue
+
+            # Check for PeerID collision between kubo and ipfs-cluster
+            if check_peerid_collision():
+                logging.warning("PeerID collision detected. Removing ipfs-cluster identity to regenerate.")
+                service_json = "/uniondrive/ipfs-cluster/service.json"
+                if os.path.exists(service_json):
+                    subprocess.run(["sudo", "rm", "-f", service_json], capture_output=True, check=True)
+                    logging.info(f"Deleted {service_json} to force PeerID regeneration.")
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                time.sleep(30)
+                restart_attempts += 1
+                continue
+
             # If all containers are running and logs are clean, reset attempts and continue monitoring
             restart_attempts = 0
             subprocess.run(["sudo", "python", LED_PATH, "green", "1"], capture_output=True)
@@ -1012,7 +1067,9 @@ def monitor_docker_logs_and_restart():
         # Check disk space before running fixes (low disk can cause corruption)
         has_space, free_gb = check_disk_space("/uniondrive", min_gb=1)
         if not has_space:
-            logging.warning(f"Low disk space detected ({free_gb:.2f}GB). This may cause config corruption.")
+            logging.warning(f"Low disk space detected ({free_gb:.2f}GB). Running docker prune.")
+            subprocess.run(["sudo", "docker", "system", "prune", "-f"],
+                           capture_output=True, timeout=120)
 
         # Run all fix checks
         ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
@@ -1069,8 +1126,7 @@ def main():
             elif wifi_status == "other":
                 logging.info("wifi_status other")
                 subprocess.run(["sudo", "python", LED_PATH, "green", "30"], capture_output=True)
-                while True:
-                    monitor_docker_logs_and_restart()
+                monitor_docker_logs_and_restart()
             else:
                 logging.info("wifi_status not connected")
                 if cycles_with_no_wifi == 6:
