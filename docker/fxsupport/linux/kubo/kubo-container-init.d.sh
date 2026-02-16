@@ -46,9 +46,11 @@ mkdir -p /internal/ipfs_data/
 # from a previous run may be inaccessible to ipfs. Without this, kubo fails
 # with: "failed to open pebble database: LOCK: permission denied"
 #
-# Remove stale pebble LOCK file first — it's an advisory lock from a dead
-# process and will be recreated by kubo on startup.
+# Remove stale lock files from a dead process -- they will be recreated on startup.
+# - pebble LOCK: flatfs datastore advisory lock
+# - repo.lock: kubo repo-level lock (prevents concurrent access)
 rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
+rm -f /internal/ipfs_data/repo.lock 2>/dev/null || true
 # Use the ipfs username (not hardcoded UID) so this works across kubo versions.
 # "ipfs:" = change user to ipfs, group to ipfs's default login group.
 log "Fixing datastore ownership for ipfs user..."
