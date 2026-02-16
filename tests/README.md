@@ -127,6 +127,12 @@ sudo sed -i '/hardening-test-pull-guard/d' /etc/hosts
   sudo bash ./tests/test-device-hardening.sh --verify
 ```
 
+### tet OTA
+
+```
+sudo bash ./tests/test-device-hardening.sh --build --ota-sim --verify
+```
+
 ### If something breaks or you want to restore normal operation:
 
 ```
