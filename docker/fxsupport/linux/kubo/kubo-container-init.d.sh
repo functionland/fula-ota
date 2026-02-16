@@ -40,25 +40,13 @@ done
 log "Both /internal and /uniondrive are available and writable."
 mkdir -p /internal/ipfs_data/
 
-# Fix ownership of kubo's data directories.
-# This init script runs as root, but kubo switches to the ipfs user after init
-# completes. Files created by root (fula.sh mkdir, migration scripts) or left
-# from a previous run may be inaccessible to ipfs. Without this, kubo fails
-# with: "failed to open pebble database: LOCK: permission denied"
-#
-# Remove stale lock files from a dead process -- they will be recreated on startup.
-# - pebble LOCK: flatfs datastore advisory lock
-# - repo.lock: kubo repo-level lock (prevents concurrent access)
+# Remove stale lock files from a previous crashed kubo instance.
+# These are advisory locks that will be recreated on startup.
+# Note: this script runs as the ipfs user (kubo's entrypoint does
+# exec gosu ipfs before running container-init.d scripts). rm works
+# here because the parent directories are world-writable (chmod 777).
+# Ownership fixes are handled by fula.sh on the host (runs as root).
 rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
 rm -f /internal/ipfs_data/repo.lock 2>/dev/null || true
-# Use the ipfs username (not hardcoded UID) so this works across kubo versions.
-# "ipfs:" = change user to ipfs, group to ipfs's default login group.
-log "Fixing datastore ownership for ipfs user..."
-if [ -d "/uniondrive/ipfs_datastore" ]; then
-  chown -R ipfs: /uniondrive/ipfs_datastore
-fi
-if [ -d "/internal/ipfs_data" ]; then
-  chown -R ipfs: /internal/ipfs_data
-fi
 
 log "Initialization complete."

@@ -1597,6 +1597,21 @@ PYEOF
     sudo rm -f ${HOME_DIR}/.internal/.ipfs_setup
   fi
 
+  # Fix ownership of kubo data directories for the ipfs user (UID 1000).
+  # fula.sh creates files here as root (lines 361-364, 526), and go-fula's
+  # initipfs also writes as root. Kubo runs as ipfs (UID 1000) inside its
+  # container — its entrypoint skips chown when the directory is world-writable
+  # (our chmod 777), but individual root-owned files remain inaccessible.
+  # Also remove stale lock files from previous crashed kubo instances.
+  if [ -d "${HOME_DIR}/.internal/ipfs_data" ]; then
+    rm -f "${HOME_DIR}/.internal/ipfs_data/repo.lock" 2>/dev/null || true
+    chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+  if [ -d "/uniondrive/ipfs_datastore" ]; then
+    rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
+    chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
 
