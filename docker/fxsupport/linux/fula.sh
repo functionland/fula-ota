@@ -803,7 +803,11 @@ function dockerComposeUp() {
 
       # Get the container ID for the specific service
       container_id=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service)
-      
+
+      # Fallback: docker-compose ps doesn't list Dead containers. Find them by label.
+      if [ -z "$container_id" ]; then
+        container_id=$(docker ps -a --filter "label=com.docker.compose.service=$service" --filter "label=com.docker.compose.project=fula" -q 2>/dev/null || true)
+      fi
 
       # Check if container_id is not empty
       if [ -n "$container_id" ]; then
@@ -838,6 +842,18 @@ function dockerComposeDown() {
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
     echo 'Shutting down existing deployment' | sudo tee -a $FULA_LOG_PATH
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" down --remove-orphans || true
+  fi
+
+  # Remove any containers in Dead state that docker-compose down missed.
+  # Dead containers retain compose labels but aren't listed by docker-compose ps,
+  # so the check above skips them. When dockerComposeUp uses --no-recreate,
+  # compose finds the Dead container via labels, refuses to create a new one,
+  # but can't start it either -- the service silently never starts.
+  local stale
+  stale=$(docker ps -a --filter "label=com.docker.compose.project=fula" --filter "status=dead" -q 2>/dev/null || true)
+  if [ -n "$stale" ]; then
+    echo "dockerComposeDown: removing dead containers: $stale" | sudo tee -a $FULA_LOG_PATH
+    echo "$stale" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
 }
 

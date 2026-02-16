@@ -282,6 +282,30 @@ kill_pull_background() {
     fi
 }
 
+# Force-remove ALL containers from the fula compose project, including Dead ones.
+# Docker "Dead" containers retain compose labels but aren't listed by docker-compose ps,
+# so docker-compose down misses them. When fula.sh's dockerComposeUp() uses
+# --no-recreate, compose finds the Dead container (via labels), refuses to create
+# a new one, but can't start the Dead one either → service never starts.
+cleanup_stale_containers() {
+    log_info "Cleaning up stale/dead containers..."
+
+    # Remove by name (covers containers that kept their name)
+    for c in "${EXPECTED_CONTAINERS[@]}"; do
+        docker rm -f "$c" 2>/dev/null || true
+    done
+
+    # Remove any unnamed containers still carrying fula compose labels (e.g. Dead state)
+    local stale
+    stale=$(docker ps -a --filter "label=com.docker.compose.project=fula" -q 2>/dev/null || true)
+    if [[ -n "$stale" ]]; then
+        log_info "  Removing stale compose-labeled containers: $stale"
+        echo "$stale" | xargs -r docker rm -f 2>/dev/null || true
+    fi
+
+    log_info "  Container cleanup complete"
+}
+
 # Cleanup trap — always restore /etc/hosts even on script failure
 cleanup_pull_guard() {
     if $HOSTS_MODIFIED; then
@@ -400,6 +424,11 @@ phase_deploy() {
         $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
         sleep 5
     fi
+
+    # Force-remove ALL containers (including Dead ones from previous runs).
+    # Dead containers retain compose labels but docker-compose down misses them,
+    # and fula.sh's --no-recreate flag then refuses to create new ones.
+    cleanup_stale_containers
     log_info "All containers stopped."
 
     # Remove tar backups so fula.sh can't load old images from them
@@ -411,12 +440,6 @@ phase_deploy() {
     log_step "4" "Simulate the production docker cp flow"
 
     log_info "4a. Starting fxsupport container (carries new files)..."
-    # Remove stale containers by name — Docker Compose tracks containers by ID
-    # in labels. If Step 3's compose-down already removed them, Compose still
-    # tries to "Recreate" by the old ID and fails with "No such container".
-    for c in fula_updater fula_fxsupport; do
-        docker rm -f "$c" 2>/dev/null || true
-    done
     $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d fxsupport
     sleep 5
 
@@ -540,6 +563,9 @@ phase_ota_sim() {
         $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
         sleep 5
     fi
+
+    # Force-remove ALL containers (including Dead ones from previous runs)
+    cleanup_stale_containers
     log_info "All containers stopped."
 
     log_step "OTA-2" "Prepare environment (simulate watchtower pulled new images)"
