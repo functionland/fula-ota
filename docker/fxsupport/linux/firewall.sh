@@ -66,34 +66,41 @@ iptables -A "$CHAIN" -p tcp --dport 9096 -j ACCEPT
 # 9. streamr-node plugin
 iptables -A "$CHAIN" -p tcp --dport 32200 -j ACCEPT
 
+# 10. go-fula proxy (kubo→host forwarding for blockchain + ping)
+#     These ports are reached via kubo p2p stream forwarding from Docker bridges.
+#     The blanket br-+/docker0 rules above cover this, but explicit rules provide
+#     defense-in-depth if the blanket rules are ever removed.
+iptables -A "$CHAIN" -p tcp --dport 4020 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 4021 -j ACCEPT
+
 # --- Ports open to LOCAL NETWORK only (RFC1918) ---
 
-# 10. SSH
+# 11. SSH
 iptables -A "$CHAIN" -p tcp --dport 22 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 22 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 22 -s 172.16.0.0/12 -j ACCEPT
 
-# 11. Samba
+# 12. Samba
 for port in 139 445; do
   iptables -A "$CHAIN" -p tcp --dport "$port" -s 192.168.0.0/16 -j ACCEPT
   iptables -A "$CHAIN" -p tcp --dport "$port" -s 10.0.0.0/8 -j ACCEPT
   iptables -A "$CHAIN" -p tcp --dport "$port" -s 172.16.0.0/12 -j ACCEPT
 done
 
-# 12. WAP setup server
+# 13. WAP setup server
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 172.16.0.0/12 -j ACCEPT
 
-# 13. loyal-agent plugin
+# 14. loyal-agent plugin
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 172.16.0.0/12 -j ACCEPT
 
-# 14. Log dropped packets (rate-limited)
+# 15. Log dropped packets (rate-limited)
 iptables -A "$CHAIN" -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "FULA_FW_DROP: " --log-level 4
 
-# 15. Drop everything else
+# 16. Drop everything else
 iptables -A "$CHAIN" -j DROP
 
 # Insert jump at position 1 in INPUT

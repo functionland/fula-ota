@@ -910,6 +910,39 @@ test_firewall_bridge_rules() {
     fi
 }
 
+test_firewall_proxy_ports() {
+    ((TESTS_TOTAL++))
+    log_test "Step 9: Firewall allows go-fula proxy ports (4020 + 4021)..."
+
+    local rules
+    rules=$(iptables -L FULA_FIREWALL -n 2>/dev/null || echo "NO_CHAIN")
+
+    if [[ "$rules" == *"NO_CHAIN"* ]]; then
+        log_fail "FULA_FIREWALL chain not found"
+        return
+    fi
+
+    local port4020_ok=false port4021_ok=false
+
+    if echo "$rules" | grep -q "tcp dpt:4020.*ACCEPT\|ACCEPT.*tcp.*dpt:4020"; then
+        port4020_ok=true
+    fi
+
+    if echo "$rules" | grep -q "tcp dpt:4021.*ACCEPT\|ACCEPT.*tcp.*dpt:4021"; then
+        port4021_ok=true
+    fi
+
+    if $port4020_ok && $port4021_ok; then
+        log_pass "Firewall has explicit ACCEPT rules for ports 4020 and 4021"
+    else
+        $port4020_ok || log_info "  MISSING: port 4020 (blockchain proxy) accept rule"
+        $port4021_ok || log_info "  MISSING: port 4021 (ping proxy) accept rule"
+        log_fail "Firewall missing explicit proxy port rules (defense-in-depth)"
+        log_info "  These ports are used by kubo→go-fula p2p stream forwarding."
+        log_info "  Fix: Add 'iptables -A FULA_FIREWALL -p tcp --dport 4020 -j ACCEPT' to firewall.sh"
+    fi
+}
+
 # Step 10: Verify privilege reduction (hardening-specific)
 test_no_privileged_mode() {
     ((TESTS_TOTAL++))
@@ -1366,6 +1399,7 @@ phase_verify() {
     test_systemd_services
     test_firewall_rules
     test_firewall_bridge_rules
+    test_firewall_proxy_ports
 
     log_step "10" "Verify privilege reduction (hardening)"
     test_no_privileged_mode
