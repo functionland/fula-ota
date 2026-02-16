@@ -1736,6 +1736,11 @@ main() {
 
     check_prerequisites
 
+    # Always clean up dead containers first. Dead containers (orphaned overlay2
+    # metadata) destabilize Docker — they cause compose --no-recreate failures,
+    # build errors, and daemon crashes. Must happen before ANY phase.
+    cleanup_stale_containers
+
     # Lifecycle commands — execute and exit
     if $do_rollback; then
         phase_rollback
