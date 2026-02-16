@@ -8,7 +8,8 @@
 #   ./test-device-hardening.sh              # Run all phases (build + deploy + verify)
 #   ./test-device-hardening.sh --build      # Build Docker images only (Steps 1-2)
 #   ./test-device-hardening.sh --deploy     # Deploy to device only (Steps 3-6)
-#   ./test-device-hardening.sh --verify     # Verify hardening only (Steps 7-11)
+#   ./test-device-hardening.sh --ota-sim    # Simulate real OTA update via fula.sh
+#   ./test-device-hardening.sh --verify     # Verify hardening only (Steps 7-12)
 #   ./test-device-hardening.sh --rollback   # Rollback to production images
 #   ./test-device-hardening.sh --skip-build # Deploy + verify, skip image builds
 #
@@ -43,6 +44,9 @@ IMAGE_DIGESTS_FILE="/tmp/hardening-test-image-digests"
 # Timeouts (seconds)
 CONTAINER_STARTUP_TIMEOUT=180
 SERVICE_STARTUP_TIMEOUT=30
+OTA_FULL_STARTUP_TIMEOUT=420   # 60s ExecStartPre + restart() + docker cp + cascade
+OTA_SIM_RAN=false              # set true by phase_ota_sim; gates OTA-specific tests
+OTA_SNAPSHOT_DIR="/tmp/ota-sim-snapshot"  # pre-OTA state for before/after comparison
 
 # Colors for output
 RED='\033[0;31m'
@@ -455,6 +459,156 @@ phase_deploy() {
     log_info "Docker Hub unblocked. Local images are in use."
 }
 
+# ─── Phase: OTA-SIM (Steps OTA-1 through OTA-4) ─────────────────────────────
+
+phase_ota_sim() {
+    log_step "OTA-1" "Stop system and capture pre-OTA state"
+
+    # --- Capture pre-OTA state for before/after comparison ---
+    rm -rf "$OTA_SNAPSHOT_DIR"
+    mkdir -p "$OTA_SNAPSHOT_DIR"
+
+    # Snapshot: file checksums of key scripts currently on host
+    for f in fula.sh union-drive.sh docker-compose.yml .env kubo/config; do
+        if [[ -f "${FULA_PATH}/${f}" ]]; then
+            md5sum "${FULA_PATH}/${f}" >> "${OTA_SNAPSHOT_DIR}/host-files-before.md5"
+        fi
+    done
+    log_info "Pre-OTA file checksums saved"
+
+    # Snapshot: current PeerIDs (may be the same — that's the bug we're testing for)
+    jq -r '.Identity.PeerID // empty' /home/pi/.internal/ipfs_data/config \
+        > "${OTA_SNAPSHOT_DIR}/kubo-peerid-before" 2>/dev/null || true
+    jq -r '.id // empty' /uniondrive/ipfs-cluster/identity.json \
+        > "${OTA_SNAPSHOT_DIR}/cluster-peerid-before" 2>/dev/null || true
+    log_info "Pre-OTA PeerIDs: kubo=$(cat ${OTA_SNAPSHOT_DIR}/kubo-peerid-before) cluster=$(cat ${OTA_SNAPSHOT_DIR}/cluster-peerid-before)"
+
+    # Snapshot: current container image IDs
+    for c in "${EXPECTED_CONTAINERS[@]}"; do
+        docker inspect --format='{{.Image}}' "$c" \
+            >> "${OTA_SNAPSHOT_DIR}/container-images-before" 2>/dev/null || true
+    done
+
+    # Snapshot: systemd service file checksums
+    for svc in fula.service uniondrive.service firewall.service; do
+        if [[ -f "${SYSTEMD_PATH}/${svc}" ]]; then
+            md5sum "${SYSTEMD_PATH}/${svc}" >> "${OTA_SNAPSHOT_DIR}/systemd-before.md5"
+        fi
+    done
+
+    log_info "Stopping fula.service..."
+    systemctl stop fula 2>/dev/null || true
+    sleep 10
+
+    local running
+    running=$(docker ps -q 2>/dev/null | wc -l)
+    if [[ "$running" -gt 0 ]]; then
+        log_warn "$running containers still running, forcing down..."
+        $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
+        sleep 5
+    fi
+    log_info "All containers stopped."
+
+    log_step "OTA-2" "Prepare environment (simulate watchtower pulled new images)"
+
+    block_docker_hub
+
+    # Remove tar backups so fula.sh uses our locally-built images (not cached tars)
+    log_info "Removing image tar backups..."
+    rm -f "${FULA_PATH}"/*.tar
+    log_info "  tar backups removed"
+
+    # Remove stop_docker_copy.txt — this is the key trigger.
+    # fula.sh line 1799: if file missing or fxsupport image newer → docker cp runs
+    log_info "Removing stop_docker_copy.txt to ensure docker cp fires..."
+    rm -f /home/pi/stop_docker_copy.txt
+    log_info "  stop_docker_copy.txt removed"
+
+    # Truncate fula.sh log for clean OTA trace analysis
+    log_info "Truncating fula.sh.log for clean trace..."
+    : > "$FULA_LOG"
+
+    log_step "OTA-3" "Start fula.service — fula.sh handles the entire update"
+
+    log_info "This replicates the real production update path:"
+    log_info "  fula.service ExecStartPre: sleep 60"
+    log_info "  fula.sh start: restart() → dockerComposeDown → PeerID check"
+    log_info "    → kubo config merge → dockerComposeUp (local images)"
+    log_info "    → docker cp trigger → file change detection → cascade restart"
+    systemctl start fula
+
+    # Wait for containers, with periodic progress updates
+    log_info "Waiting for full OTA cycle (up to ${OTA_FULL_STARTUP_TIMEOUT}s)..."
+    local elapsed=0
+    local all_up=false
+    while [[ $elapsed -lt $OTA_FULL_STARTUP_TIMEOUT ]]; do
+        local up_count=0
+        for c in "${EXPECTED_CONTAINERS[@]}"; do
+            local st
+            st=$(docker inspect --format='{{.State.Status}}' "$c" 2>/dev/null || echo "missing")
+            [[ "$st" == "running" ]] && ((up_count++))
+        done
+
+        if [[ $up_count -eq ${#EXPECTED_CONTAINERS[@]} ]]; then
+            all_up=true
+            break
+        fi
+
+        # Progress every 30s
+        if (( elapsed % 30 == 0 )) && [[ $elapsed -gt 0 ]]; then
+            log_info "  ${elapsed}s: ${up_count}/${#EXPECTED_CONTAINERS[@]} containers up"
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+
+    if $all_up; then
+        log_info "All containers running after ${elapsed}s."
+    else
+        log_warn "Not all containers up after ${OTA_FULL_STARTUP_TIMEOUT}s!"
+        docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || true
+    fi
+
+    # Wait extra time for the docker cp + cascade restart that runs AFTER
+    # containers are up (fula.sh lines 1776-1871)
+    log_info "Waiting 90s for docker cp + cascade restart to complete..."
+    local cp_done=false
+    for i in $(seq 1 18); do
+        if grep -q "docker cp status=>" "$FULA_LOG" 2>/dev/null; then
+            cp_done=true
+            break
+        fi
+        sleep 5
+    done
+
+    if $cp_done; then
+        log_info "docker cp completed (detected in fula.sh.log)"
+    else
+        log_warn "docker cp marker not found in log after 90s"
+    fi
+
+    # Extra settle time for cascading restarts
+    sleep 15
+
+    log_step "OTA-4" "Post-OTA: stop watchtower, unblock Docker Hub, dump trace"
+
+    docker stop fula_updater 2>/dev/null || true
+    log_info "  watchtower stopped"
+
+    unblock_docker_hub
+    log_info "  Docker Hub unblocked"
+
+    # Dump the full fula.sh OTA trace for inspection
+    log_info ""
+    log_info "═══ fula.sh OTA trace (full log) ═══"
+    cat "$FULA_LOG" 2>/dev/null | tee -a "$TEST_LOG" || true
+    log_info "═══ end OTA trace ═══"
+    log_info ""
+
+    OTA_SIM_RAN=true
+    log_info "OTA simulation complete. Run --verify to validate."
+}
+
 # ─── Phase: VERIFY (Steps 7-11) ──────────────────────────────────────────────
 
 # Step 7: Verify all containers running
@@ -720,6 +874,42 @@ test_firewall_rules() {
     fi
 }
 
+test_firewall_bridge_rules() {
+    ((TESTS_TOTAL++))
+    log_test "Step 9: Firewall allows Docker bridge traffic (docker0 + br-+)..."
+
+    local rules
+    rules=$(iptables -L FULA_FIREWALL -n 2>/dev/null || echo "NO_CHAIN")
+
+    if [[ "$rules" == *"NO_CHAIN"* ]]; then
+        log_fail "FULA_FIREWALL chain not found"
+        return
+    fi
+
+    local docker0_ok=false br_ok=false
+
+    # Check for docker0 accept rule
+    if iptables -L FULA_FIREWALL -n -v 2>/dev/null | grep -q "docker0.*ACCEPT"; then
+        docker0_ok=true
+    fi
+
+    # Check for br-+ (Compose bridge) accept rule
+    # iptables -L shows "br-+" as the interface pattern
+    if iptables -L FULA_FIREWALL -n -v 2>/dev/null | grep -q "br-\+.*ACCEPT\|br+.*ACCEPT"; then
+        br_ok=true
+    fi
+
+    if $docker0_ok && $br_ok; then
+        log_pass "Firewall accepts traffic from docker0 and Compose bridges (br-+)"
+    else
+        $docker0_ok || log_info "  MISSING: docker0 accept rule"
+        $br_ok      || log_info "  MISSING: br-+ accept rule (Docker Compose bridges)"
+        log_fail "Firewall missing Docker bridge accept rules — kubo→proxy traffic will be silently dropped"
+        log_info "  This breaks the Mobile→kubo→go-fula proxy path (port 4020/4021)."
+        log_info "  Fix: Add 'iptables -A FULA_FIREWALL -i br-+ -j ACCEPT' to firewall.sh"
+    fi
+}
+
 # Step 10: Verify privilege reduction (hardening-specific)
 test_no_privileged_mode() {
     ((TESTS_TOTAL++))
@@ -953,6 +1143,209 @@ test_cluster_no_modprobe() {
     fi
 }
 
+# ─── OTA update flow verification ─────────────────────────────────────────
+# These tests verify that fula.sh's internal OTA mechanisms actually
+# executed correctly. They catch real update bugs before images are
+# pushed to Docker Hub.
+
+test_ota_docker_cp_ran() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: docker cp extraction ran successfully..."
+
+    if ! $OTA_SIM_RAN; then
+        log_info "  Skipped (--ota-sim not run in this session)"
+        log_pass "OTA docker cp check skipped"
+        return
+    fi
+
+    if grep -q "docker cp status=> 0" "$FULA_LOG" 2>/dev/null; then
+        log_pass "docker cp ran and exited 0"
+    elif grep -q "skipping docker cp command" "$FULA_LOG" 2>/dev/null; then
+        log_fail "docker cp was SKIPPED — stop_docker_copy.txt trigger did not fire"
+        log_info "  This means fula.sh thinks the image hasn't changed."
+        log_info "  Check the timestamp comparison logic at fula.sh line 1799."
+        grep -i "docker cp\|stop_docker_copy\|last_pull_time\|last_modification" "$FULA_LOG" 2>/dev/null | tail -5 | sed 's/^/    /' || true
+    elif grep -q "docker cp status=>" "$FULA_LOG" 2>/dev/null; then
+        local line
+        line=$(grep "docker cp status=>" "$FULA_LOG" | tail -1)
+        log_fail "docker cp ran but FAILED: $line"
+    else
+        log_fail "No evidence of docker cp in fula.sh.log at all"
+        log_info "  fula.sh may have crashed before reaching the docker cp stage."
+        log_info "  Last 10 lines of fula.sh.log:"
+        tail -10 "$FULA_LOG" 2>/dev/null | sed 's/^/    /' || true
+    fi
+}
+
+test_ota_files_extracted() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: extracted files match what's inside fxsupport container..."
+
+    if ! $OTA_SIM_RAN; then
+        log_info "  Skipped (--ota-sim not run in this session)"
+        log_pass "OTA file extraction check skipped"
+        return
+    fi
+
+    local all_ok=true
+    local checked=0
+    for file in fula.sh union-drive.sh docker-compose.yml .env; do
+        # Get size from running fxsupport container
+        local container_size
+        container_size=$(docker exec fula_fxsupport stat -c %s "/linux/$file" 2>/dev/null || echo "MISSING")
+        local host_size
+        host_size=$(stat -c %s "${FULA_PATH}/$file" 2>/dev/null || echo "MISSING")
+
+        if [[ "$container_size" == "MISSING" ]]; then
+            log_info "  $file: not in container (skipped)"
+            continue
+        fi
+        ((checked++))
+
+        if [[ "$host_size" == "MISSING" ]]; then
+            log_info "  $file: MISSING on host (docker cp failed to extract it)"
+            all_ok=false
+        elif [[ "$container_size" == "$host_size" ]]; then
+            log_info "  $file: OK (${host_size} bytes)"
+        else
+            log_info "  $file: SIZE MISMATCH — container=${container_size} host=${host_size}"
+            log_info "    docker cp may have failed or an older version remains"
+            all_ok=false
+        fi
+    done
+
+    if [[ $checked -eq 0 ]]; then
+        log_fail "Could not compare any files (fxsupport container not accessible?)"
+    elif $all_ok; then
+        log_pass "All $checked checked files match fxsupport container"
+    else
+        log_fail "Some extracted files don't match — docker cp may be broken"
+    fi
+}
+
+test_ota_kubo_config_merge() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: kubo config merge executed..."
+
+    if ! $OTA_SIM_RAN; then
+        log_info "  Skipped (--ota-sim not run in this session)"
+        log_pass "OTA kubo config merge check skipped"
+        return
+    fi
+
+    if grep -q "kubo_config_merge_inline: done" "$FULA_LOG" 2>/dev/null; then
+        log_pass "Kubo config merge completed (inline)"
+    elif grep -q "kubo_config_merge_inline: config already up to date" "$FULA_LOG" 2>/dev/null; then
+        log_pass "Kubo config merge ran (already up to date)"
+    elif grep -q "kubo_config_merge_inline: deployed config not found" "$FULA_LOG" 2>/dev/null; then
+        log_warn "  Deployed config not found — merge skipped (fresh install?)"
+        log_pass "Kubo config merge correctly skipped (no deployed config)"
+    elif grep -q "kubo config merge failed\|inline kubo config merge failed" "$FULA_LOG" 2>/dev/null; then
+        log_fail "Kubo config merge FAILED"
+        grep -i "kubo_config_merge\|merge failed" "$FULA_LOG" 2>/dev/null | tail -5 | sed 's/^/    /' || true
+    else
+        log_fail "No evidence kubo config merge ran"
+        log_info "  fula.sh may have crashed before reaching the merge step (line 1375)."
+    fi
+}
+
+test_ota_peerid_separation() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: kubo and ipfs-cluster have different PeerIDs..."
+
+    local kubo_pid cluster_pid config_pid
+
+    # Get kubo PeerID from live API
+    kubo_pid=$(curl -s --max-time 10 -X POST http://127.0.0.1:5001/api/v0/id 2>/dev/null \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('ID',''))" 2>/dev/null || echo "")
+
+    # Get cluster PeerID from identity file
+    cluster_pid=$(jq -r '.id // empty' /uniondrive/ipfs-cluster/identity.json 2>/dev/null || echo "")
+
+    # Get kubo config PeerID (what's on disk)
+    config_pid=$(jq -r '.Identity.PeerID // empty' /home/pi/.internal/ipfs_data/config 2>/dev/null || echo "")
+
+    if [[ -z "$kubo_pid" ]]; then
+        log_fail "Cannot get kubo PeerID from API (kubo not responding?)"
+        return
+    fi
+    if [[ -z "$cluster_pid" ]]; then
+        log_fail "Cannot get cluster PeerID (identity.json missing?)"
+        return
+    fi
+
+    log_info "  Kubo API PeerID:    $kubo_pid"
+    log_info "  Kubo config PeerID: $config_pid"
+    log_info "  Cluster PeerID:     $cluster_pid"
+
+    if [[ "$kubo_pid" == "$cluster_pid" ]]; then
+        log_fail "CRITICAL: Kubo and cluster have the SAME PeerID: $kubo_pid"
+        log_info "  The PeerID separation fix in fula.sh restart() did not work."
+        log_info "  Check fula.sh.log for 'forcing identity re-derivation'."
+        grep -i "PeerID\|re-derivation\|\.ipfs_setup" "$FULA_LOG" 2>/dev/null | sed 's/^/    /' || true
+
+        # Show pre-OTA state if available
+        if [[ -f "${OTA_SNAPSHOT_DIR}/kubo-peerid-before" ]]; then
+            log_info "  Pre-OTA kubo PeerID was: $(cat ${OTA_SNAPSHOT_DIR}/kubo-peerid-before)"
+        fi
+    elif [[ -n "$config_pid" && "$config_pid" != "$kubo_pid" ]]; then
+        log_fail "Kubo API PeerID ($kubo_pid) doesn't match config file ($config_pid)"
+        log_info "  Kubo may have loaded an old config before initipfs overwrote it."
+    else
+        log_pass "Kubo ($kubo_pid) and cluster ($cluster_pid) have different PeerIDs"
+    fi
+}
+
+test_ota_log_errors() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: fula.sh.log has no critical errors..."
+
+    if ! $OTA_SIM_RAN; then
+        log_info "  Skipped (--ota-sim not run in this session)"
+        log_pass "OTA log error check skipped"
+        return
+    fi
+
+    # Scan for errors/failures that indicate real problems
+    local error_patterns="failed to start again\|Pull for.*initiated\|Error response from daemon\|cannot start\|No such container\|is not running"
+    local errors
+    errors=$(grep -i "$error_patterns" "$FULA_LOG" 2>/dev/null || true)
+
+    if [[ -z "$errors" ]]; then
+        log_pass "No critical errors found in fula.sh.log"
+    else
+        local count
+        count=$(echo "$errors" | wc -l)
+        log_fail "Found $count error(s) in fula.sh.log during OTA update"
+        echo "$errors" | head -10 | sed 's/^/    /' | tee -a "$TEST_LOG"
+    fi
+}
+
+test_ota_compose_flow() {
+    ((TESTS_TOTAL++))
+    log_test "OTA: dockerComposeDown + dockerComposeUp both ran..."
+
+    if ! $OTA_SIM_RAN; then
+        log_info "  Skipped (--ota-sim not run in this session)"
+        log_pass "OTA compose flow check skipped"
+        return
+    fi
+
+    local down_ok=false up_ok=false
+    grep -q "dockerComposeDown" "$FULA_LOG" 2>/dev/null && down_ok=true
+    grep -q "dockerComposeUp" "$FULA_LOG" 2>/dev/null && up_ok=true
+
+    if $down_ok && $up_ok; then
+        log_pass "dockerComposeDown + dockerComposeUp both executed"
+    else
+        $down_ok || log_info "  dockerComposeDown: NOT FOUND in log"
+        $up_ok   || log_info "  dockerComposeUp: NOT FOUND in log"
+        log_fail "Compose lifecycle incomplete — fula.sh may have crashed early"
+        log_info "  Last 10 lines of fula.sh.log:"
+        tail -10 "$FULA_LOG" 2>/dev/null | sed 's/^/    /' || true
+    fi
+}
+
 # ─── Phase runners ────────────────────────────────────────────────────────────
 
 phase_verify() {
@@ -972,6 +1365,7 @@ phase_verify() {
     log_step "9" "Verify ALL systemd services"
     test_systemd_services
     test_firewall_rules
+    test_firewall_bridge_rules
 
     log_step "10" "Verify privilege reduction (hardening)"
     test_no_privileged_mode
@@ -988,6 +1382,14 @@ phase_verify() {
     test_kubo_no_kernel_access
     test_cluster_no_iptables
     test_cluster_no_modprobe
+
+    log_step "12" "OTA update flow verification"
+    test_ota_compose_flow
+    test_ota_docker_cp_ran
+    test_ota_files_extracted
+    test_ota_kubo_config_merge
+    test_ota_peerid_separation
+    test_ota_log_errors
 }
 
 # ─── Lifecycle phases ─────────────────────────────────────────────────────────
@@ -1109,6 +1511,10 @@ print_results() {
         echo ""
         echo "  Option B — Done testing, restore normal operation:"
         echo "    sudo $0 --finish"
+        echo ""
+        echo "  Option C — OTA simulation (test real update path):"
+        echo "    sudo $0 --build --ota-sim --verify"
+        echo "    sudo $0 --finish"
     else
         echo -e "\n${RED}Some tests failed. Check $TEST_LOG for details.${NC}"
         echo ""
@@ -1126,7 +1532,8 @@ usage() {
     echo "  (no flags)     Run all phases: build + deploy + verify"
     echo "  --build        Build Docker images only (Steps 1-2)"
     echo "  --deploy       Deploy to device only (Steps 3-6)"
-    echo "  --verify       Verify hardening only (Steps 7-11)"
+    echo "  --ota-sim      Simulate real OTA update via fula.sh (Steps OTA-1 through OTA-4)"
+    echo "  --verify       Verify hardening only (Steps 7-12)"
     echo "  --skip-build   Deploy + verify, skip image builds"
     echo ""
     echo "Lifecycle:"
@@ -1144,6 +1551,9 @@ usage() {
     echo "  sudo reboot                       # Reboot device"
     echo "  sudo $0 --verify                  # Verify after reboot"
     echo "  sudo $0 --finish                  # Restore normal operation"
+    echo ""
+    echo "  # OTA simulation (test the real update path):"
+    echo "  sudo $0 --build --ota-sim --verify"
 }
 
 main() {
@@ -1153,6 +1563,7 @@ main() {
     local do_rollback=false
     local do_reboot_prep=false
     local do_finish=false
+    local do_ota_sim=false
     local explicit_phase=false
 
     while [[ $# -gt 0 ]]; do
@@ -1171,6 +1582,8 @@ main() {
                 do_reboot_prep=true; explicit_phase=true; shift ;;
             --finish)
                 do_finish=true; explicit_phase=true; shift ;;
+            --ota-sim)
+                do_ota_sim=true; explicit_phase=true; shift ;;
             --branch)
                 BRANCH="$2"; shift 2 ;;
             --help)
@@ -1227,6 +1640,10 @@ main() {
 
     if $do_deploy; then
         phase_deploy
+    fi
+
+    if $do_ota_sim; then
+        phase_ota_sim
     fi
 
     if $do_verify; then

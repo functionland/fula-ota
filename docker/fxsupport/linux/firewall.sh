@@ -40,8 +40,11 @@ iptables -A "$CHAIN" -i lo -j ACCEPT
 iptables -A "$CHAIN" -p icmp -m limit --limit 10/s --limit-burst 20 -j ACCEPT
 iptables -A "$CHAIN" -p icmp -j DROP
 
-# 4. Accept all traffic on docker0 bridge (container-to-host)
+# 4. Accept all traffic from Docker bridges (container-to-host)
+#    docker0  = default bridge
+#    br-+     = Docker Compose project bridges (e.g. br-c5a389b718ee)
 iptables -A "$CHAIN" -i docker0 -j ACCEPT
+iptables -A "$CHAIN" -i br-+ -j ACCEPT
 
 # 5. Accept hotspot AP subnet (for WAP setup)
 iptables -A "$CHAIN" -s 10.42.0.0/24 -j ACCEPT
@@ -107,6 +110,7 @@ if command -v ip6tables >/dev/null 2>&1; then
   ip6tables -A "${CHAIN}_V6" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -i lo -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -i docker0 -j ACCEPT
+  ip6tables -A "${CHAIN}_V6" -i br-+ -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -p ipv6-icmp -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -j DROP
 
