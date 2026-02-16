@@ -97,12 +97,12 @@ log_test() {
 
 log_pass() {
     echo -e "${GREEN}[PASS]${NC} $1" | tee -a "$TEST_LOG"
-    ((TESTS_PASSED++))
+    ((++TESTS_PASSED))
 }
 
 log_fail() {
     echo -e "${RED}[FAIL]${NC} $1" | tee -a "$TEST_LOG"
-    ((TESTS_FAILED++))
+    ((++TESTS_FAILED))
 }
 
 log_warn() {
@@ -546,7 +546,7 @@ phase_ota_sim() {
         for c in "${EXPECTED_CONTAINERS[@]}"; do
             local st
             st=$(docker inspect --format='{{.State.Status}}' "$c" 2>/dev/null || echo "missing")
-            [[ "$st" == "running" ]] && ((up_count++))
+            [[ "$st" == "running" ]] && ((++up_count))
         done
 
         if [[ $up_count -eq ${#EXPECTED_CONTAINERS[@]} ]]; then
@@ -613,7 +613,7 @@ phase_ota_sim() {
 
 # Step 7: Verify all containers running
 test_containers_running() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 7: Verifying all containers are running..."
 
     local all_ok=true
@@ -641,7 +641,7 @@ test_containers_running() {
 }
 
 test_container_images() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 7: Verifying container images..."
 
     docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" 2>&1 | tee -a "$TEST_LOG"
@@ -678,7 +678,7 @@ test_container_images() {
 
 # Verify locally-built images were NOT replaced by Docker Hub pulls
 test_image_digests_survived() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 7: Verifying local images were not replaced by Docker Hub pulls..."
 
     if [[ ! -f "$IMAGE_DIGESTS_FILE" ]]; then
@@ -730,7 +730,7 @@ test_image_digests_survived() {
 
 # Step 8: Verify services are healthy
 test_kubo_api() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: Kubo API health..."
 
     local response
@@ -747,7 +747,7 @@ test_kubo_api() {
 }
 
 test_gofula_readiness() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: go-fula readiness endpoint..."
 
     local response
@@ -762,7 +762,7 @@ test_gofula_readiness() {
 }
 
 test_wifi_capability() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: go-fula NET_ADMIN capability (nmcli)..."
 
     local output
@@ -778,7 +778,7 @@ test_wifi_capability() {
 }
 
 test_ipfs_cluster_health() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: IPFS cluster health..."
 
     local output
@@ -793,7 +793,7 @@ test_ipfs_cluster_health() {
 }
 
 test_gofula_logs() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: go-fula container logs (checking for fatal errors)..."
 
     local logs
@@ -812,7 +812,7 @@ test_gofula_logs() {
 }
 
 test_kubo_p2p_protocols() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 8: Kubo p2p protocols registered..."
 
     local output
@@ -834,7 +834,7 @@ test_kubo_p2p_protocols() {
 
 # Step 9: Verify systemd services
 test_systemd_services() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 9: Verifying systemd services..."
 
     local all_ok=true
@@ -856,7 +856,7 @@ test_systemd_services() {
 }
 
 test_firewall_rules() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 9: Checking firewall rules..."
 
     local output
@@ -875,7 +875,7 @@ test_firewall_rules() {
 }
 
 test_firewall_bridge_rules() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 9: Firewall allows Docker bridge traffic (docker0 + br-+)..."
 
     local rules
@@ -911,7 +911,7 @@ test_firewall_bridge_rules() {
 }
 
 test_firewall_proxy_ports() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 9: Firewall allows go-fula proxy ports (4020 + 4021)..."
 
     local rules
@@ -945,7 +945,7 @@ test_firewall_proxy_ports() {
 
 # Step 10: Verify privilege reduction (hardening-specific)
 test_no_privileged_mode() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: No container runs in privileged mode..."
 
     local all_ok=true
@@ -968,7 +968,7 @@ test_no_privileged_mode() {
 }
 
 test_gofula_capabilities() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: go-fula has correct capabilities..."
 
     local caps
@@ -993,7 +993,7 @@ test_gofula_capabilities() {
 }
 
 test_kubo_no_caps() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: kubo and ipfs-cluster have no extra capabilities..."
 
     local all_ok=true
@@ -1015,7 +1015,7 @@ test_kubo_no_caps() {
 }
 
 test_docker_sock_readonly() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: go-fula docker.sock mounted read-only..."
 
     local mode
@@ -1030,7 +1030,7 @@ test_docker_sock_readonly() {
 }
 
 test_fxsupport_no_mounts() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: fxsupport has no volume mounts..."
 
     local mount_count
@@ -1046,7 +1046,7 @@ test_fxsupport_no_mounts() {
 }
 
 test_fxsupport_readonly() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: fxsupport has read-only rootfs..."
 
     local ro
@@ -1061,7 +1061,7 @@ test_fxsupport_readonly() {
 }
 
 test_watchtower_readonly() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: watchtower has read-only rootfs..."
 
     # docker inspect works on stopped containers too (reads config, not runtime state)
@@ -1077,7 +1077,7 @@ test_watchtower_readonly() {
 }
 
 test_no_new_privileges() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 10: All containers have no-new-privileges..."
 
     local all_ok=true
@@ -1099,7 +1099,7 @@ test_no_new_privileges() {
 
 # Step 11: Isolation negative tests
 test_docker_sock_write_blocked() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 11: go-fula docker.sock is read-only (write should fail)..."
 
     # Read should work
@@ -1135,7 +1135,7 @@ test_docker_sock_write_blocked() {
 }
 
 test_kubo_no_kernel_access() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 11: kubo cannot access kernel memory..."
 
     local output
@@ -1149,7 +1149,7 @@ test_kubo_no_kernel_access() {
 }
 
 test_cluster_no_iptables() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 11: ipfs-cluster cannot run iptables..."
 
     local output
@@ -1163,7 +1163,7 @@ test_cluster_no_iptables() {
 }
 
 test_cluster_no_modprobe() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "Step 11: ipfs-cluster cannot load kernel modules..."
 
     local output
@@ -1182,7 +1182,7 @@ test_cluster_no_modprobe() {
 # pushed to Docker Hub.
 
 test_ota_docker_cp_ran() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: docker cp extraction ran successfully..."
 
     if ! $OTA_SIM_RAN; then
@@ -1211,7 +1211,7 @@ test_ota_docker_cp_ran() {
 }
 
 test_ota_files_extracted() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: extracted files match what's inside fxsupport container..."
 
     if ! $OTA_SIM_RAN; then
@@ -1233,7 +1233,7 @@ test_ota_files_extracted() {
             log_info "  $file: not in container (skipped)"
             continue
         fi
-        ((checked++))
+        ((++checked))
 
         if [[ "$host_size" == "MISSING" ]]; then
             log_info "  $file: MISSING on host (docker cp failed to extract it)"
@@ -1257,7 +1257,7 @@ test_ota_files_extracted() {
 }
 
 test_ota_kubo_config_merge() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: kubo config merge executed..."
 
     if ! $OTA_SIM_RAN; then
@@ -1283,7 +1283,7 @@ test_ota_kubo_config_merge() {
 }
 
 test_ota_peerid_separation() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: kubo and ipfs-cluster have different PeerIDs..."
 
     local kubo_pid cluster_pid config_pid
@@ -1330,7 +1330,7 @@ test_ota_peerid_separation() {
 }
 
 test_ota_log_errors() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: fula.sh.log has no critical errors..."
 
     if ! $OTA_SIM_RAN; then
@@ -1355,7 +1355,7 @@ test_ota_log_errors() {
 }
 
 test_ota_compose_flow() {
-    ((TESTS_TOTAL++))
+    ((++TESTS_TOTAL))
     log_test "OTA: dockerComposeDown + dockerComposeUp both ran..."
 
     if ! $OTA_SIM_RAN; then
