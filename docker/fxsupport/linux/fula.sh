@@ -849,18 +849,27 @@ function dockerComposeDown() {
   # so the check above skips them. When dockerComposeUp uses --no-recreate,
   # compose finds the Dead container via labels, refuses to create a new one,
   # but can't start it either -- the service silently never starts.
-  local stale
-  stale=$(docker ps -a --filter "label=com.docker.compose.project=fula" --filter "status=dead" -q 2>/dev/null || true)
-  if [ -n "$stale" ]; then
-    echo "dockerComposeDown: removing dead containers: $stale" | sudo tee -a $FULA_LOG_PATH
-    echo "$stale" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  #
+  # Root cause: overlay2 RW layer gets deleted (image rebuild/prune) but the
+  # container metadata dir persists in /var/lib/docker/containers/. Docker can't
+  # rm (layer missing) and can't start (marked for removal). The only fix is to
+  # stop dockerd, delete the orphaned metadata dirs, and restart.
+  local dead_ids
+  dead_ids=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
+  if [ -n "$dead_ids" ]; then
+    echo "dockerComposeDown: found dead containers, attempting removal: $dead_ids" | sudo tee -a $FULA_LOG_PATH
+    echo "$dead_ids" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
 
-    # docker rm -f often fails on Dead containers (filesystem cleanup stuck).
-    # Check if they survived and restart Docker daemon as last resort.
-    stale=$(docker ps -a --filter "label=com.docker.compose.project=fula" --filter "status=dead" -q 2>/dev/null || true)
-    if [ -n "$stale" ]; then
-      echo "dockerComposeDown: dead containers persist after rm -f, restarting docker daemon" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl restart docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    # Check if docker rm -f worked
+    dead_ids=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
+    if [ -n "$dead_ids" ]; then
+      echo "dockerComposeDown: dead containers persist (orphaned metadata), purging manually" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl stop docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+      for cid in $dead_ids; do
+        echo "dockerComposeDown: removing /var/lib/docker/containers/$cid" | sudo tee -a $FULA_LOG_PATH
+        sudo rm -rf "/var/lib/docker/containers/$cid"
+      done
+      sudo systemctl start docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
       sleep 5
     fi
   fi

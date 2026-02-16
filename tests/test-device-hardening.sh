@@ -303,21 +303,27 @@ cleanup_stale_containers() {
         echo "$stale" | xargs -r docker rm -f 2>/dev/null || true
     fi
 
-    # Check for Dead containers that docker rm -f couldn't remove.
-    # Dead state = Docker's filesystem cleanup failed; rm -f often doesn't work.
-    # Restarting the Docker daemon is the only reliable way to clear them.
+    # Handle Dead containers whose overlay2 RW layer was deleted (e.g. by image
+    # rebuild/prune) but whose metadata dir still exists in /var/lib/docker/containers/.
+    # Docker can't remove them (layer missing) and can't start them (marked for removal).
+    # docker rm -f and daemon restart both fail — the metadata must be deleted manually.
     local dead
-    dead=$(docker ps -a --filter "status=dead" -q 2>/dev/null || true)
+    dead=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
     if [[ -n "$dead" ]]; then
-        log_warn "Dead containers still present after rm -f, restarting Docker daemon..."
-        systemctl restart docker
+        log_warn "Dead containers detected (orphaned metadata), purging..."
+        systemctl stop docker
+        for cid in $dead; do
+            log_info "  Removing /var/lib/docker/containers/$cid"
+            rm -rf "/var/lib/docker/containers/$cid"
+        done
+        systemctl start docker
         sleep 5
-        # Verify they're gone
+        # Verify
         dead=$(docker ps -a --filter "status=dead" -q 2>/dev/null || true)
         if [[ -n "$dead" ]]; then
-            log_warn "  Dead containers persist even after daemon restart: $dead"
+            log_warn "  Dead containers still present: $dead"
         else
-            log_info "  Docker restart cleared dead containers"
+            log_info "  Dead containers purged successfully"
         fi
     fi
 
