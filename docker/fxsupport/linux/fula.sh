@@ -798,8 +798,18 @@ function dockerComposeUp() {
     echo "Starting $service..." | sudo tee -a $FULA_LOG_PATH
 
     # Try to start the service
-    if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
+    local up_output
+    up_output=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service 2>&1) || true
+    echo "$up_output" | sudo tee -a $FULA_LOG_PATH
+
+    if echo "$up_output" | grep -qi "error\|failed"; then
       echo "$service failed to start. Attempting to stop, remove and restart..." | sudo tee -a $FULA_LOG_PATH
+
+      # Check if the failure is a ghost container ("No such container")
+      if echo "$up_output" | grep -q "No such container"; then
+        echo "$service blocked by ghost container, running purgeGhostContainers..." | sudo tee -a $FULA_LOG_PATH
+        purgeGhostContainers
+      fi
 
       # Get the container ID for the specific service
       container_id=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" ps -q $service)
@@ -826,7 +836,7 @@ function dockerComposeUp() {
         (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
         echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
         disown $!
-        
+
       fi
     else
       echo "$service started successfully." | sudo tee -a $FULA_LOG_PATH
@@ -844,34 +854,63 @@ function dockerComposeDown() {
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" down --remove-orphans || true
   fi
 
-  # Remove any containers in Dead state that docker-compose down missed.
-  # Dead containers retain compose labels but aren't listed by docker-compose ps,
-  # so the check above skips them. When dockerComposeUp uses --no-recreate,
-  # compose finds the Dead container via labels, refuses to create a new one,
-  # but can't start it either -- the service silently never starts.
-  #
-  # Root cause: overlay2 RW layer gets deleted (image rebuild/prune) but the
-  # container metadata dir persists in /var/lib/docker/containers/. Docker can't
-  # rm (layer missing) and can't start (marked for removal). The only fix is to
-  # stop dockerd, delete the orphaned metadata dirs, and restart.
-  local dead_ids
-  dead_ids=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
-  if [ -n "$dead_ids" ]; then
-    echo "dockerComposeDown: found dead containers, attempting removal: $dead_ids" | sudo tee -a $FULA_LOG_PATH
-    echo "$dead_ids" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  # Remove ghost containers that block docker-compose up.
+  # Ghost containers can appear in several forms:
+  #   1. "Dead" status: overlay2 RW layer deleted but metadata persists
+  #   2. "Exited" but docker rm -f returns "No such container": metadata in
+  #      Docker's database but containerd has no matching entry
+  # Both cases cause docker-compose up to fail with "No such container" errors
+  # or silently refuse to create new containers (--no-recreate).
+  purgeGhostContainers
+}
 
-    # Check if docker rm -f worked
-    dead_ids=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
-    if [ -n "$dead_ids" ]; then
-      echo "dockerComposeDown: dead containers persist (orphaned metadata), purging manually" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl stop docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
-      for cid in $dead_ids; do
-        echo "dockerComposeDown: removing /var/lib/docker/containers/$cid" | sudo tee -a $FULA_LOG_PATH
-        sudo rm -rf "/var/lib/docker/containers/$cid"
-      done
-      sudo systemctl start docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
-      sleep 5
-    fi
+# Detect and remove ghost containers that docker rm -f can't handle.
+# Uses Docker's data-root (not hardcoded /var/lib/docker) so it works
+# regardless of where Docker stores data.
+function purgeGhostContainers() {
+  local docker_root stale_ids
+
+  # First try normal removal of dead/exited fula containers
+  stale_ids=$(docker ps -a --filter "label=com.docker.compose.project=fula" \
+    --filter "status=dead" --filter "status=exited" --no-trunc -q 2>/dev/null || true)
+  if [ -n "$stale_ids" ]; then
+    echo "purgeGhostContainers: removing stale containers: $stale_ids" | sudo tee -a $FULA_LOG_PATH
+    echo "$stale_ids" | xargs -r docker rm -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+
+  # Check if any ghosts survived docker rm -f
+  # A ghost is a container that shows in docker ps -a but docker rm -f says "No such container"
+  local remaining
+  remaining=$(docker ps -a --filter "label=com.docker.compose.project=fula" \
+    --filter "status=dead" --filter "status=exited" --no-trunc -q 2>/dev/null || true)
+  if [ -z "$remaining" ]; then
+    return 0
+  fi
+
+  echo "purgeGhostContainers: ghost containers survived docker rm, purging from disk" | sudo tee -a $FULA_LOG_PATH
+
+  # Get Docker's actual data root (works with custom data-root config)
+  docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")
+
+  # Must stop docker AND docker.socket to prevent socket-activation restarts
+  sudo systemctl stop docker.socket 2>/dev/null || true
+  sudo systemctl stop docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  sleep 2
+
+  for cid in $remaining; do
+    echo "purgeGhostContainers: removing ${docker_root}/containers/$cid" | sudo tee -a $FULA_LOG_PATH
+    sudo rm -rf "${docker_root}/containers/$cid"
+  done
+
+  sudo systemctl start docker 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  sleep 5
+
+  # Final verify
+  remaining=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
+  if [ -n "$remaining" ]; then
+    echo "purgeGhostContainers: WARNING — ghosts still present after purge: $remaining" | sudo tee -a $FULA_LOG_PATH
+  else
+    echo "purgeGhostContainers: all ghost containers purged" | sudo tee -a $FULA_LOG_PATH
   fi
 }
 
@@ -1611,6 +1650,18 @@ PYEOF
     rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
     chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
+
+  # Pre-flight: check root filesystem space. If critically low, prune Docker
+  # build cache and dangling images to prevent container startup failures.
+  local root_avail_kb
+  root_avail_kb=$(df -k / | awk 'NR==2 {print $4}')
+  if [ -n "$root_avail_kb" ] && [ "$root_avail_kb" -lt 512000 ]; then
+    echo "WARNING: root filesystem low (${root_avail_kb}KB free), pruning Docker to reclaim space" | sudo tee -a $FULA_LOG_PATH
+    docker system prune -f 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+
+  # Pre-flight: purge any ghost containers left from previous crashes
+  purgeGhostContainers
 
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
