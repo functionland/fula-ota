@@ -441,6 +441,11 @@ phase_build() {
     docker pull ipfs/kubo:release
     log_info "  kubo: pulled"
 
+    # --- 2e. watchtower ---
+    log_info "2e. Pulling watchtower:latest..."
+    docker pull containrrr/watchtower:latest
+    log_info "  watchtower: pulled"
+
     log_info "All images ready."
 
     # Record digests so we can verify they survive the deploy
