@@ -1330,8 +1330,14 @@ function restart() {
     # Proceed only if the cron job exists
     if [ -f "$RESIZE_SC" ]; then 
       # Wait for specific flags to indicate completion
-      while [ ! -f $partition_flag ] || [ ! -f $resize_flag ]; do
-          sleep 1  # Adjust sleep as needed
+      local resize_wait=0
+      while [ ! -f "$partition_flag" ] || [ ! -f "$resize_flag" ]; do
+          sleep 1
+          resize_wait=$((resize_wait + 1))
+          if [ $resize_wait -ge 3600 ]; then
+              echo "WARNING: resize wait exceeded 1 hour, continuing anyway" | sudo tee -a $FULA_LOG_PATH
+              break
+          fi
       done
     else
         echo "Resize script not found" | sudo tee -a $FULA_LOG_PATH
@@ -1771,7 +1777,7 @@ function pullFailedServices() {
 
 
 function killPullImage() {
-  if [ -f /var/run/fula.pid ] && [ ! -s /var/run/fula.pid ] ; then
+  if [ -f /var/run/fula.pid ] && [ -s /var/run/fula.pid ] ; then
      echo "Process already running." >> "$FULA_LOG_PATH"
      # shellcheck disable=SC2046
      kill -9 $(cat /var/run/fula.pid)
@@ -1858,6 +1864,8 @@ case $1 in
     echo "ENV_FILE variable is not set" | sudo tee -a $FULA_LOG_PATH
   elif [ ! -f "$ENV_FILE" ]; then
     echo "ENV_FILE ($ENV_FILE) does not exist" | sudo tee -a $FULA_LOG_PATH
+  elif grep -qvE '^\s*(#|$|[A-Za-z_][A-Za-z0-9_]*=)' "${ENV_FILE}"; then
+    echo "ENV_FILE ($ENV_FILE) contains unsafe content, skipping source" | sudo tee -a $FULA_LOG_PATH
   elif ! . "${ENV_FILE}" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
     echo "Failed to source ENV_FILE ($ENV_FILE)" | sudo tee -a $FULA_LOG_PATH
   else
