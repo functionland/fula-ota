@@ -490,15 +490,10 @@ phase_deploy() {
     log_step "4" "Simulate the production docker cp flow"
 
     log_info "4a. Starting fxsupport container (carries new files)..."
-    # Clear compose state referencing containers from previous runs
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d fxsupport
-    sleep 5
-
-    if ! docker ps --format '{{.Names}}' | grep -q fula_fxsupport; then
-        log_warn "fxsupport container not running, checking logs..."
-        docker logs fula_fxsupport 2>&1 | tail -5 || true
-    fi
+    # Use docker run instead of compose — avoids ghost container references
+    # in compose's state that cause "No such container" errors.
+    docker rm -f fula_fxsupport 2>/dev/null || true
+    docker run -d --name fula_fxsupport functionland/fxsupport:release sleep 120
 
     log_info "4b. Extracting files from fxsupport to host..."
     docker cp fula_fxsupport:/linux/. "${FULA_PATH}/"
@@ -509,7 +504,7 @@ phase_deploy() {
     chmod -R 755 "${FULA_PATH}/ipfs-cluster/" 2>/dev/null || true
 
     log_info "4d. Stopping fxsupport..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
+    docker rm -f fula_fxsupport 2>/dev/null || true
     log_info "docker cp flow complete."
 
     # Replace tar backups with locally-built images so fula.sh's fallback
