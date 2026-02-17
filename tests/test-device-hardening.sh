@@ -404,6 +404,10 @@ phase_build() {
 
     # --- 2b. ipfs-cluster ---
     log_info "2b. Building ipfs-cluster image (this may take 10-20 min)..."
+    # Remove stale base image references — if containerd blobs were cleaned
+    # but Docker metadata still points to them, the classic builder fails with
+    # "blob not found" before --pull can fetch fresh copies.
+    docker rmi golang:1.25 alpine:3.17 2>/dev/null || true
     # Always fresh clone to ensure latest code from GitHub
     rm -rf "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
     git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
