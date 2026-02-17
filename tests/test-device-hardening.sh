@@ -304,17 +304,19 @@ cleanup_stale_containers() {
     fi
 
     # Handle Dead containers whose overlay2 RW layer was deleted (e.g. by image
-    # rebuild/prune) but whose metadata dir still exists in /var/lib/docker/containers/.
+    # rebuild/prune) but whose metadata dir still exists in Docker's data root.
     # Docker can't remove them (layer missing) and can't start them (marked for removal).
     # docker rm -f and daemon restart both fail — the metadata must be deleted manually.
     local dead
     dead=$(docker ps -a --filter "status=dead" --no-trunc -q 2>/dev/null || true)
     if [[ -n "$dead" ]]; then
         log_warn "Dead containers detected (orphaned metadata), purging..."
+        local docker_root
+        docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")
         systemctl stop docker
         for cid in $dead; do
-            log_info "  Removing /var/lib/docker/containers/$cid"
-            rm -rf "/var/lib/docker/containers/$cid"
+            log_info "  Removing ${docker_root}/containers/$cid"
+            rm -rf "${docker_root}/containers/$cid"
         done
         systemctl start docker
         sleep 5
@@ -488,6 +490,8 @@ phase_deploy() {
     log_step "4" "Simulate the production docker cp flow"
 
     log_info "4a. Starting fxsupport container (carries new files)..."
+    # Clear compose state referencing containers from previous runs
+    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
     $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d fxsupport
     sleep 5
 
