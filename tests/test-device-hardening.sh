@@ -409,7 +409,7 @@ phase_build() {
     git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
         "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
     log_info "  ipfs-cluster: cloned $(cd "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" && git log --oneline -1)"
-    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/ipfs-cluster:release \
+    DOCKER_BUILDKIT=0 docker build --pull --no-cache -t functionland/ipfs-cluster:release \
         -f "$REPO_LOCAL/docker/ipfs-cluster/Dockerfile" \
         "$REPO_LOCAL/docker/ipfs-cluster/"
     log_info "  ipfs-cluster: built"
@@ -422,7 +422,7 @@ phase_build() {
         "$REPO_LOCAL/docker/go-fula/go-fula"
     log_info "  go-fula: cloned $(cd "$REPO_LOCAL/docker/go-fula/go-fula" && git log --oneline -1)"
     # --no-cache ensures Docker doesn't reuse layers with stale source code
-    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/go-fula:release \
+    DOCKER_BUILDKIT=0 docker build --pull --no-cache -t functionland/go-fula:release \
         -f "$REPO_LOCAL/docker/go-fula/Dockerfile" \
         "$REPO_LOCAL/docker/go-fula/"
     # Tag with .env name so docker-compose finds it
