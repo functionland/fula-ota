@@ -862,16 +862,27 @@ test_kubo_api() {
 
 test_gofula_readiness() {
     ((++TESTS_TOTAL))
-    log_test "Step 8: go-fula readiness endpoint..."
+    log_test "Step 8: go-fula startup (kubo proxy registration)..."
 
-    local response
-    response=$(curl -s --max-time 10 http://127.0.0.1:3500/readiness 2>/dev/null || echo "")
+    local logs
+    logs=$(docker logs fula_go 2>&1 || echo "")
 
-    if [[ -n "$response" ]]; then
-        log_info "  Response: $response"
-        log_pass "go-fula readiness endpoint responding"
+    local bridge_ok=false proto_ok=false
+
+    if echo "$logs" | grep -q "Detected Docker bridge IP for proxy target"; then
+        bridge_ok=true
+    fi
+    if echo "$logs" | grep -q "Registered kubo p2p protocol.*fula-blockchain" && \
+       echo "$logs" | grep -q "Registered kubo p2p protocol.*fula-ping"; then
+        proto_ok=true
+    fi
+
+    if $bridge_ok && $proto_ok; then
+        log_pass "go-fula detected bridge IP and registered both p2p protocols"
     else
-        log_fail "go-fula readiness endpoint not responding"
+        $bridge_ok || log_info "  MISSING: Docker bridge IP detection log"
+        $proto_ok  || log_info "  MISSING: kubo p2p protocol registration logs"
+        log_fail "go-fula startup incomplete — check 'docker logs fula_go'"
     fi
 }
 
@@ -1002,14 +1013,13 @@ test_firewall_bridge_rules() {
 
     local docker0_ok=false br_ok=false
 
-    # Check for docker0 accept rule
-    if iptables -L FULA_FIREWALL -n -v 2>/dev/null | grep -q "docker0.*ACCEPT"; then
+    # Use iptables -S for clean, parseable output and grep -F for literal matching
+    # (avoids regex escaping issues with "br-+" where + is a regex quantifier)
+    if iptables -S FULA_FIREWALL 2>/dev/null | grep -qF -- '-i docker0 -j ACCEPT'; then
         docker0_ok=true
     fi
 
-    # Check for br-+ (Compose bridge) accept rule
-    # iptables -L shows "br-+" as the interface pattern
-    if iptables -L FULA_FIREWALL -n -v 2>/dev/null | grep -q "br-\+.*ACCEPT\|br+.*ACCEPT"; then
+    if iptables -S FULA_FIREWALL 2>/dev/null | grep -qF -- '-i br-+ -j ACCEPT'; then
         br_ok=true
     fi
 
@@ -1132,14 +1142,17 @@ test_docker_sock_readonly() {
     ((++TESTS_TOTAL))
     log_test "Step 10: go-fula docker.sock mounted read-only..."
 
-    local mode
-    mode=$(docker inspect --format='{{range .Mounts}}{{if eq .Destination "/var/run/docker.sock"}}mode={{.Mode}}{{end}}{{end}}' fula_go 2>/dev/null || echo "MISSING")
-    log_info "  fula_go docker.sock: $mode"
+    # Bind mounts store read-only in .RW (false=readonly), not .Mode
+    local rw
+    rw=$(docker inspect --format='{{range .Mounts}}{{if eq .Destination "/var/run/docker.sock"}}{{.RW}}{{end}}{{end}}' fula_go 2>/dev/null || echo "MISSING")
+    log_info "  fula_go docker.sock: RW=$rw"
 
-    if [[ "$mode" == *"ro"* ]]; then
+    if [[ "$rw" == "false" ]]; then
         log_pass "docker.sock is mounted read-only on fula_go"
+    elif [[ "$rw" == "true" ]]; then
+        log_fail "docker.sock is NOT read-only on fula_go (RW=true)"
     else
-        log_fail "docker.sock is NOT read-only on fula_go (got: $mode)"
+        log_fail "docker.sock mount not found on fula_go (got: $rw)"
     fi
 }
 
