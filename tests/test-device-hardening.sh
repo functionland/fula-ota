@@ -330,11 +330,18 @@ cleanup_stale_containers() {
     log_info "  Container cleanup complete"
 }
 
-# Cleanup trap — always restore /etc/hosts even on script failure
+# Cleanup trap — remind user to run --finish if Docker Hub is blocked.
+# We intentionally do NOT auto-unblock /etc/hosts on exit. fula.service
+# has Restart=always — if /etc/hosts is restored while fula is restarting,
+# dockerComposeUp pulls from Docker Hub and overwrites locally-built images.
+# The user must run --finish to explicitly unblock when done testing.
 cleanup_pull_guard() {
     if $HOSTS_MODIFIED; then
-        echo -e "${YELLOW}[CLEANUP] Restoring /etc/hosts...${NC}"
-        unblock_docker_hub
+        echo ""
+        echo -e "${YELLOW}[NOTE] Docker Hub is still blocked in /etc/hosts.${NC}"
+        echo -e "${YELLOW}  This prevents fula.service from pulling Docker Hub images.${NC}"
+        echo -e "${YELLOW}  Run: sudo $0 --finish   to restore normal operation.${NC}"
+        echo ""
     fi
 }
 
@@ -538,13 +545,18 @@ phase_deploy() {
     docker stop fula_updater 2>/dev/null || true
     log_info "  watchtower stopped (will be checked as 'not running' in verify phase)"
 
-    # Kill any background pullFailedServices before unblocking Docker Hub
+    # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
 
-    # Restore /etc/hosts — pulls are safe now since all containers are up
-    # and watchtower is stopped
-    unblock_docker_hub
-    log_info "Docker Hub unblocked. Local images are in use."
+    # Docker Hub stays BLOCKED. fula.service has Restart=always — if the
+    # first start fails (Dead containers, kubo crash, etc.), systemd will
+    # restart it. If Docker Hub is available at that point, dockerComposeUp
+    # pulls from Docker Hub, overwriting locally-built images and files at
+    # /usr/bin/fula/. Keeping it blocked prevents this.
+    # Run --finish to restore /etc/hosts when done testing.
+    log_info "Docker Hub remains blocked to protect local images."
+    log_info "  fula.service Restart=always would pull from Hub on next cycle."
+    log_info "  Run '$0 --finish' to unblock Docker Hub when done testing."
 }
 
 # ─── Phase: OTA-SIM (Steps OTA-1 through OTA-4) ─────────────────────────────
@@ -680,16 +692,17 @@ phase_ota_sim() {
     # Extra settle time for cascading restarts
     sleep 15
 
-    log_step "OTA-4" "Post-OTA: stop watchtower, unblock Docker Hub, dump trace"
+    log_step "OTA-4" "Post-OTA: stop watchtower, dump trace"
 
     docker stop fula_updater 2>/dev/null || true
     log_info "  watchtower stopped"
 
-    # Kill any background pullFailedServices before unblocking Docker Hub
+    # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
 
-    unblock_docker_hub
-    log_info "  Docker Hub unblocked"
+    # Docker Hub stays blocked — same reason as phase_deploy:
+    # fula.service Restart=always would pull from Hub on next restart.
+    log_info "  Docker Hub remains blocked (run --finish to restore)"
 
     # Dump the full fula.sh OTA trace for inspection
     log_info ""
