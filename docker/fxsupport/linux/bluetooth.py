@@ -60,20 +60,42 @@ NOTIFY_TIMEOUT = 25000
 
 os.environ["DBUS_TIMEOUT"] = "999"
 
-def get_bluetooth_name():
+def get_kubo_peer_id():
+    """Get kubo peer ID from kubo API, falling back to config file."""
+    # Method 1: query kubo API
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            'http://127.0.0.1:5001/api/v0/id',
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            peer_id = data.get('ID', '')
+            if peer_id:
+                return peer_id
+    except Exception:
+        pass
+
+    # Method 2: read from kubo config file
     try:
         output = subprocess.check_output(
-            ['sudo', 'cat', '/home/pi/.internal/box_props.json'],
+            ['sudo', 'cat', '/home/pi/.internal/ipfs_data/config'],
             timeout=5
         ).decode('utf-8').strip()
         data = json.loads(output)
-        peer_id = data.get('blox_peer_id', '')
-        # Extract peer ID before any newline (field contains extra text after \n)
-        peer_id = peer_id.split('\n')[0].strip()
-        if len(peer_id) >= 5:
-            return f"fulatower_{peer_id[-5:]}"
+        peer_id = data.get('Identity', {}).get('PeerID', '')
+        if peer_id:
+            return peer_id
     except Exception:
         pass
+
+    return ''
+
+def get_bluetooth_name():
+    peer_id = get_kubo_peer_id()
+    if len(peer_id) >= 5:
+        return f"fulatower_{peer_id[-5:]}"
     return "fulatower_NEW"
 
 class FulatowerAdvertisement(Advertisement):

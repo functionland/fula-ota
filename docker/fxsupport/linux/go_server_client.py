@@ -81,7 +81,9 @@ class GoServerClient:
             "containerInfo_node": {},
             "hardwareID": response.get("hardwareID", ""),
             "ota_version": response.get("ota_version", ""),
-            "restartNeeded": response.get("restartNeeded", "false")
+            "restartNeeded": response.get("restartNeeded", "false"),
+            "kubo_peer_id": response.get("kubo_peer_id", ""),
+            "ipfs_cluster_peer_id": response.get("ipfs_cluster_peer_id", "")
         }
 
     def connect_wifi(self, ssid, password, country_code='US'):

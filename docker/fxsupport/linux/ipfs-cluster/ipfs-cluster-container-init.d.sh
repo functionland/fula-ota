@@ -135,21 +135,8 @@ append_or_replace "/.env.cluster" "CLUSTER_SECRET" "${CLUSTER_SECRET}"
 get_ipfs_peer_id() {
     peer_id=""
 
-    # Method 1: Read kubo peer ID from kubo's deployed config
-    # Available via volume mount /home/pi/.internal:/internal (docker-compose)
-    # Written by initipfs BEFORE initipfscluster, so always exists at this point
-    kubo_config="/internal/ipfs_data/config"
-    if [ -f "$kubo_config" ]; then
-        peer_id=$(jq -r '.Identity.PeerID // empty' "$kubo_config" 2>/dev/null)
-        if [ -n "$peer_id" ] && [ "$peer_id" != "null" ]; then
-            echo "Found kubo peer ID from kubo config: $peer_id" >&2
-            echo "$peer_id"
-            return 0
-        fi
-    fi
-
-    # Method 2: Try to get peer ID from kubo API (fallback, requires kubo running)
-    echo "Attempting to get peer ID from IPFS API..." >&2
+    # Method 1: Try kubo API first (authoritative source)
+    echo "Attempting to get peer ID from kubo API..." >&2
     max_attempts=10
     attempt=1
 
@@ -157,18 +144,30 @@ get_ipfs_peer_id() {
         if nc -z 127.0.0.1 5001 2>/dev/null; then
             peer_id=$(curl -s -X POST "http://127.0.0.1:5001/api/v0/id" 2>/dev/null | jq -r '.ID // empty' 2>/dev/null)
             if [ -n "$peer_id" ] && [ "$peer_id" != "null" ] && [ "$peer_id" != "empty" ]; then
-                echo "Successfully retrieved peer ID from IPFS API: $peer_id" >&2
+                echo "Successfully retrieved peer ID from kubo API: $peer_id" >&2
                 echo "$peer_id"
                 return 0
             fi
         fi
-        echo "Attempt $attempt/$max_attempts: IPFS API not ready, waiting 5 seconds..." >&2
+        echo "Attempt $attempt/$max_attempts: kubo API not ready, waiting 5 seconds..." >&2
         sleep 5
         attempt=$((attempt + 1))
     done
 
+    # Method 2: Fallback to kubo config file
+    # Available via volume mount /home/pi/.internal:/internal (docker-compose)
+    kubo_config="/internal/ipfs_data/config"
+    if [ -f "$kubo_config" ]; then
+        peer_id=$(jq -r '.Identity.PeerID // empty' "$kubo_config" 2>/dev/null)
+        if [ -n "$peer_id" ] && [ "$peer_id" != "null" ]; then
+            echo "Found kubo peer ID from config file (API unavailable): $peer_id" >&2
+            echo "$peer_id"
+            return 0
+        fi
+    fi
+
     # Method 3: Fallback to hostname-based ID
-    echo "Warning: Could not retrieve IPFS peer ID, using hostname-based fallback" >&2
+    echo "Warning: Could not retrieve kubo peer ID, using hostname-based fallback" >&2
     peer_id="fula-peer-$(hostname)-$(date +%s)"
     echo "$peer_id"
     return 1
