@@ -409,11 +409,7 @@ phase_build() {
     git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
         "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
     log_info "  ipfs-cluster: cloned $(cd "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" && git log --oneline -1)"
-    # Use classic builder (DOCKER_BUILDKIT=0) to avoid OOM on 8GB ARM devices.
-    # Buildx keeps the entire build context + compiled binaries in its daemon
-    # process; the OOM-killer silently kills it during layer export, producing:
-    #   "rpc error: code = Unavailable desc = error reading from server: EOF"
-    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/ipfs-cluster:release \
+    docker buildx build --load --no-cache -t functionland/ipfs-cluster:release \
         -f "$REPO_LOCAL/docker/ipfs-cluster/Dockerfile" \
         "$REPO_LOCAL/docker/ipfs-cluster/"
     log_info "  ipfs-cluster: built"
@@ -426,8 +422,7 @@ phase_build() {
         "$REPO_LOCAL/docker/go-fula/go-fula"
     log_info "  go-fula: cloned $(cd "$REPO_LOCAL/docker/go-fula/go-fula" && git log --oneline -1)"
     # --no-cache ensures Docker doesn't reuse layers with stale source code
-    # DOCKER_BUILDKIT=0: classic builder avoids OOM on 8GB ARM (see ipfs-cluster note)
-    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/go-fula:release \
+    docker buildx build --load --no-cache -t functionland/go-fula:release \
         -f "$REPO_LOCAL/docker/go-fula/Dockerfile" \
         "$REPO_LOCAL/docker/go-fula/"
     # Tag with .env name so docker-compose finds it
