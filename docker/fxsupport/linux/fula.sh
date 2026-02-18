@@ -1917,6 +1917,8 @@ case $1 in
     sudo docker cp fula_fxsupport:/linux/. ${FULA_PATH}/ 2>&1 | sudo tee -a $FULA_LOG_PATH
     sleep 2
     sync
+    # Restore execute permissions on init scripts after docker cp
+    find ${FULA_PATH} -name "*.sh" -exec sudo chmod +x {} + 2>&1 | sudo tee -a $FULA_LOG_PATH || true
 
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
     # Check if fula.sh, union-drive.sh, or firewall.sh have changed

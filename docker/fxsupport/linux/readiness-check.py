@@ -1090,7 +1090,7 @@ def monitor_docker_logs_and_restart():
                 # Issue persists even after reboot within 24 hours
                 logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
                 while True:
-                    subprocess.run(["sudo", "python", LED_PATH, "red", "10"], capture_output=True)
+                    subprocess.run(["sudo", "python", LED_PATH, "red", "15"], capture_output=True)
                     get_wifi_info_and_ping()
                     time.sleep(5)
             else:
