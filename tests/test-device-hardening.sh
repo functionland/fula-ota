@@ -43,6 +43,7 @@ IMAGE_DIGESTS_FILE="/tmp/hardening-test-image-digests"
 
 # Timeouts (seconds)
 CONTAINER_STARTUP_TIMEOUT=180
+SERVICE_READINESS_TIMEOUT=120
 SERVICE_STARTUP_TIMEOUT=30
 OTA_FULL_STARTUP_TIMEOUT=420   # 60s ExecStartPre + restart() + docker cp + cascade
 OTA_SIM_RAN=false              # set true by phase_ota_sim; gates OTA-specific tests
@@ -79,15 +80,6 @@ EXPECTED_SERVICES=(
     "fula-plugins"
 )
 
-# Service files to copy into systemd
-SERVICE_FILES=(
-    "fula.service"
-    "uniondrive.service"
-    "firewall.service"
-    "commands.service"
-    "fula-readiness-check.service"
-    "fula-plugins.service"
-)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -507,12 +499,7 @@ phase_deploy() {
     log_info "4b. Extracting files from fxsupport to host..."
     docker cp fula_fxsupport:/linux/. "${FULA_PATH}/"
 
-    log_info "4c. Setting permissions..."
-    chmod +x "${FULA_PATH}"/*.sh
-    chmod -R 755 "${FULA_PATH}/kubo/" 2>/dev/null || true
-    chmod -R 755 "${FULA_PATH}/ipfs-cluster/" 2>/dev/null || true
-
-    log_info "4d. Stopping fxsupport..."
+    log_info "4c. Stopping fxsupport..."
     docker rm -f fula_fxsupport 2>/dev/null || true
     log_info "docker cp flow complete."
 
@@ -520,29 +507,10 @@ phase_deploy() {
     # path (dockerComposeUp) loads our builds instead of Docker Hub versions.
     save_local_image_tars
 
-    log_step "5" "Update systemd service files"
+    # Service file updates (fula.service, firewall.service, etc.) are handled
+    # by fula.sh restart() via copy_service_file() — no manual copies needed.
 
-    local services_updated=0
-    for svc in "${SERVICE_FILES[@]}"; do
-        if [[ -f "${FULA_PATH}/${svc}" ]]; then
-            if ! cmp -s "${FULA_PATH}/${svc}" "${SYSTEMD_PATH}/${svc}" 2>/dev/null; then
-                cp "${FULA_PATH}/${svc}" "${SYSTEMD_PATH}/${svc}"
-                log_info "  Updated: $svc"
-                services_updated=1
-            else
-                log_info "  Unchanged: $svc"
-            fi
-        else
-            log_warn "  Not found: ${FULA_PATH}/${svc}"
-        fi
-    done
-
-    if [[ $services_updated -eq 1 ]]; then
-        systemctl daemon-reload
-        log_info "systemd daemon-reload complete"
-    fi
-
-    log_step "6" "Start the full system via fula.service"
+    log_step "5" "Start the full system via fula.service"
 
     log_info "Starting fula.service (production entry point)..."
     systemctl restart fula
@@ -565,10 +533,10 @@ phase_deploy() {
     # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
 
-    # Step 6b: Verify the compose file on disk still has hardening settings.
+    # Step 5b: Verify the compose file on disk still has hardening settings.
     # fula.sh install() or docker cp from a stale fxsupport image can silently
     # overwrite the hardened compose with the old version.
-    log_test "Step 6b: Verifying docker-compose.yml has hardening settings..."
+    log_test "Step 5b: Verifying docker-compose.yml has hardening settings..."
     ((++TESTS_TOTAL))
     if grep -q 'no-new-privileges' "${COMPOSE_FILE}" && \
        grep -q 'read_only: true' "${COMPOSE_FILE}" && \
@@ -985,15 +953,62 @@ test_kubo_p2p_protocols() {
 
     if [[ "$output" == *"EXEC_FAILED"* ]]; then
         log_fail "Could not list kubo p2p protocols"
-    elif [[ -z "$output" ]]; then
-        log_warn "  No p2p protocols registered yet (may need more startup time)"
-        log_pass "Kubo p2p ls command succeeded (0 protocols — may be early)"
+        return
+    fi
+
+    if [[ -z "$output" ]]; then
+        log_fail "No p2p protocols registered — go-fula failed to register them"
+        return
+    fi
+
+    local count
+    count=$(echo "$output" | wc -l)
+    log_info "  Registered protocols: $count"
+    echo "$output" | head -5 | sed 's/^/    /' | tee -a "$TEST_LOG"
+
+    # Verify the two critical protocols are present
+    local blockchain_ok=false ping_ok=false
+    if echo "$output" | grep -q "fula-blockchain"; then
+        blockchain_ok=true
+    fi
+    if echo "$output" | grep -q "fula-ping"; then
+        ping_ok=true
+    fi
+
+    if $blockchain_ok && $ping_ok; then
+        log_pass "Kubo has $count p2p protocols (fula-blockchain + fula-ping confirmed)"
     else
-        local count
-        count=$(echo "$output" | wc -l)
-        log_info "  Registered protocols: $count"
-        echo "$output" | head -5 | sed 's/^/    /' | tee -a "$TEST_LOG"
-        log_pass "Kubo has $count p2p protocols registered"
+        $blockchain_ok || log_info "  MISSING: fula-blockchain protocol"
+        $ping_ok      || log_info "  MISSING: fula-ping protocol"
+        log_fail "Critical p2p protocols missing — go-fula proxy path is broken"
+    fi
+}
+
+test_gofula_proxy_listening() {
+    ((++TESTS_TOTAL))
+    log_test "Step 8: go-fula proxy listening on ports 4020/4021..."
+
+    local port4020_ok=false port4021_ok=false
+
+    if ss -tlnp 2>/dev/null | grep -q ':4020 '; then
+        port4020_ok=true
+        log_info "  Port 4020 (blockchain proxy): listening"
+    else
+        log_info "  Port 4020 (blockchain proxy): NOT listening"
+    fi
+
+    if ss -tlnp 2>/dev/null | grep -q ':4021 '; then
+        port4021_ok=true
+        log_info "  Port 4021 (ping proxy): listening"
+    else
+        log_info "  Port 4021 (ping proxy): NOT listening"
+    fi
+
+    if $port4020_ok && $port4021_ok; then
+        log_pass "go-fula proxy listening on ports 4020 and 4021"
+    else
+        log_fail "go-fula proxy not listening on expected ports"
+        log_info "  go-fula may have failed to start or register p2p protocols with kubo"
     fi
 }
 
@@ -1020,6 +1035,37 @@ test_systemd_services() {
     fi
 }
 
+test_service_files_deployed() {
+    ((++TESTS_TOTAL))
+    log_test "Step 9: Service files deployed to systemd..."
+
+    local expected_files=(
+        "fula.service"
+        "uniondrive.service"
+        "firewall.service"
+        "fula-readiness-check.service"
+        "commands.service"
+        "fula-plugins.service"
+        "automount@.service"
+    )
+
+    local all_ok=true
+    for svc_file in "${expected_files[@]}"; do
+        if [[ -f "${SYSTEMD_PATH}/${svc_file}" ]]; then
+            log_info "  ${svc_file}: present"
+        else
+            log_info "  MISSING: ${SYSTEMD_PATH}/${svc_file}"
+            all_ok=false
+        fi
+    done
+
+    if $all_ok; then
+        log_pass "All service files deployed to ${SYSTEMD_PATH}"
+    else
+        log_fail "Some service files missing from ${SYSTEMD_PATH} — fula.sh copy_service_file may be incomplete"
+    fi
+}
+
 test_firewall_rules() {
     ((++TESTS_TOTAL))
     log_test "Step 9: Checking firewall rules..."
@@ -1035,7 +1081,17 @@ test_firewall_rules() {
         rule_count=$(echo "$output" | grep -c -v "^Chain\|^target\|^$" || echo "0")
         log_info "  FULA_FIREWALL rules: $rule_count"
         echo "$output" | head -5 | sed 's/^/    /' | tee -a "$TEST_LOG"
-        log_pass "Firewall chain FULA_FIREWALL exists with $rule_count rules"
+
+        # Verify firewall.service is enabled (rules persist across reboot)
+        local fw_enabled
+        fw_enabled=$(systemctl is-enabled firewall.service 2>/dev/null || echo "not-found")
+        if [[ "$fw_enabled" == "enabled" ]]; then
+            log_info "  firewall.service: enabled (rules will persist across reboot)"
+            log_pass "Firewall chain FULA_FIREWALL exists with $rule_count rules"
+        else
+            log_info "  firewall.service: $fw_enabled (rules will NOT persist across reboot)"
+            log_fail "Firewall rules exist but firewall.service is not enabled ($fw_enabled)"
+        fi
     fi
 }
 
@@ -1104,6 +1160,157 @@ test_firewall_proxy_ports() {
         log_fail "Firewall missing explicit proxy port rules (defense-in-depth)"
         log_info "  These ports are used by kubo→go-fula p2p stream forwarding."
         log_info "  Fix: Add 'iptables -A FULA_FIREWALL -p tcp --dport 4020 -j ACCEPT' to firewall.sh"
+    fi
+}
+
+# Step 9b: Verify WireGuard support tunnel
+test_wireguard_installed() {
+    ((++TESTS_TOTAL))
+    log_test "Step 9b: WireGuard installation..."
+
+    local all_ok=true
+
+    # Check wireguard-tools package
+    if command -v wg >/dev/null 2>&1; then
+        log_info "  wg binary: found"
+    else
+        log_info "  MISSING: wg binary (wireguard-tools not installed)"
+        all_ok=false
+    fi
+
+    # Check keypair
+    if [[ -f /etc/wireguard/support_private.key ]]; then
+        local perms
+        perms=$(stat -c '%a' /etc/wireguard/support_private.key 2>/dev/null)
+        log_info "  support_private.key: exists (mode=$perms)"
+        if [[ "$perms" != "600" ]]; then
+            log_warn "  Private key permissions should be 600, got $perms"
+        fi
+    else
+        log_info "  MISSING: /etc/wireguard/support_private.key"
+        all_ok=false
+    fi
+
+    if [[ -f /etc/wireguard/support_public.key ]]; then
+        log_info "  support_public.key: exists"
+    else
+        log_info "  MISSING: /etc/wireguard/support_public.key"
+        all_ok=false
+    fi
+
+    # Check systemd service file
+    if [[ -f /etc/systemd/system/wireguard-support.service ]]; then
+        log_info "  wireguard-support.service: installed"
+    else
+        log_info "  MISSING: /etc/systemd/system/wireguard-support.service"
+        all_ok=false
+    fi
+
+    # Check scripts deployed to /usr/bin/fula/wireguard/
+    local scripts_ok=true
+    for script in install.sh start.sh stop.sh status.sh register_wireguard.sh uninstall.sh; do
+        if [[ ! -f "/usr/bin/fula/wireguard/$script" ]]; then
+            log_info "  MISSING: /usr/bin/fula/wireguard/$script"
+            scripts_ok=false
+            all_ok=false
+        fi
+    done
+    $scripts_ok && log_info "  wireguard scripts: all deployed to /usr/bin/fula/wireguard/"
+
+    if $all_ok; then
+        log_pass "WireGuard support tunnel fully installed"
+    else
+        log_fail "WireGuard installation incomplete"
+    fi
+}
+
+test_wireguard_status_script() {
+    ((++TESTS_TOTAL))
+    log_test "Step 9b: WireGuard status script..."
+
+    if [[ ! -f /usr/bin/fula/wireguard/status.sh ]]; then
+        log_fail "status.sh not found"
+        return
+    fi
+
+    local output
+    output=$(bash /usr/bin/fula/wireguard/status.sh 2>/dev/null || echo "SCRIPT_FAILED")
+
+    if [[ "$output" == "SCRIPT_FAILED" ]]; then
+        log_fail "WireGuard status.sh failed to run"
+        return
+    fi
+
+    # Verify it returns valid JSON
+    if echo "$output" | python3 -m json.tool >/dev/null 2>&1; then
+        local installed active
+        installed=$(echo "$output" | python3 -c "import sys,json; print(json.load(sys.stdin).get('installed',''))" 2>/dev/null)
+        active=$(echo "$output" | python3 -c "import sys,json; print(json.load(sys.stdin).get('active',''))" 2>/dev/null)
+        log_info "  status: installed=$installed active=$active"
+        log_pass "WireGuard status.sh returns valid JSON"
+    else
+        log_info "  Raw output: $output"
+        log_fail "WireGuard status.sh did not return valid JSON"
+    fi
+}
+
+test_wireguard_firewall_rules() {
+    ((++TESTS_TOTAL))
+    log_test "Step 9b: Firewall rules for WireGuard support interface..."
+
+    local rules
+    rules=$(iptables -S FULA_FIREWALL 2>/dev/null || echo "NO_CHAIN")
+
+    if [[ "$rules" == "NO_CHAIN" ]]; then
+        log_fail "FULA_FIREWALL chain not found (cannot verify WireGuard rules)"
+        return
+    fi
+
+    local ssh_ok=false kubo_ok=false drop_ok=false
+
+    # Check: -i support -p tcp --dport 22 -j ACCEPT
+    if echo "$rules" | grep -q -- '-i support.*--dport 22.*-j ACCEPT'; then
+        ssh_ok=true
+    fi
+
+    # Check: -i support -p tcp --dport 5001 -j ACCEPT
+    if echo "$rules" | grep -q -- '-i support.*--dport 5001.*-j ACCEPT'; then
+        kubo_ok=true
+    fi
+
+    # Check: -i support -j DROP (catch-all drop for support interface)
+    if echo "$rules" | grep -q -- '-i support.*-j DROP'; then
+        drop_ok=true
+    fi
+
+    if $ssh_ok && $kubo_ok && $drop_ok; then
+        log_pass "Firewall restricts support tunnel to SSH (22) and kubo API (5001) only"
+    else
+        $ssh_ok  || log_info "  MISSING: support interface SSH accept rule (port 22)"
+        $kubo_ok || log_info "  MISSING: support interface kubo API accept rule (port 5001)"
+        $drop_ok || log_info "  MISSING: support interface catch-all DROP rule"
+        log_fail "Firewall rules for WireGuard support interface incomplete"
+    fi
+}
+
+test_wireguard_service_not_enabled() {
+    ((++TESTS_TOTAL))
+    log_test "Step 9b: WireGuard service not auto-enabled (on-demand only)..."
+
+    if [[ ! -f /etc/systemd/system/wireguard-support.service ]]; then
+        log_pass "WireGuard service file not yet installed (expected if install hasn't run)"
+        return
+    fi
+
+    local enabled
+    enabled=$(systemctl is-enabled wireguard-support 2>/dev/null || echo "not-found")
+
+    if [[ "$enabled" == "disabled" ]] || [[ "$enabled" == "not-found" ]]; then
+        log_info "  wireguard-support: $enabled"
+        log_pass "WireGuard service is not auto-enabled (activates on-demand only)"
+    else
+        log_info "  wireguard-support: $enabled"
+        log_fail "WireGuard service should NOT be auto-enabled — it should activate on-demand"
     fi
 }
 
@@ -1548,11 +1755,56 @@ test_ota_compose_flow() {
 
 # ─── Phase runners ────────────────────────────────────────────────────────────
 
+wait_for_services_ready() {
+    local timeout="$SERVICE_READINESS_TIMEOUT"
+    local elapsed=0
+    log_info "Waiting up to ${timeout}s for services to become ready..."
+
+    # Wait for kubo health check to pass
+    while [[ $elapsed -lt $timeout ]]; do
+        local health
+        health=$(docker inspect --format='{{.State.Health.Status}}' ipfs_host 2>/dev/null || echo "unknown")
+        if [[ "$health" == "healthy" ]]; then
+            log_info "  Kubo is healthy (${elapsed}s)"
+            break
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+
+    # Wait for go-fula to register p2p protocols on kubo
+    while [[ $elapsed -lt $timeout ]]; do
+        if docker logs fula_go 2>&1 | grep -q "Registered kubo p2p protocol.*fula-ping"; then
+            log_info "  go-fula registered p2p protocols (${elapsed}s)"
+            break
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+
+    # Wait for firewall chain to exist
+    while [[ $elapsed -lt $timeout ]]; do
+        if iptables -L FULA_FIREWALL -n >/dev/null 2>&1; then
+            log_info "  FULA_FIREWALL chain exists (${elapsed}s)"
+            break
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+
+    if [[ $elapsed -ge $timeout ]]; then
+        log_warn "Service readiness timeout (${timeout}s) — some checks may not have completed"
+    fi
+}
+
 phase_verify() {
     log_step "7" "Verify ALL containers running"
     test_containers_running
     test_container_images
     test_image_digests_survived
+
+    # Wait for services inside containers to fully initialize
+    wait_for_services_ready
 
     log_step "8" "Verify services are healthy"
     test_kubo_api
@@ -1561,12 +1813,20 @@ phase_verify() {
     test_ipfs_cluster_health
     test_gofula_logs
     test_kubo_p2p_protocols
+    test_gofula_proxy_listening
 
     log_step "9" "Verify ALL systemd services"
     test_systemd_services
+    test_service_files_deployed
     test_firewall_rules
     test_firewall_bridge_rules
     test_firewall_proxy_ports
+
+    log_step "9b" "Verify WireGuard support tunnel"
+    test_wireguard_installed
+    test_wireguard_status_script
+    test_wireguard_firewall_rules
+    test_wireguard_service_not_enabled
 
     log_step "10" "Verify privilege reduction (hardening)"
     test_no_privileged_mode

@@ -488,6 +488,7 @@ function install() {
     sudo chmod -R 755 ${FULA_PATH}/kubo
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
     sudo chmod -R 755 ${FULA_PATH}/plugins
+    sudo chmod -R 755 ${FULA_PATH}/wireguard 2>/dev/null || true
     
     # Set execute permissions for shell scripts to prevent permission denied errors
     sudo chmod +x ${FULA_PATH}/fula.sh 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error setting permissions on fula.sh" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -1316,7 +1317,10 @@ function restart() {
       sudo chmod 755 ${FULA_PATH}/ipfs-cluster/ipfs-cluster-container-init.d.sh || { echo "chmod ipfs-cluster/.sh failed" | sudo tee -a $FULA_LOG_PATH; } || true
     fi
   fi
-  
+  if [ -d ${FULA_PATH}/wireguard ]; then
+    sudo chmod -R 755 ${FULA_PATH}/wireguard || { echo "chmod wireguard failed" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" | sudo tee -a $FULA_LOG_PATH; } || true
 
   # Install bootup reset service for backward compatibility with existing installations
@@ -1858,13 +1862,16 @@ function install_wireguard() {
         return 0
     fi
 
-    # Need full install — requires internet
+    # Need full install — requires internet for apt-get
     if [ ! -f "$WG_INSTALL" ]; then
         echo "WireGuard install script not found, skipping" | sudo tee -a $FULA_LOG_PATH
         return 0
     fi
 
-    if check_internet; then
+    # Use a lightweight connectivity check independent of Docker Hub.
+    # check_internet() tests hub.docker.com which may be intentionally blocked,
+    # but apt repos can still be reachable.
+    if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
         echo "Installing WireGuard support tunnel..." | sudo tee -a $FULA_LOG_PATH
         timeout 120 sudo bash "$WG_INSTALL" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
             echo "WARNING: WireGuard install failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
@@ -1956,6 +1963,12 @@ case $1 in
     sync
     # Restore execute permissions on init scripts after docker cp
     find ${FULA_PATH} -name "*.sh" -exec sudo chmod +x {} + 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    # Restore directory permissions after docker cp (which may reset them)
+    for subdir in kubo ipfs-cluster wireguard plugins; do
+      if [ -d "${FULA_PATH}/${subdir}" ]; then
+        sudo chmod -R 755 "${FULA_PATH}/${subdir}" || { echo "chmod ${subdir} after docker cp failed" | sudo tee -a $FULA_LOG_PATH; } || true
+      fi
+    done
 
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
     # Check if fula.sh, union-drive.sh, firewall.sh, or readiness-check.py have changed
@@ -2008,6 +2021,27 @@ case $1 in
     # Check and update wireguard-support.service
     if [ -f "${FULA_PATH}/wireguard/wireguard-support.service" ]; then
       if copy_service_file "${FULA_PATH}/wireguard/wireguard-support.service" "$SYSTEMD_PATH/wireguard-support.service" "wireguard-support"; then
+        systemd_reload_needed=true
+      fi
+    fi
+
+    # Check and update commands.service
+    if [ -f "${FULA_PATH}/commands.service" ]; then
+      if copy_service_file "${FULA_PATH}/commands.service" "$SYSTEMD_PATH/commands.service" "commands"; then
+        systemd_reload_needed=true
+      fi
+    fi
+
+    # Check and update fula-plugins.service
+    if [ -f "${FULA_PATH}/fula-plugins.service" ]; then
+      if copy_service_file "${FULA_PATH}/fula-plugins.service" "$SYSTEMD_PATH/fula-plugins.service" "fula-plugins"; then
+        systemd_reload_needed=true
+      fi
+    fi
+
+    # Check and update automount@.service
+    if [ -f "${FULA_PATH}/automount@.service" ]; then
+      if copy_service_file "${FULA_PATH}/automount@.service" "$SYSTEMD_PATH/automount@.service" "automount@"; then
         systemd_reload_needed=true
       fi
     fi
