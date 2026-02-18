@@ -394,7 +394,7 @@ phase_build() {
 
     # --- 2a. fxsupport ---
     log_info "2a. Building fxsupport image..."
-    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/fxsupport:release \
+    docker build --no-cache -t functionland/fxsupport:release \
         -f "$REPO_LOCAL/docker/fxsupport/Dockerfile" \
         "$REPO_LOCAL/docker/fxsupport/"
     # Tag with .env name so docker-compose finds it
@@ -406,16 +406,14 @@ phase_build() {
 
     # --- 2b. ipfs-cluster ---
     log_info "2b. Building ipfs-cluster image (this may take 10-20 min)..."
-    # Remove stale base image references — if containerd blobs were cleaned
-    # but Docker metadata still points to them, the classic builder fails with
-    # "blob not found" before --pull can fetch fresh copies.
+    # Remove stale base image references to ensure --pull fetches fresh copies
     docker rmi golang:1.25 alpine:3.17 2>/dev/null || true
     # Always fresh clone to ensure latest code from GitHub
     rm -rf "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
     git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
         "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
     log_info "  ipfs-cluster: cloned $(cd "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" && git log --oneline -1)"
-    DOCKER_BUILDKIT=0 docker build --pull --no-cache -t functionland/ipfs-cluster:release \
+    docker build --pull --no-cache -t functionland/ipfs-cluster:release \
         -f "$REPO_LOCAL/docker/ipfs-cluster/Dockerfile" \
         "$REPO_LOCAL/docker/ipfs-cluster/"
     log_info "  ipfs-cluster: built"
@@ -428,7 +426,7 @@ phase_build() {
         "$REPO_LOCAL/docker/go-fula/go-fula"
     log_info "  go-fula: cloned $(cd "$REPO_LOCAL/docker/go-fula/go-fula" && git log --oneline -1)"
     # --no-cache ensures Docker doesn't reuse layers with stale source code
-    DOCKER_BUILDKIT=0 docker build --pull --no-cache -t functionland/go-fula:release \
+    docker build --pull --no-cache -t functionland/go-fula:release \
         -f "$REPO_LOCAL/docker/go-fula/Dockerfile" \
         "$REPO_LOCAL/docker/go-fula/"
     # Tag with .env name so docker-compose finds it
