@@ -462,6 +462,17 @@ phase_deploy() {
     # Block Docker Hub BEFORE starting fula.service to prevent pulls
     block_docker_hub
 
+    # Ensure device's ~/fula-ota clone has the hardened compose file.
+    # fula.sh install() (line 452) copies from /home/pi/fula-ota — if that
+    # clone hasn't been git-pulled, it has the old compose without hardening,
+    # silently overwriting the hardened file deployed by docker cp.
+    if [[ -d "/home/pi/fula-ota/docker/fxsupport/linux" ]]; then
+        log_info "Syncing /home/pi/fula-ota with test clone..."
+        cp "${REPO_LOCAL}/docker/fxsupport/linux/docker-compose.yml" \
+           "/home/pi/fula-ota/docker/fxsupport/linux/docker-compose.yml"
+        log_info "  Copied hardened docker-compose.yml to device clone"
+    fi
+
     log_info "Stopping fula.service..."
     systemctl stop fula 2>/dev/null || true
     sleep 10
@@ -556,6 +567,29 @@ phase_deploy() {
     # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
 
+    # Step 6b: Verify the compose file on disk still has hardening settings.
+    # fula.sh install() or docker cp from a stale fxsupport image can silently
+    # overwrite the hardened compose with the old version.
+    log_test "Step 6b: Verifying docker-compose.yml has hardening settings..."
+    ((++TESTS_TOTAL))
+    if grep -q 'no-new-privileges' "${COMPOSE_FILE}" && \
+       grep -q 'read_only: true' "${COMPOSE_FILE}" && \
+       ! grep -q 'privileged: true' "${COMPOSE_FILE}"; then
+        log_pass "docker-compose.yml has hardening settings"
+    else
+        log_fail "docker-compose.yml is missing hardening — was it overwritten?"
+        log_info "  Checking /home/pi/fula-ota clone..."
+        if [ -f "/home/pi/fula-ota/docker/fxsupport/linux/docker-compose.yml" ]; then
+            if grep -q 'no-new-privileges' /home/pi/fula-ota/docker/fxsupport/linux/docker-compose.yml; then
+                log_info "  Device clone has hardening (OK)"
+            else
+                log_info "  Device clone at /home/pi/fula-ota has OLD compose — run 'cd ~/fula-ota && git pull'"
+            fi
+        fi
+        log_info "  Checking fula.sh.log for install() or pulls..."
+        grep -i 'Copying Files\|pulled from Docker Hub\|Internet is available' "$FULA_LOG" 2>/dev/null | tail -5 || true
+    fi
+
     # Docker Hub stays BLOCKED. fula.service has Restart=always — if the
     # first start fails (Dead containers, kubo crash, etc.), systemd will
     # restart it. If Docker Hub is available at that point, dockerComposeUp
@@ -623,6 +657,14 @@ phase_ota_sim() {
     log_step "OTA-2" "Prepare environment (simulate watchtower pulled new images)"
 
     block_docker_hub
+
+    # Ensure device's ~/fula-ota clone has the hardened compose file (same as phase_deploy).
+    if [[ -d "/home/pi/fula-ota/docker/fxsupport/linux" ]]; then
+        log_info "Syncing /home/pi/fula-ota with test clone..."
+        cp "${REPO_LOCAL}/docker/fxsupport/linux/docker-compose.yml" \
+           "/home/pi/fula-ota/docker/fxsupport/linux/docker-compose.yml"
+        log_info "  Copied hardened docker-compose.yml to device clone"
+    fi
 
     # Replace tar backups with locally-built images (not remove them).
     # fula.sh's fallback loads from tar when pull fails — we want it to load OUR builds.
