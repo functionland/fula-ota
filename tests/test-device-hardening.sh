@@ -394,7 +394,7 @@ phase_build() {
 
     # --- 2a. fxsupport ---
     log_info "2a. Building fxsupport image..."
-    docker build --no-cache -t functionland/fxsupport:release \
+    DOCKER_BUILDKIT=0 docker build --no-cache -t functionland/fxsupport:release \
         -f "$REPO_LOCAL/docker/fxsupport/Dockerfile" \
         "$REPO_LOCAL/docker/fxsupport/"
     # Tag with .env name so docker-compose finds it
