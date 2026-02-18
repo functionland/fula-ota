@@ -404,7 +404,7 @@ class CommandCharacteristic(Characteristic):
             print(f"command received {val}")
 
             # Handle long-running commands in a separate thread
-            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log"]):
+            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log", "wireguard/start"]):
                 print("command is long-processing")
                 thread = threading.Thread(target=self._handle_long_command, args=(val,))
                 thread.daemon = True
@@ -532,7 +532,44 @@ class CommandCharacteristic(Characteristic):
                 params = val[5:]  # Skip "logs " prefix
                 response = self.local_server.get_logs(params)
                 print(f"Logs response: {response}")
-            
+
+            elif val == "wireguard/start":
+                try:
+                    result = subprocess.run(
+                        ["sudo", "systemctl", "start", "wireguard-support.service"],
+                        capture_output=True, text=True, timeout=60
+                    )
+                    status_result = subprocess.run(
+                        ["bash", "/usr/bin/fula/wireguard/status.sh"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    response = json.loads(status_result.stdout) if status_result.returncode == 0 else {"status": "started", "returncode": result.returncode}
+                except Exception as e:
+                    response = {"error": str(e)}
+                print(f"WireGuard start response: {response}")
+
+            elif val == "wireguard/stop":
+                try:
+                    subprocess.run(
+                        ["sudo", "systemctl", "stop", "wireguard-support.service"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    response = {"status": "stopped"}
+                except Exception as e:
+                    response = {"error": str(e)}
+                print(f"WireGuard stop response: {response}")
+
+            elif val == "wireguard/status":
+                try:
+                    result = subprocess.run(
+                        ["bash", "/usr/bin/fula/wireguard/status.sh"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    response = json.loads(result.stdout) if result.returncode == 0 else {"error": "status check failed"}
+                except Exception as e:
+                    response = {"error": str(e)}
+                print(f"WireGuard status response: {response}")
+
             if response:
                 # Try both notification and indication
                 if self.notifying:

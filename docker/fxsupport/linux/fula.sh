@@ -482,6 +482,7 @@ function install() {
     cp -r ${INSTALLATION_FULA_DIR}/kubo $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/ipfs-cluster $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying ipfs-cluster folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/plugins $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying plugins folder" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp -r ${INSTALLATION_FULA_DIR}/wireguard $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying wireguard folder" | sudo tee -a $FULA_LOG_PATH; } || true
 
 
     sudo chmod -R 755 ${FULA_PATH}/kubo
@@ -1838,6 +1839,41 @@ EOF
     fi
 }
 
+function install_wireguard() {
+    local WG_INSTALL="${FULA_PATH}/wireguard/install.sh"
+    local WG_SERVICE_SRC="${FULA_PATH}/wireguard/wireguard-support.service"
+    local WG_SERVICE_DEST="${SYSTEMD_PATH}/wireguard-support.service"
+
+    # Fast-path: already fully installed — just check service file update
+    if command -v wg >/dev/null 2>&1 && \
+       [ -f "/etc/wireguard/support_private.key" ] && \
+       [ -f "$WG_SERVICE_DEST" ]; then
+        # Check if service file needs updating
+        if [ -f "$WG_SERVICE_SRC" ] && ! cmp -s "$WG_SERVICE_SRC" "$WG_SERVICE_DEST"; then
+            echo "Updating wireguard-support.service" | sudo tee -a $FULA_LOG_PATH
+            sudo cp "$WG_SERVICE_SRC" "$WG_SERVICE_DEST"
+            sudo systemctl daemon-reload
+        fi
+        echo "WireGuard already installed" | sudo tee -a $FULA_LOG_PATH
+        return 0
+    fi
+
+    # Need full install — requires internet
+    if [ ! -f "$WG_INSTALL" ]; then
+        echo "WireGuard install script not found, skipping" | sudo tee -a $FULA_LOG_PATH
+        return 0
+    fi
+
+    if check_internet; then
+        echo "Installing WireGuard support tunnel..." | sudo tee -a $FULA_LOG_PATH
+        timeout 120 sudo bash "$WG_INSTALL" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
+            echo "WARNING: WireGuard install failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+        }
+    else
+        echo "No internet, deferring WireGuard install" | sudo tee -a $FULA_LOG_PATH
+    fi
+    return 0
+}
 
 # Commands
 case $1 in
@@ -1854,6 +1890,7 @@ case $1 in
   sync
   sleep 1
   process_plugins
+  install_wireguard || true
   ;;
 "start" | "restart")
   arch=${2:-RK1}
@@ -1906,7 +1943,7 @@ case $1 in
   done
   if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
     declare -A file_info
-    for file in fula.sh union-drive.sh firewall.sh; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -1921,10 +1958,11 @@ case $1 in
     find ${FULA_PATH} -name "*.sh" -exec sudo chmod +x {} + 2>&1 | sudo tee -a $FULA_LOG_PATH || true
 
     echo "docker cp status=> $?" | sudo tee -a $FULA_LOG_PATH
-    # Check if fula.sh, union-drive.sh, or firewall.sh have changed
+    # Check if fula.sh, union-drive.sh, firewall.sh, or readiness-check.py have changed
     restart_uniondrive=false
     restart_fula=false
-    for file in fula.sh union-drive.sh firewall.sh; do
+    restart_readiness_check=false
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -1935,6 +1973,8 @@ case $1 in
             restart_fula=true
           elif [ "$file" = "fula.sh" ]; then
             restart_fula=true
+          elif [ "$file" = "readiness-check.py" ]; then
+            restart_readiness_check=true
           fi
           # firewall.sh changes are handled by unconditional re-apply at end of start
         fi
@@ -1959,6 +1999,19 @@ case $1 in
       systemd_reload_needed=true
     fi
 
+    # Check and update fula-readiness-check.service
+    if copy_service_file "${FULA_PATH}/fula-readiness-check.service" "$SYSTEMD_PATH/fula-readiness-check.service" "fula-readiness-check"; then
+      systemd_reload_needed=true
+      restart_readiness_check=true
+    fi
+
+    # Check and update wireguard-support.service
+    if [ -f "${FULA_PATH}/wireguard/wireguard-support.service" ]; then
+      if copy_service_file "${FULA_PATH}/wireguard/wireguard-support.service" "$SYSTEMD_PATH/wireguard-support.service" "wireguard-support"; then
+        systemd_reload_needed=true
+      fi
+    fi
+
     # Reload systemd if needed
     if [ "$systemd_reload_needed" = true ]; then
       echo "Reloading systemd" | sudo tee -a $FULA_LOG_PATH
@@ -1976,6 +2029,11 @@ case $1 in
         echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
       fi
     fi
+
+    if [ "$restart_readiness_check" = true ]; then
+      echo "readiness-check.py has changed, restarting fula-readiness-check" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
   fi
@@ -1989,6 +2047,7 @@ case $1 in
       echo "Starting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
       sudo systemctl start fula-plugins
   fi
+  install_wireguard || true
 
   # Ensure firewall.service is enabled (covers existing devices that never re-run install)
   # and re-apply firewall rules after container startup.

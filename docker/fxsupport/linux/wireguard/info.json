@@ -1,0 +1,5 @@
+{
+  "name": "wireguard-support",
+  "version": "1.0.0",
+  "description": "WireGuard VPN tunnel for remote support access. Activates on persistent device issues or via BLE command. Provides SSH and kubo API access through a restricted tunnel."
+}

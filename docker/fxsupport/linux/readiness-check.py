@@ -955,6 +955,58 @@ def check_external_drive():
         logging.error(f"Unexpected error in check_external_drive: {e}")
         return False
 
+def activate_wireguard_support():
+    """Start WireGuard support tunnel if installed and not already active."""
+    try:
+        service_file = "/etc/systemd/system/wireguard-support.service"
+        if not os.path.exists(service_file):
+            logging.debug("wireguard-support.service not installed, skipping activation")
+            return
+
+        result = subprocess.run(
+            ["systemctl", "is-active", "wireguard-support.service"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.stdout.strip() == "active":
+            logging.debug("WireGuard support tunnel already active")
+            return
+
+        logging.info("Activating WireGuard support tunnel...")
+        subprocess.Popen(
+            ["sudo", "systemctl", "start", "wireguard-support.service"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        logging.error(f"Error activating WireGuard support: {e}")
+
+
+def check_wireguard_health():
+    """Verify WireGuard installation integrity when system is healthy."""
+    try:
+        install_script = "/usr/bin/fula/wireguard/install.sh"
+        if not os.path.exists(install_script):
+            return
+
+        # Check if all components are present
+        wg_exists = subprocess.run(
+            ["which", "wg"], capture_output=True, timeout=5
+        ).returncode == 0
+        keys_exist = os.path.exists("/etc/wireguard/support_private.key")
+        service_exists = os.path.exists("/etc/systemd/system/wireguard-support.service")
+
+        if wg_exists and keys_exist and service_exists:
+            return
+
+        logging.info("WireGuard installation incomplete, running install.sh...")
+        subprocess.run(
+            ["sudo", "bash", install_script],
+            capture_output=True, timeout=120
+        )
+    except Exception as e:
+        logging.error(f"Error checking WireGuard health: {e}")
+
+
 def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
@@ -1057,6 +1109,9 @@ def monitor_docker_logs_and_restart():
             restart_attempts = 0
             subprocess.run(["sudo", "python", LED_PATH, "green", "1"], capture_output=True)
 
+            # Verify WireGuard installation integrity while healthy
+            check_wireguard_health()
+
             # Create backup of valid config.yaml when system is healthy
             config_yaml_path = "/home/pi/.internal/config.yaml"
             if os.path.exists(config_yaml_path):
@@ -1080,6 +1135,7 @@ def monitor_docker_logs_and_restart():
 
     if restart_attempts >= 4:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
+        activate_wireguard_support()
         current_time = time.time()
         
         if os.path.exists(REBOOT_FLAG_PATH):
@@ -1091,6 +1147,7 @@ def monitor_docker_logs_and_restart():
                 logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
                 while True:
                     subprocess.run(["sudo", "python", LED_PATH, "red", "15"], capture_output=True)
+                    activate_wireguard_support()
                     get_wifi_info_and_ping()
                     time.sleep(5)
             else:

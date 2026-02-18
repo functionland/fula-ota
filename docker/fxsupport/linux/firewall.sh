@@ -97,10 +97,15 @@ iptables -A "$CHAIN" -p tcp --dport 8083 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 172.16.0.0/12 -j ACCEPT
 
-# 15. Log dropped packets (rate-limited)
+# 15. WireGuard support tunnel — restricted to SSH and kubo API
+iptables -A "$CHAIN" -i support -p tcp --dport 22 -j ACCEPT
+iptables -A "$CHAIN" -i support -p tcp --dport 5001 -j ACCEPT
+iptables -A "$CHAIN" -i support -j DROP
+
+# 16. Log dropped packets (rate-limited)
 iptables -A "$CHAIN" -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "FULA_FW_DROP: " --log-level 4
 
-# 16. Drop everything else
+# 17. Drop everything else
 iptables -A "$CHAIN" -j DROP
 
 # Insert jump at position 1 in INPUT
@@ -119,6 +124,9 @@ if command -v ip6tables >/dev/null 2>&1; then
   ip6tables -A "${CHAIN}_V6" -i docker0 -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -i br-+ -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -p ipv6-icmp -j ACCEPT
+  ip6tables -A "${CHAIN}_V6" -i support -p tcp --dport 22 -j ACCEPT
+  ip6tables -A "${CHAIN}_V6" -i support -p tcp --dport 5001 -j ACCEPT
+  ip6tables -A "${CHAIN}_V6" -i support -j DROP
   ip6tables -A "${CHAIN}_V6" -j DROP
 
   ip6tables -I INPUT 1 -j "${CHAIN}_V6"

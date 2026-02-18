@@ -1,0 +1,15 @@
+[Unit]
+Description=WireGuard Support Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /usr/bin/fula/wireguard/start.sh
+ExecStop=/bin/bash /usr/bin/fula/wireguard/stop.sh
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
