@@ -8,3 +8,4 @@ docker/windows-amd64/FulaSetup.exe
 docker/windows-amd64/.history
 docker/windows-amd64/cert
 /docker/fxsupport/linux/__pycache__
+.claude/settings.local.json
