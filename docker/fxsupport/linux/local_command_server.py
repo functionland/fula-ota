@@ -20,7 +20,10 @@ class LocalCommandServer:
             'restart_fula': 'sudo systemctl restart fula',
             'restart_uniondrive': self._restart_services,
             'hotspot': 'sudo nmcli con up FxBlox',
-            'reset': self._reset_system
+            'reset': self._reset_system,
+            'wireguard/start': self._wireguard_start,
+            'wireguard/stop': self._wireguard_stop,
+            'wireguard/status': self._wireguard_status
         }
 
     def _combine_ls_outputs(self):
@@ -76,6 +79,41 @@ class LocalCommandServer:
             subprocess.check_call('sudo reboot', shell=True)
             return "System reset initiated"
         except subprocess.CalledProcessError as e:
+            return f"Error: {str(e)}"
+
+    def _wireguard_start(self):
+        try:
+            result = subprocess.run(
+                ['sudo', 'systemctl', 'start', 'wireguard-support.service'],
+                capture_output=True, text=True, timeout=60
+            )
+            status = self._wireguard_status()
+            if isinstance(status, dict):
+                return status
+            return {"status": "started", "returncode": result.returncode}
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    def _wireguard_stop(self):
+        try:
+            subprocess.run(
+                ['sudo', 'systemctl', 'stop', 'wireguard-support.service'],
+                capture_output=True, text=True, timeout=30
+            )
+            return {"status": "stopped"}
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    def _wireguard_status(self):
+        try:
+            result = subprocess.run(
+                ['bash', '/usr/bin/fula/wireguard/status.sh'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+            return {"status": "unknown", "error": result.stderr}
+        except Exception as e:
             return f"Error: {str(e)}"
 
     def get_logs(self, params):
