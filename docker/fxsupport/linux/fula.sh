@@ -1329,7 +1329,11 @@ function restart() {
   sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
-  
+  # Clear stale reboot flag so readiness-check gets a fresh start after reboot/restart.
+  # Without this, readiness-check can get stuck in an infinite red LED loop if .reboot_flag
+  # exists from a previous failure cycle that has since resolved.
+  sudo rm -f ${HOME_DIR}/.reboot_flag
+
   if sudo crontab -l | grep -q "$FULA_PATH/resize.sh"; then
     echo "Resize cron job found, proceeding..."
     # Proceed only if the cron job exists
