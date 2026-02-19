@@ -533,6 +533,14 @@ phase_deploy() {
     # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
 
+    # Re-save local tars AFTER fula.sh's docker cp + cascade restart has settled.
+    # fula.sh's dockerComposeUp may have loaded from (potentially stale) tars,
+    # and pullFailedServices (now killed) may have downloaded old tars from GitHub.
+    # Overwrite with our known-good locally-built images.
+    log_info "Re-saving locally-built image tars (post-settle protection)..."
+    rm -f "${FULA_PATH}"/*.tar
+    save_local_image_tars
+
     # Step 5b: Verify the compose file on disk still has hardening settings.
     # fula.sh install() or docker cp from a stale fxsupport image can silently
     # overwrite the hardened compose with the old version.
@@ -715,6 +723,13 @@ phase_ota_sim() {
 
     # Kill any background pullFailedServices spawned by dockerComposeUp
     kill_pull_background
+
+    # Re-save local tars after fula.sh's full OTA cycle (docker cp + cascade restart).
+    # Same reasoning as phase_deploy: overwrite any tars that pullFailedServices
+    # or dockerComposeUp's docker save may have replaced.
+    log_info "Re-saving locally-built image tars (post-OTA protection)..."
+    rm -f "${FULA_PATH}"/*.tar
+    save_local_image_tars
 
     # Docker Hub stays blocked — same reason as phase_deploy:
     # fula.service Restart=always would pull from Hub on next restart.
@@ -1886,7 +1901,18 @@ phase_reboot_prep() {
 phase_finish() {
     log_info "Restoring normal device operation..."
 
-    # Remove Docker Hub block if present
+    # Stop fula.service BEFORE unblocking Docker Hub.
+    # fula.service has Restart=always — if we unblock first, systemd may
+    # restart fula.sh before we're done, triggering dockerComposeUp which
+    # pulls from Docker Hub and overwrites locally-built image tags and tars.
+    log_info "Stopping fula.service before unblocking Docker Hub..."
+    systemctl stop fula 2>/dev/null || true
+    sleep 5
+
+    # Kill any background pullFailedServices left over
+    kill_pull_background
+
+    # Remove Docker Hub block
     if grep -q "$PULL_GUARD_MARKER" /etc/hosts 2>/dev/null; then
         sed -i "/$PULL_GUARD_MARKER/d" /etc/hosts
         HOSTS_MODIFIED=false
@@ -1904,6 +1930,10 @@ phase_finish() {
     else
         log_info "  watchtower: already running"
     fi
+
+    # Restart fula.service now that Docker Hub is available
+    log_info "Restarting fula.service with Docker Hub available..."
+    systemctl start fula 2>/dev/null || true
 
     # Clean up temp files
     rm -f "$IMAGE_DIGESTS_FILE" "$HOSTS_BACKUP"

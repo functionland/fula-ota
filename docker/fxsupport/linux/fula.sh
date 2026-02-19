@@ -771,17 +771,17 @@ function dockerComposeUp() {
     if check_internet; then
       echo "Internet is available. Attempting to pull $service image"
       if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" pull "$service"; then
-        echo "$service image pull failed, using local version" | sudo tee -a $FULA_LOG_PATH
+        echo "$service image pull failed, using local version"
         pullFailed=1
       else
         # Save the newly pulled image to tar file
-        echo "Saving $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+        echo "Saving $image to $tar_path"
         if ! docker save "$image" -o "$tar_path.tmp" 2>/dev/null; then
-          echo "Failed to save $image to $tar_path.tmp" | sudo tee -a $FULA_LOG_PATH
+          echo "Failed to save $image to $tar_path.tmp"
         else
           # Safely replace the existing tar file
           mv -f "$tar_path.tmp" "$tar_path" 2>/dev/null || rm -f "$tar_path.tmp"
-          echo "Successfully saved $image to $tar_path" | sudo tee -a $FULA_LOG_PATH
+          echo "Successfully saved $image to $tar_path"
         fi
       fi
     else
@@ -797,19 +797,19 @@ function dockerComposeUp() {
       docker load -i "$tar_path" || echo "Failed to load $image from $tar_path"
     fi
 
-    echo "Starting $service..." | sudo tee -a $FULA_LOG_PATH
+    echo "Starting $service..."
 
     # Try to start the service
     local up_output
     up_output=$(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service 2>&1) || true
-    echo "$up_output" | sudo tee -a $FULA_LOG_PATH
+    echo "$up_output"
 
     if echo "$up_output" | grep -qi "error\|failed"; then
-      echo "$service failed to start. Attempting to stop, remove and restart..." | sudo tee -a $FULA_LOG_PATH
+      echo "$service failed to start. Attempting to stop, remove and restart..."
 
       # Check if the failure is a ghost container ("No such container")
       if echo "$up_output" | grep -q "No such container"; then
-        echo "$service blocked by ghost container, running purgeGhostContainers..." | sudo tee -a $FULA_LOG_PATH
+        echo "$service blocked by ghost container, running purgeGhostContainers..."
         purgeGhostContainers
       fi
 
@@ -824,35 +824,35 @@ function dockerComposeUp() {
       # Check if container_id is not empty
       if [ -n "$container_id" ]; then
         # Stop the failed service's container and remove it
-        docker stop $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
-        docker rm -f $container_id 2>&1 | sudo tee -a $FULA_LOG_PATH
+        docker stop $container_id 2>&1
+        docker rm -f $container_id 2>&1
       else
-        echo "No container ID found for $service, skipping stop and remove." | sudo tee -a $FULA_LOG_PATH
+        echo "No container ID found for $service, skipping stop and remove."
       fi
 
       # Try to start the service again
       if ! docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-recreate $service; then
-        echo "$service failed to start again. Trying to pull the image..." | sudo tee -a $FULA_LOG_PATH
+        echo "$service failed to start again. Trying to pull the image..."
 
         # Pull the failed service's image and try to start the service again
         (nohup pullFailedServices "$service" > $FULA_LOG_PATH 2>&1 &) >/dev/null 2>&1
-        echo "Pull for $service initiated with PID: $!" | sudo tee -a $FULA_LOG_PATH
+        echo "Pull for $service initiated with PID: $!"
         disown $!
 
       fi
     else
-      echo "$service started successfully." | sudo tee -a $FULA_LOG_PATH
+      echo "$service started successfully."
     fi
   done
 }
 
 function dockerComposeDown() {
-  echo "dockerComposeDown: killPullImage" | sudo tee -a $FULA_LOG_PATH
-  killPullImage 2>&1 | sudo tee -a $FULA_LOG_PATH
-  echo "dockerComposeDown: killing done" | sudo tee -a $FULA_LOG_PATH
+  echo "dockerComposeDown: killPullImage"
+  killPullImage 2>&1
+  echo "dockerComposeDown: killing done"
   # shellcheck disable=SC2046
   if [ $(docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file $ENV_FILE ps | wc -l) -gt 2 ]; then
-    echo 'Shutting down existing deployment' | sudo tee -a $FULA_LOG_PATH
+    echo 'Shutting down existing deployment'
     docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" down --remove-orphans || true
   fi
 
@@ -983,7 +983,7 @@ function install_bootup_reset() {
   echo "Checking bootup-reset service..." | sudo tee -a $FULA_LOG_PATH
   
   # Check if service already exists
-  if systemctl list-unit-files | grep -q "^${service_name}.service"; then
+  if systemctl list-unit-files 2>/dev/null | grep -q "^${service_name}.service"; then
     echo "bootup-reset service already exists, skipping installation" | sudo tee -a $FULA_LOG_PATH
     return 0
   fi
@@ -1459,7 +1459,7 @@ function restart() {
   # Merge kubo config updates from template into deployed config
   if [ -f "${FULA_PATH}/update_kubo_config.py" ]; then
     echo "Running kubo config merge..." | sudo tee -a $FULA_LOG_PATH
-    python3 ${FULA_PATH}/update_kubo_config.py 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "kubo config merge failed" | sudo tee -a $FULA_LOG_PATH; } || true
+    python3 ${FULA_PATH}/update_kubo_config.py 2>&1 || { echo "kubo config merge failed" | sudo tee -a $FULA_LOG_PATH; } || true
   else
     echo "update_kubo_config.py not found, running inline fallback merge..." | sudo tee -a $FULA_LOG_PATH
     python3 - "${HOME_DIR}" "${FULA_PATH}" <<'PYEOF' 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "inline kubo config merge failed" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -1873,7 +1873,7 @@ function install_wireguard() {
     # but apt repos can still be reachable.
     if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
         echo "Installing WireGuard support tunnel..." | sudo tee -a $FULA_LOG_PATH
-        timeout 120 sudo bash "$WG_INSTALL" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
+        timeout 120 sudo bash "$WG_INSTALL" 2>&1 || {
             echo "WARNING: WireGuard install failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
         }
     else
@@ -1893,7 +1893,7 @@ case $1 in
       python ${FULA_PATH}/control_led.py light_purple 9000 &
     fi
   fi
-  install "$arch" 2>&1 | sudo tee -a $FULA_LOG_PATH
+  install "$arch" 2>&1
   sync
   sleep 1
   process_plugins
@@ -2093,7 +2093,7 @@ case $1 in
     fi
     echo "Applying firewall rules" | sudo tee -a $FULA_LOG_PATH
     sudo chmod +x "${FULA_PATH}/firewall.sh" || true
-    sudo bash "${FULA_PATH}/firewall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
+    sudo bash "${FULA_PATH}/firewall.sh" 2>&1 || {
       echo "WARNING: firewall.sh failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
     }
   fi
@@ -2101,7 +2101,7 @@ case $1 in
 "stop")
   arch=${2:-RK1}
   echo "ran stop at: $(date) for $arch" | sudo tee -a $FULA_LOG_PATH
-  dockerComposeDown
+  dockerComposeDown 2>&1 | sudo tee -a $FULA_LOG_PATH || true
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
