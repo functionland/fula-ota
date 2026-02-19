@@ -139,44 +139,47 @@ class BLEResponseHandler:
         json_str = json.dumps(response)
         self.chunks = []
 
-        # Calculate exact metadata overhead for a chunk
-        chunk_template = {
-            "type": "ble_chunk",
-            "index": 999,  # Use max possible index digits
-            "data": ""
-        }
-        metadata_size = len(json.dumps(chunk_template)) * 2 + 3
-        max_data_size = self.mtu_size - metadata_size
-
-        # Calculate chunks needed
         total_length = len(json_str)
-        chunk_count = (total_length + max_data_size - 1) // max_data_size
 
-        # Add header chunk
+        # Build data chunks with actual size verification.
+        # JSON escaping of data content (quotes, backslashes, newlines) makes
+        # the serialized chunk larger than the raw substring, so we verify the
+        # real encoded size and shrink per-chunk if needed.
+        base_overhead = len(json.dumps({"type": "ble_chunk", "index": 999, "data": ""}))
+        initial_data_size = self.mtu_size - base_overhead
+
+        pos = 0
+        data_chunks = []
+        while pos < total_length:
+            size = min(initial_data_size, total_length - pos)
+            while size > 0:
+                chunk_data = json_str[pos:pos + size]
+                chunk = {
+                    "type": "ble_chunk",
+                    "index": len(data_chunks) + 1,
+                    "data": chunk_data
+                }
+                chunk_json = json.dumps(chunk)
+                if len(chunk_json) <= self.mtu_size:
+                    data_chunks.append(chunk)
+                    pos += size
+                    break
+                # JSON escaping made it too big; shrink by the exact overage
+                size -= max(1, len(chunk_json) - self.mtu_size)
+            else:
+                raise ValueError(f"Cannot fit data into MTU {self.mtu_size}")
+
+        # Add header
         header = {
             "type": "ble_header",
             "total_length": total_length,
-            "chunks": chunk_count
+            "chunks": len(data_chunks)
         }
         header_json = json.dumps(header)
         if len(header_json) > self.mtu_size:
             raise ValueError(f"Header size {len(header_json)} exceeds MTU {self.mtu_size}")
-        self.chunks.append(header)
 
-        # Split data into chunks
-        for i in range(0, total_length, max_data_size):
-            chunk_data = json_str[i:i + max_data_size]
-            chunk = {
-                "type": "ble_chunk",
-                "index": len(self.chunks),
-                "data": chunk_data
-            }
-            # Verify final chunk size
-            chunk_json = json.dumps(chunk)
-            if len(chunk_json) > self.mtu_size:
-                raise ValueError(f"Chunk {i//max_data_size} size {len(chunk_json)} exceeds MTU {self.mtu_size}")
-            self.chunks.append(chunk)
-
+        self.chunks = [header] + data_chunks
         self.current_chunk_index = 0
         return len(self.chunks)
 

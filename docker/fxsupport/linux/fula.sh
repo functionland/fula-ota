@@ -1356,7 +1356,11 @@ function restart() {
   mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
 
   if [ -f "$HW_CHECK_SC" ]; then
-    python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
+    if python $HW_CHECK_SC > /tmp/hw_test.log 2>&1; then
+      echo "Hardware check passed" | sudo tee -a $FULA_LOG_PATH
+    else
+      echo "Hardware check FAILED (see /tmp/hw_test.log)" | sudo tee -a $FULA_LOG_PATH
+    fi
   fi
   sleep 1
 
@@ -1375,8 +1379,8 @@ function restart() {
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/update.pid) 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
+    kill $(cat $HOME_DIR/update.pid) 2>/dev/null || true
+    sudo rm -f $HOME_DIR/update.pid
   fi
 
   if [ -f "$UPDATE_SC" ]; then
@@ -2105,8 +2109,8 @@ case $1 in
 
   if [ -f $HOME_DIR/update.pid ]; then
     # shellcheck disable=SC2046
-    kill $(cat $HOME_DIR/update.pid) || { echo "Error Killing update Process" | sudo tee -a $FULA_LOG_PATH; } || true
-    sudo rm $HOME_DIR/update.pid  | sudo tee -a $FULA_LOG_PATH || { echo "Error removing update.pid" | sudo tee -a $FULA_LOG_PATH; } || true
+    kill $(cat $HOME_DIR/update.pid) 2>/dev/null || true
+    sudo rm -f $HOME_DIR/update.pid
   fi
   
   if [ "$arch" == "RK1" ] || [ "$arch" == "RPI4" ]; then

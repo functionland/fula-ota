@@ -351,7 +351,9 @@ running=true
 
 # Main loop
 while $running; do
-    log_message "PROCESSING_CHANGES=$PROCESSING_CHANGES"
+    if $PROCESSING_CHANGES; then
+        log_message "PROCESSING_CHANGES=$PROCESSING_CHANGES"
+    fi
     if ! $PROCESSING_CHANGES; then
         new_plugins=()
         old_plugins=()
@@ -386,7 +388,9 @@ while $running; do
             fi
         done
 
-        log_message "all_installed=$all_installed, all_uninstalled=$all_uninstalled"
+        if ! $all_installed || ! $all_uninstalled; then
+            log_message "all_installed=$all_installed, all_uninstalled=$all_uninstalled"
+        fi
 
         sync
         sleep 1
