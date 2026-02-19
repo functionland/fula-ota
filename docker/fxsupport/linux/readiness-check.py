@@ -1193,6 +1193,9 @@ def main():
 
                 subprocess.run(["sudo", "python", LED_PATH, "red", "10"], capture_output=True)
                 cycles_with_no_wifi += 1
+                # Activate WireGuard after persistent WiFi failure (12+ cycles = ~2 min)
+                if cycles_with_no_wifi >= 12:
+                    activate_wireguard_support()
                 time.sleep(10)
         else:
             logging.info("check_conditions failed")
@@ -1215,6 +1218,9 @@ def main():
                             logging.error(f"Restart error: {result.stderr}")
 
                     fula_restart_attempts += 1
+            elif fula_restart_attempts >= 4:
+                logging.warning("check_conditions failed and max restart attempts reached. Activating WireGuard support.")
+                activate_wireguard_support()
             time.sleep(20)
 
 if __name__ == "__main__":
