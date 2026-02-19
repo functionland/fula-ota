@@ -51,7 +51,8 @@ if [ ! -f "$SERVICE_FILE" ] || ! cmp -s "${SCRIPT_DIR}/wireguard-support.service
   log "Installing wireguard-support.service..."
   cp "${SCRIPT_DIR}/wireguard-support.service" "$SERVICE_FILE"
   systemctl daemon-reload
-  log "wireguard-support.service installed"
+  systemctl disable wireguard-support.service 2>/dev/null || true
+  log "wireguard-support.service installed (on-demand activation only)"
 fi
 
 log "WireGuard installation complete"

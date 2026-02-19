@@ -271,7 +271,7 @@ install_active_plugins() {
     if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
         plugins=()
     else
-        mapfile -t plugins < "$ACTIVE_PLUGINS_FILE"
+        mapfile -t plugins < <(grep -v '^\s*$' "$ACTIVE_PLUGINS_FILE")
     fi
     for plugin in "${plugins[@]}"; do
         log_message "Installing active plugin: $plugin"

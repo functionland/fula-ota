@@ -1920,7 +1920,7 @@ case $1 in
 
   sync
   echo "sync status=> $?" | sudo tee -a $FULA_LOG_PATH 
-  if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+  if ! restart 2>&1; then
     echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
   fi
   echo "restart V6 status=> $?" | sudo tee -a $FULA_LOG_PATH
@@ -2059,7 +2059,7 @@ case $1 in
 
     if [ "$restart_fula" = true ]; then
       echo "fula.sh has changed, calling restart" | sudo tee -a $FULA_LOG_PATH
-      if ! restart 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+      if ! restart 2>&1; then
         echo "restart command failed" | sudo tee -a $FULA_LOG_PATH
       fi
     fi
