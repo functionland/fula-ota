@@ -1303,14 +1303,16 @@ test_wireguard_service_not_enabled() {
     fi
 
     local enabled
-    enabled=$(systemctl is-enabled wireguard-support 2>/dev/null || echo "not-found")
+    # Take only the first line; is-enabled exits nonzero for disabled/not-found
+    # so || echo appends a second line — use head -1 to avoid that.
+    enabled=$(systemctl is-enabled wireguard-support 2>/dev/null | head -1) || true
+    [[ -z "$enabled" ]] && enabled="not-found"
 
-    if [[ "$enabled" == "disabled" ]] || [[ "$enabled" == "not-found" ]]; then
-        log_info "  wireguard-support: $enabled"
+    log_info "  wireguard-support: $enabled"
+    if [[ "$enabled" == "disabled" ]] || [[ "$enabled" == "static" ]] || [[ "$enabled" == "not-found" ]]; then
         log_pass "WireGuard service is not auto-enabled (activates on-demand only)"
     else
-        log_info "  wireguard-support: $enabled"
-        log_fail "WireGuard service should NOT be auto-enabled — it should activate on-demand"
+        log_fail "WireGuard service should NOT be auto-enabled — it should activate on-demand (is-enabled=$enabled)"
     fi
 }
 

@@ -1351,9 +1351,9 @@ function restart() {
     echo "Resize cron job not found in crontab" | sudo tee -a $FULA_LOG_PATH
     # Optionally, handle the case when the cron job does not exist
   fi
-  mkdir -p ${HOME_DIR}/.internal
-  mkdir -p ${HOME_DIR}/.internal/plugins
-  mkdir -p ${HOME_DIR}/.internal/ipfs_data
+  mkdir -p ${HOME_DIR}/.internal || true
+  mkdir -p ${HOME_DIR}/.internal/plugins || true
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
 
   if [ -f "$HW_CHECK_SC" ]; then
     python $HW_CHECK_SC 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Hardware check failed" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -1387,14 +1387,14 @@ function restart() {
 
   # Check if the directory exists and the version file contains '15' or '16'
   if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
-      chmod 777 "$VERSION_FILE"
-      case "$(cat "$VERSION_FILE")" in
+      chmod 777 "$VERSION_FILE" 2>/dev/null || true
+      case "$(cat "$VERSION_FILE" 2>/dev/null)" in
           15)
-              sed -i 's/^15$/17/' "$VERSION_FILE"
+              sed -i 's/^15$/17/' "$VERSION_FILE" || true
               echo "Updated version from 15 to 17 in $VERSION_FILE"
               ;;
           16)
-              sed -i 's/^16$/17/' "$VERSION_FILE"
+              sed -i 's/^16$/17/' "$VERSION_FILE" || true
               echo "Updated version from 16 to 17 in $VERSION_FILE"
               ;;
       esac
@@ -1414,7 +1414,7 @@ function restart() {
   done
 
   #Migrating from leveldb to pebble
-  migrate_to_pebble
+  migrate_to_pebble || { echo "migrate_to_pebble failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
 
   if [ -d /uniondrive ]; then
     # Check if main directory or any of the required subdirectories don't have 777 permissions
@@ -1426,7 +1426,7 @@ function restart() {
        [ -d "/uniondrive/ipfs-cluster" -a "$(stat -c %a /uniondrive/ipfs-cluster)" != "777" ]; then
         
         echo "Changing permissions for contents of /uniondrive..."
-        find /uniondrive \( -type d -o -type f \) ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
+        find /uniondrive \( -type d -o -type f \) ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777 || true
 
         # Create all directories in one command
         sudo mkdir -p \
@@ -1434,12 +1434,12 @@ function restart() {
             /uniondrive/ipfs_datastore/datastore \
             /uniondrive/ipfs_staging \
             /uniondrive/chain \
-            /uniondrive/ipfs-cluster || { 
+            /uniondrive/ipfs-cluster || {
                 echo "Failed to create one or more directories" | sudo tee -a $FULA_LOG_PATH
-            }
+            } || true
 
         # Single chmod for all directories since parent directory permissions were already set
-        find /uniondrive -type d ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777
+        find /uniondrive -type d ! -perm 777 -print0 | sudo xargs -0 -r chmod -v 777 || true
     else
         echo "All required directories exist and have 777 permissions."
     fi
@@ -1453,7 +1453,7 @@ function restart() {
   }
 
   #setup samba for blox storage access /uniondrive/fxblox
-  setup_storage_access
+  setup_storage_access || { echo "setup_storage_access failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
   sleep 2
 
   # Merge kubo config updates from template into deployed config
@@ -1640,8 +1640,8 @@ PYEOF
   # delete the sentinel so kubo's init script waits for initipfs to write the derived identity.
   # After the first successful migration, the config file already has the derived identity,
   # so kubo can start immediately on subsequent boots (no delay).
-  kubo_pid=$(jq -r '.Identity.PeerID // empty' "${HOME_DIR}/.internal/ipfs_data/config" 2>/dev/null)
-  cluster_pid=$(jq -r '.id // empty' /uniondrive/ipfs-cluster/identity.json 2>/dev/null)
+  kubo_pid=$(jq -r '.Identity.PeerID // empty' "${HOME_DIR}/.internal/ipfs_data/config" 2>/dev/null) || true
+  cluster_pid=$(jq -r '.id // empty' /uniondrive/ipfs-cluster/identity.json 2>/dev/null) || true
   if [ -n "$kubo_pid" ] && [ -n "$cluster_pid" ] && [ "$kubo_pid" = "$cluster_pid" ]; then
     echo "Kubo and cluster have same PeerID ($kubo_pid) — forcing identity re-derivation" | sudo tee -a $FULA_LOG_PATH
     sudo rm -f ${HOME_DIR}/.internal/.ipfs_setup
@@ -1672,7 +1672,7 @@ PYEOF
   fi
 
   # Pre-flight: purge any ghost containers left from previous crashes
-  purgeGhostContainers
+  purgeGhostContainers || { echo "purgeGhostContainers failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
 
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -2049,12 +2049,12 @@ case $1 in
     # Reload systemd if needed
     if [ "$systemd_reload_needed" = true ]; then
       echo "Reloading systemd" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl daemon-reload
+      sudo systemctl daemon-reload 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
 
     if [ "$restart_uniondrive" = true ]; then
       echo "union-drive.sh has changed, restarting uniondrive" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl restart uniondrive
+      sudo systemctl restart uniondrive 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
 
     if [ "$restart_fula" = true ]; then
@@ -2073,13 +2073,13 @@ case $1 in
   fi
   sync
   sleep 1
-  process_plugins
+  process_plugins || { echo "process_plugins failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
   if systemctl is-active --quiet fula-plugins; then
       echo "Restarting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl restart fula-plugins
+      sudo systemctl restart fula-plugins 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   else
       echo "Starting fula-plugins service" | sudo tee -a $FULA_LOG_PATH
-      sudo systemctl start fula-plugins
+      sudo systemctl start fula-plugins 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
   install_wireguard || true
 
@@ -2092,7 +2092,7 @@ case $1 in
       sudo systemctl enable firewall.service 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
     echo "Applying firewall rules" | sudo tee -a $FULA_LOG_PATH
-    sudo chmod +x "${FULA_PATH}/firewall.sh"
+    sudo chmod +x "${FULA_PATH}/firewall.sh" || true
     sudo bash "${FULA_PATH}/firewall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH || {
       echo "WARNING: firewall.sh failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
     }
