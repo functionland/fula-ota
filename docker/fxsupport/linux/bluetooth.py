@@ -407,7 +407,7 @@ class CommandCharacteristic(Characteristic):
             print(f"command received {val}")
 
             # Handle long-running commands in a separate thread
-            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log", "wireguard/start"]):
+            if any(val.startswith(cmd) for cmd in ["wifi/list", "peer/exchange", "peer/generate-identity", "wifi/connect", "log", "wireguard/start", "forceupdate"]):
                 print("command is long-processing")
                 thread = threading.Thread(target=self._handle_long_command, args=(val,))
                 thread.daemon = True
@@ -572,6 +572,39 @@ class CommandCharacteristic(Characteristic):
                 except Exception as e:
                     response = {"error": str(e)}
                 print(f"WireGuard status response: {response}")
+
+            elif val == "forceupdate":
+                try:
+                    # Kill any existing LED processes and set purple during update
+                    subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                                   capture_output=True, timeout=5)
+                    subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'light_purple', '999999'])
+
+                    # Run fula.sh update (pulls latest Docker images)
+                    result = subprocess.run(
+                        ['sudo', 'bash', '/usr/bin/fula/fula.sh', 'update'],
+                        capture_output=True, text=True, timeout=600
+                    )
+
+                    # Kill purple LED, show yellow for 10 seconds
+                    subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                                   capture_output=True, timeout=5)
+                    subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'yellow', '10'])
+
+                    if result.returncode == 0:
+                        response = {"status": "updated", "msg": "Docker images pulled successfully"}
+                    else:
+                        response = {"status": "error", "msg": result.stderr[-500:] if result.stderr else "Update failed"}
+                except subprocess.TimeoutExpired:
+                    subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                                   capture_output=True, timeout=5)
+                    subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'yellow', '10'])
+                    response = {"status": "timeout", "msg": "Update timed out after 10 minutes"}
+                except Exception as e:
+                    subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                                   capture_output=True, timeout=5)
+                    response = {"error": str(e)}
+                print(f"Force update response: {response}")
 
             if response:
                 # Try both notification and indication

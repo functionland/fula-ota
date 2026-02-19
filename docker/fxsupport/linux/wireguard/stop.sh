@@ -11,6 +11,16 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [wireguard-stop] $*" | tee -a "$FULA_LOG_PATH"
 }
 
+# Bring down tunnel BEFORE removing config (wg-quick needs the .conf file)
+log "Stopping WireGuard support tunnel..."
+wg-quick down support 2>&1 | tee -a "$FULA_LOG_PATH" || true
+
+# Clean up interface if wg-quick failed to remove it
+if ip link show support >/dev/null 2>&1; then
+  log "Removing stale support interface..."
+  ip link delete support 2>/dev/null || true
+fi
+
 # Deregister from support server (best-effort)
 if [ -f "$STATE_FILE" ]; then
   device_id=$(cat /etc/machine-id 2>/dev/null) || true
@@ -29,7 +39,5 @@ if [ -f "$STATE_FILE" ]; then
   fi
 fi
 
-log "Stopping WireGuard support tunnel..."
-wg-quick down support 2>&1 | tee -a "$FULA_LOG_PATH" || true
 log "Support tunnel stopped"
 exit 0

@@ -23,7 +23,8 @@ class LocalCommandServer:
             'reset': self._reset_system,
             'wireguard/start': self._wireguard_start,
             'wireguard/stop': self._wireguard_stop,
-            'wireguard/status': self._wireguard_status
+            'wireguard/status': self._wireguard_status,
+            'force_update': self._force_update
         }
 
     def _combine_ls_outputs(self):
@@ -116,6 +117,38 @@ class LocalCommandServer:
         except Exception as e:
             return f"Error: {str(e)}"
 
+    def _force_update(self):
+        try:
+            # Purple LED during update
+            subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                           capture_output=True, timeout=5)
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'light_purple', '999999'])
+
+            # Pull latest Docker images
+            result = subprocess.run(
+                ['sudo', 'bash', '/usr/bin/fula/fula.sh', 'update'],
+                capture_output=True, text=True, timeout=600
+            )
+
+            # Yellow LED for 10 seconds after completion
+            subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                           capture_output=True, timeout=5)
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'yellow', '10'])
+
+            if result.returncode == 0:
+                return {"status": "updated", "msg": "Docker images pulled successfully"}
+            else:
+                return {"status": "error", "msg": result.stderr[-500:] if result.stderr else "Update failed"}
+        except subprocess.TimeoutExpired:
+            subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                           capture_output=True, timeout=5)
+            subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'yellow', '10'])
+            return {"status": "timeout", "msg": "Update timed out after 10 minutes"}
+        except Exception as e:
+            subprocess.run(['sudo', 'pkill', '-f', 'control_led.py'],
+                           capture_output=True, timeout=5)
+            return f"Error: {str(e)}"
+
     def get_logs(self, params):
         try:
             result = {}
@@ -148,11 +181,11 @@ class LocalCommandServer:
                             output = self.commands[cmd]()
                         else:
                             output = subprocess.check_output(
-                                self.commands[cmd], 
+                                self.commands[cmd],
                                 shell=True
                             ).decode('utf-8')
                         system_logs[cmd] = output
-                    except subprocess.CalledProcessError as e:
+                    except Exception as e:
                         system_logs[cmd] = f"Error: {str(e)}"
             result['system'] = system_logs
 
@@ -169,7 +202,7 @@ class LocalCommandServer:
                                 shell=True
                             ).decode('utf-8')
                         exec_logs[cmd] = output
-                    except subprocess.CalledProcessError as e:
+                    except Exception as e:
                         exec_logs[cmd] = f"Error: {str(e)}"
             result['exec'] = exec_logs
 
