@@ -299,13 +299,141 @@ This builds and pushes all three images:
 - `functionland/go-fula:release`
 - `functionland/ipfs-cluster:release`
 
-### Test Build (with test tags)
+### Test Build and Deploy Workflow
+
+Use test-tagged images (e.g. `test147`) to validate changes on a device before promoting to `release`.
+
+#### Step 1: Set the test tag
+
+`env_test.sh` defaults to `test147`. Override at runtime without editing the file:
 
 ```bash
 cd docker
+
+# Use default tag (test147):
 source env_test.sh
+
+# Or override:
+TEST_TAG=test148 source env_test.sh
+```
+
+This exports all three image tags (`fxsupport`, `go-fula`, `ipfs-cluster`) with your tag and writes a matching `.env` file.
+
+#### Step 2: Build test images
+
+**Option A: GitHub Actions (recommended)**
+
+Trigger the `docker-image-test.yml` workflow manually from the Actions tab. This builds `fxsupport` and `go-fula` with the test tag configured in `env_test.sh` and pushes to Docker Hub.
+
+> **Note:** The test workflow currently does NOT build `ipfs-cluster`. Build it locally (Option B) or use the release image for that component.
+
+**Option B: Local build + push to Docker Hub**
+
+```bash
+cd docker
+source env_test.sh          # or: TEST_TAG=test148 source env_test.sh
 bash ./build_and_push_images.sh
 ```
+
+This builds and pushes all three images:
+- `functionland/fxsupport:<tag>`
+- `functionland/go-fula:<tag>`
+- `functionland/ipfs-cluster:<tag>`
+
+**Option C: On-device build (no Docker Hub push)**
+
+```bash
+# Build fxsupport (seconds — just file copies)
+cd /tmp/fula-ota/docker/fxsupport
+sudo docker build --load -t functionland/fxsupport:test147 .
+
+# Build go-fula (requires Go compilation)
+cd /tmp/fula-ota/docker/go-fula
+git clone -b main https://github.com/functionland/go-fula
+sudo docker build --load -t functionland/go-fula:test147 .
+
+# Build ipfs-cluster (requires Go compilation)
+cd /tmp/fula-ota/docker/ipfs-cluster
+git clone -b master https://github.com/ipfs-cluster/ipfs-cluster
+sudo docker build --load -t functionland/ipfs-cluster:test147 .
+```
+
+#### Step 3: Deploy to device
+
+```bash
+# 1. Update .env to use test tags
+sudo tee /usr/bin/fula/.env << 'EOF'
+GO_FULA=functionland/go-fula:test147
+FX_SUPPROT=functionland/fxsupport:test147
+IPFS_CLUSTER=functionland/ipfs-cluster:test147
+WPA_SUPLICANT_PATH=/etc
+CURRENT_USER=pi
+EOF
+
+# 2. Stop watchtower so it doesn't auto-update back to release images
+sudo docker stop fula_updater
+
+# 3. Block Docker Hub to prevent fula.sh from pulling release images on restart
+sudo bash -c 'echo "127.0.0.1 index.docker.io registry-1.docker.io" >> /etc/hosts'
+
+# 4. Prevent fula.sh from overwriting .env via docker cp (valid 24 hours)
+touch /home/pi/stop_docker_copy.txt
+
+# 5. Pull test images (if built remotely — do this BEFORE blocking Docker Hub)
+#    Skip this if you built on-device in Step 2 Option C
+sudo docker pull functionland/go-fula:test147
+sudo docker pull functionland/fxsupport:test147
+sudo docker pull functionland/ipfs-cluster:test147
+
+# 6. Restart fula with test images
+sudo systemctl restart fula
+```
+
+#### Step 4: Verify
+
+```bash
+# Check running images have correct tags
+sudo docker ps --format '{{.Names}}\t{{.Image}}'
+# Expected: fula_go -> functionland/go-fula:test147, etc.
+
+# Check logs
+sudo docker logs fula_go --tail 50
+sudo docker logs ipfs_host --tail 50
+sudo docker logs ipfs_cluster --tail 50
+```
+
+#### Step 5: Revert to production
+
+```bash
+# 1. Unblock Docker Hub
+sudo sed -i '/index.docker.io/d' /etc/hosts
+
+# 2. Restore release .env
+sudo tee /usr/bin/fula/.env << 'EOF'
+GO_FULA=functionland/go-fula:release
+FX_SUPPROT=functionland/fxsupport:release
+IPFS_CLUSTER=functionland/ipfs-cluster:release
+WPA_SUPLICANT_PATH=/etc
+CURRENT_USER=pi
+EOF
+
+# 3. Remove the docker cp block
+rm -f /home/pi/stop_docker_copy.txt
+
+# 4. Restart fula (will pull release images)
+sudo systemctl restart fula
+
+# 5. Re-enable watchtower
+sudo docker start fula_updater
+```
+
+#### Gotchas
+
+- **`fula.service` has `Restart=always`**: If fula crashes or restarts while Docker Hub is reachable, `fula.sh` will `docker-compose pull` and overwrite your test images with release. Always block Docker Hub in `/etc/hosts` during testing.
+- **Watchtower tag matching**: Watchtower updates images by matching the exact tag. If your containers are running `:test147`, watchtower won't replace them with `:release`. But if the containers are tagged `:release`, watchtower will pull the latest `:release` from Docker Hub.
+- **`docker cp` overwrites `.env`**: On every restart, `fula.sh` copies `.env` from the `fula_fxsupport` container to `/usr/bin/fula/`. Use `stop_docker_copy.txt` to prevent this.
+- **`stop_docker_copy.txt` expires after 24 hours**: If the file's mtime is older than 24h, `fula.sh` ignores it and resumes `docker cp`. Touch it again to extend.
+- **`ipfs-cluster` not in test CI**: The `docker-image-test.yml` workflow only builds `fxsupport` and `go-fula`. To test a custom `ipfs-cluster` image, build locally or add it to the workflow.
 
 ## Testing Changes on a Live Device
 

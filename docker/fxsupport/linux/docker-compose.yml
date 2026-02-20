@@ -67,7 +67,7 @@ services:
         max-file: "5"
   
   ipfs-cluster:
-    image: functionland/ipfs-cluster:release
+    image: ${IPFS_CLUSTER:-functionland/ipfs-cluster:release}
     container_name: ipfs_cluster
     restart: always
     #extra_hosts:
