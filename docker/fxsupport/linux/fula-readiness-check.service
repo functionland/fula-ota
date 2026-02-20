@@ -1,13 +1,15 @@
 [Unit]
 Description=Fula Readiness Check Service
-After=network.target
+After=docker.service fula.service
 
 [Service]
 Type=simple
 User=root
 ExecStart=/usr/bin/python /usr/bin/fula/readiness-check.py
 Restart=on-failure
-RestartSec=5s
+RestartSec=15s
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Install]
 WantedBy=multi-user.target

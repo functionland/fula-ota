@@ -10,9 +10,9 @@ RUN go mod download -x
 # Copy the rest of the application source code and build binaries
 COPY ./ipfs-cluster/ .
 # GOMEMLIMIT caps Go heap to prevent OOM on memory-constrained ARM devices
-RUN CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1200MiB go build -p 1 -o /ipfs-cluster-service ./cmd/ipfs-cluster-service
-RUN CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1200MiB go build -p 1 -o /ipfs-cluster-follow ./cmd/ipfs-cluster-follow
-RUN CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1200MiB go build -p 1 -o /ipfs-cluster-ctl ./cmd/ipfs-cluster-ctl
+RUN CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /ipfs-cluster-service ./cmd/ipfs-cluster-service && \
+    CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /ipfs-cluster-follow ./cmd/ipfs-cluster-follow && \
+    CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /ipfs-cluster-ctl ./cmd/ipfs-cluster-ctl
 
 # Final stage
 FROM alpine:3.17

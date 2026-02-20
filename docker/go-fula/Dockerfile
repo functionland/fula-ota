@@ -11,10 +11,10 @@ RUN go mod download -x
 COPY ./go-fula/ .
 
 # Build binaries with CGO disabled for static binaries
-RUN CGO_ENABLED=0 GOOS=linux go build -p 1 -o /app ./cmd/blox && \
-    CGO_ENABLED=0 GOOS=linux go build -p 1 -o /wap ./wap/cmd && \
-    CGO_ENABLED=0 GOOS=linux go build -p 1 -o /initipfs ./modules/initipfs && \
-    CGO_ENABLED=0 GOOS=linux go build -p 1 -o /initipfscluster ./modules/initipfscluster
+RUN CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /app ./cmd/blox && \
+    CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /wap ./wap/cmd && \
+    CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /initipfs ./modules/initipfs && \
+    CGO_ENABLED=0 GOOS=linux GOMEMLIMIT=1500MiB go build -o /initipfscluster ./modules/initipfscluster
 
 # Final stage
 FROM alpine:3.17

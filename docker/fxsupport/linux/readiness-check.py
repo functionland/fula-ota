@@ -210,20 +210,25 @@ def start_led_flash(color, interval=1):
     
     def flash_led_worker():
         """Worker function that flashes the LED until stopped."""
-        while led_flash_stop_event and not led_flash_stop_event.is_set():
+        stop_event = led_flash_stop_event
+        if stop_event is None:
+            return
+        while not stop_event.is_set():
             try:
                 # Turn on LED
                 subprocess.run(
                     ["sudo", "python", LED_PATH, color, str(interval)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False
+                    check=False, timeout=30
                 )
-                
+
                 # Wait for the interval or until stopped
-                if led_flash_stop_event and led_flash_stop_event.wait(timeout=interval):
+                if stop_event.wait(timeout=interval):
                     break
-                    
+
+            except subprocess.TimeoutExpired:
+                logging.warning("LED flash subprocess timed out")
             except Exception as e:
                 logging.error(f"Error in LED flash thread: {str(e)}")
                 # Brief pause to prevent CPU spinning in case of repeated errors
@@ -562,12 +567,10 @@ def check_and_fix_ipfs_host():
         version_file_path = "/home/pi/.internal/ipfs_data/version"
         try:
             # Write "17" to the version file (no newline)
-            process = subprocess.Popen(["echo", "-n", "17"], stdout=subprocess.PIPE)
-            subprocess.run(["sudo", "tee", version_file_path], 
-                         stdin=process.stdout, capture_output=True, check=True)
-            process.stdout.close()
+            subprocess.run(["sudo", "tee", version_file_path],
+                         input=b"17", capture_output=True, check=True, timeout=20)
             logging.info(f"Successfully updated {version_file_path} with version 17")
-            
+
             # Restart fula service
             logging.info("Restarting fula service after fixing migration permission issue.")
             subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
@@ -582,12 +585,10 @@ def check_and_fix_ipfs_host():
         logging.warning("IPFS Host version mismatch detected (program version 17 lower than repo). Updating version file to 17.")
         try:
             # Write "17" to the version file (no newline)
-            process = subprocess.Popen(["echo", "-n", "17"], stdout=subprocess.PIPE)
-            subprocess.run(["sudo", "tee", version_file_path], 
-                         stdin=process.stdout, capture_output=True, check=True)
-            process.stdout.close()
+            subprocess.run(["sudo", "tee", version_file_path],
+                         input=b"17", capture_output=True, check=True, timeout=20)
             logging.info(f"Successfully updated {version_file_path} with version 17")
-            
+
             # Restart fula service
             logging.info("Restarting fula service after fixing version mismatch.")
             subprocess.run(["sudo", "docker", "restart", "ipfs_host"], capture_output=True, check=True)
@@ -600,10 +601,8 @@ def check_and_fix_ipfs_host():
         logging.warning("IPFS Host version mismatch detected (program version 16 lower than repo). Updating version file to 16.")
         try:
             # Write "16" to the version file (no newline)
-            process = subprocess.Popen(["echo", "-n", "16"], stdout=subprocess.PIPE)
-            subprocess.run(["sudo", "tee", version_file_path], 
-                         stdin=process.stdout, capture_output=True, check=True)
-            process.stdout.close()
+            subprocess.run(["sudo", "tee", version_file_path],
+                         input=b"16", capture_output=True, check=True, timeout=20)
             logging.info(f"Successfully updated {version_file_path} with version 16")
             
             # Restart fula service
@@ -867,14 +866,16 @@ def check_internet_connection():
         requests.head("https://www.google.com", timeout=5)
         logging.info("Internet connection is available.")
         return True
-    except requests.ConnectionError:
+    except requests.RequestException:
         logging.error("No internet connection available.")
         return False
 
 
 def safe_run(command):
     try:
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        logging.error(f'Command timed out after 120s: {command}')
     except subprocess.CalledProcessError as e:
         logging.error(f'Error running command {command}: {e}')
 
@@ -1010,7 +1011,7 @@ def check_wireguard_health():
 def monitor_docker_logs_and_restart():
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
-        subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
+        subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
         time.sleep(120)
         return
     
@@ -1028,17 +1029,17 @@ def monitor_docker_logs_and_restart():
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         if not check_conditions():
             logging.error("conditions not pass")
-            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
-            subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True)
-            subprocess.run(["sudo", "systemctl", "stop", "docker.service"], capture_output=True)
+            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
+            subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, timeout=120)
+            subprocess.run(["sudo", "systemctl", "stop", "docker.service"], capture_output=True, timeout=120)
             time.sleep(15)
-            subprocess.run(["sudo", "systemctl", "restart", "uniondrive.service"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "restart", "uniondrive.service"], capture_output=True, timeout=120)
             # Wait a moment to let Docker restart
             time.sleep(15)
-            subprocess.run(["sudo", "systemctl", "start", "docker.service"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "start", "docker.service"], capture_output=True, timeout=120)
             # Wait a moment to let Docker restart
             time.sleep(20)
-            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, timeout=120)
             time.sleep(35)
             restart_attempts += 1
             continue
@@ -1047,11 +1048,11 @@ def monitor_docker_logs_and_restart():
 
         while "active" not in docker_service_status and restart_attempts < 4:
             logging.error("Docker service is not running. Attempting to restart Docker service.")
-            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
-            subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True)
+            subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
+            subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True, timeout=120)
             # Wait a moment to let Docker restart
             time.sleep(15)
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
             time.sleep(35)
             restart_attempts += 1
             docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
@@ -1070,15 +1071,15 @@ def monitor_docker_logs_and_restart():
             else:
                 all_containers_running = False
                 logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
-                subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True)
-                result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
+                result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
                 time.sleep(5)
                 if result.returncode == 0:
                     logging.info(f"fula.service restarted successfully for {container}.")
-                    subprocess.run(["sudo", "python", LED_PATH, "blue", "5"], capture_output=True)
+                    subprocess.run(["sudo", "python", LED_PATH, "blue", "5"], capture_output=True, timeout=20)
                 else:
                     logging.error(f"Failed to restart fula.service for {container}.")
-                    subprocess.run(["sudo", "python", LED_PATH, "red", "5"], capture_output=True)
+                    subprocess.run(["sudo", "python", LED_PATH, "red", "5"], capture_output=True, timeout=20)
                     if result.stderr:
                         logging.error(f"Restart error: {result.stderr}")
                 time.sleep(60)  # Delay between restart attempts
@@ -1088,7 +1089,7 @@ def monitor_docker_logs_and_restart():
             # Check go-fula proxy health
             if not check_proxy_health():
                 logging.warning("go-fula proxy ports unreachable. Restarting fula.service.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
                 time.sleep(30)
                 restart_attempts += 1
                 continue
@@ -1098,16 +1099,16 @@ def monitor_docker_logs_and_restart():
                 logging.warning("PeerID collision detected. Removing ipfs-cluster identity to regenerate.")
                 service_json = "/uniondrive/ipfs-cluster/service.json"
                 if os.path.exists(service_json):
-                    subprocess.run(["sudo", "rm", "-f", service_json], capture_output=True, check=True)
+                    subprocess.run(["sudo", "rm", "-f", service_json], capture_output=True, check=True, timeout=20)
                     logging.info(f"Deleted {service_json} to force PeerID regeneration.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
                 time.sleep(30)
                 restart_attempts += 1
                 continue
 
             # If all containers are running and logs are clean, reset attempts and continue monitoring
             restart_attempts = 0
-            subprocess.run(["sudo", "python", LED_PATH, "green", "1"], capture_output=True)
+            subprocess.run(["sudo", "python", LED_PATH, "green", "1"], capture_output=True, timeout=20)
 
             # Verify WireGuard installation integrity while healthy
             check_wireguard_health()
@@ -1144,33 +1145,37 @@ def monitor_docker_logs_and_restart():
             
             if time_difference < 12 * 60 * 60:  # 12 hours in seconds
                 # Issue persists even after reboot within 24 hours
-                logging.error("Issue persists after recent reboot. Flashing red and stopping further actions.")
-                while True:
-                    subprocess.run(["sudo", "python", LED_PATH, "red", "15"], capture_output=True)
+                logging.error("Issue persists after recent reboot. Flashing red for up to ~1 hour then exiting.")
+                red_iterations = 0
+                while red_iterations < 200:
+                    subprocess.run(["sudo", "python", LED_PATH, "red", "15"], capture_output=True, timeout=30)
                     activate_wireguard_support()
                     get_wifi_info_and_ping()
                     time.sleep(5)
+                    red_iterations += 1
+                logging.error("Red LED loop completed 200 iterations. Exiting to let systemd restart.")
+                sys.exit(1)
             else:
                 # More than 24 hours have passed, update the reboot flag
                 logging.warning("Previous reboot flag is older than 24 hours. Updating and initiating re-partition process.")
-                subprocess.run(['sudo', 'rm', REBOOT_FLAG_PATH])
+                subprocess.run(['sudo', 'rm', REBOOT_FLAG_PATH], timeout=20)
                 time.sleep(2)
-                subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH])
-                subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH])
-                subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True)
+                subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH], timeout=20)
+                subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH], timeout=20)
+                subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True, timeout=20)
         else:
             # No existing reboot flag, create it and initiate re-partition process
             logging.warning("No existing reboot flag. Creating flag and initiating re-partition process.")
-            subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH])
-            subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH])
-            subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True)
+            subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH], timeout=20)
+            subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH], timeout=20)
+            subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True, timeout=20)
 
 def main():
     logging.info("readiness check started")
-    subprocess.run(["sudo", "python", LED_PATH, "yellow", "-1"])
-    subprocess.run(["sudo", "python", LED_PATH, "cyan", "-1"])
-    subprocess.run(["sudo", "python", LED_PATH, "blue", "-1"])
-    subprocess.run(["sudo", "python", LED_PATH, "green", "2"], capture_output=True)
+    subprocess.run(["sudo", "python", LED_PATH, "yellow", "-1"], timeout=20)
+    subprocess.run(["sudo", "python", LED_PATH, "cyan", "-1"], timeout=20)
+    subprocess.run(["sudo", "python", LED_PATH, "blue", "-1"], timeout=20)
+    subprocess.run(["sudo", "python", LED_PATH, "green", "2"], capture_output=True, timeout=20)
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
@@ -1179,10 +1184,10 @@ def main():
             wifi_status = check_wifi_connection()
             if wifi_status == "FxBlox":
                 logging.info("wifi_status FxBlox")
-                subprocess.run(["sudo", "python", LED_PATH, "cyan", "2"], capture_output=True)
+                subprocess.run(["sudo", "python", LED_PATH, "cyan", "2"], capture_output=True, timeout=20)
             elif wifi_status == "other":
                 logging.info("wifi_status other")
-                subprocess.run(["sudo", "python", LED_PATH, "green", "30"], capture_output=True)
+                subprocess.run(["sudo", "python", LED_PATH, "green", "30"], capture_output=True, timeout=45)
                 monitor_docker_logs_and_restart()
             else:
                 logging.info("wifi_status not connected")
@@ -1191,7 +1196,7 @@ def main():
                     attempt_wifi_connection()
                     cycles_with_no_wifi = 0
 
-                subprocess.run(["sudo", "python", LED_PATH, "red", "10"], capture_output=True)
+                subprocess.run(["sudo", "python", LED_PATH, "red", "10"], capture_output=True, timeout=25)
                 cycles_with_no_wifi += 1
                 # Activate WireGuard after persistent WiFi failure (12+ cycles = ~2 min)
                 if cycles_with_no_wifi >= 12:
@@ -1207,7 +1212,7 @@ def main():
                 all(container in docker_ps_output for container in ["fula_fxsupport", "fula_updater"]) and \
                 fula_restart_attempts < 4:
                     logging.info("fula_go container found but is not running. Attempting to restart fula.service")
-                    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+                    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
                     if result.returncode == 0:
                         logging.info("fula.service restarted successfully.")
                         if result.stdout:
