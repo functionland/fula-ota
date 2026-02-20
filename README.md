@@ -323,9 +323,7 @@ This exports all three image tags (`fxsupport`, `go-fula`, `ipfs-cluster`) with 
 
 **Option A: GitHub Actions (recommended)**
 
-Trigger the `docker-image-test.yml` workflow manually from the Actions tab. This builds `fxsupport` and `go-fula` with the test tag configured in `env_test.sh` and pushes to Docker Hub.
-
-> **Note:** The test workflow currently does NOT build `ipfs-cluster`. Build it locally (Option B) or use the release image for that component.
+Trigger the `docker-image-test.yml` workflow manually from the Actions tab. This builds all three images (`fxsupport`, `go-fula`, `ipfs-cluster`) with the test tag configured in `env_test.sh` and pushes to Docker Hub.
 
 **Option B: Local build + push to Docker Hub**
 
@@ -433,7 +431,6 @@ sudo docker start fula_updater
 - **Watchtower tag matching**: Watchtower updates images by matching the exact tag. If your containers are running `:test147`, watchtower won't replace them with `:release`. But if the containers are tagged `:release`, watchtower will pull the latest `:release` from Docker Hub.
 - **`docker cp` overwrites `.env`**: On every restart, `fula.sh` copies `.env` from the `fula_fxsupport` container to `/usr/bin/fula/`. Use `stop_docker_copy.txt` to prevent this.
 - **`stop_docker_copy.txt` expires after 24 hours**: If the file's mtime is older than 24h, `fula.sh` ignores it and resumes `docker cp`. Touch it again to extend.
-- **`ipfs-cluster` not in test CI**: The `docker-image-test.yml` workflow only builds `fxsupport` and `go-fula`. To test a custom `ipfs-cluster` image, build locally or add it to the workflow.
 
 ## Testing Changes on a Live Device
 
