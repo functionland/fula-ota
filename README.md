@@ -358,6 +358,8 @@ sudo docker build --load -t functionland/ipfs-cluster:test147 .
 
 #### Step 3: Deploy to device
 
+If you built with Options A or B (images pushed to Docker Hub), just update `.env` and restart:
+
 ```bash
 # 1. Update .env to use test tags
 sudo tee /usr/bin/fula/.env << 'EOF'
@@ -368,22 +370,19 @@ WPA_SUPLICANT_PATH=/etc
 CURRENT_USER=pi
 EOF
 
-# 2. Stop watchtower so it doesn't auto-update back to release images
-sudo docker stop fula_updater
+# 2. Restart fula — it will pull test147 images from Docker Hub and start them
+sudo systemctl restart fula
+```
 
-# 3. Block Docker Hub to prevent fula.sh from pulling release images on restart
+That's it. `fula.sh` runs `docker-compose pull --env-file .env` which pulls whatever tags are in `.env`. Watchtower also respects the running container's tag — it will check for updates to `:test147`, not `:release`.
+
+The `docker cp` step (which copies files from `fula_fxsupport` to `/usr/bin/fula/`) is also safe: the `fxsupport:test147` image was built with `env_test.sh`, so the `.env` baked inside it already has test tags.
+
+**If you built on-device (Option C)**, you must also block Docker Hub so `fula.sh` doesn't pull release images over your local builds:
+
+```bash
+# Block Docker Hub BEFORE restarting
 sudo bash -c 'echo "127.0.0.1 index.docker.io registry-1.docker.io" >> /etc/hosts'
-
-# 4. Prevent fula.sh from overwriting .env via docker cp (valid 24 hours)
-touch /home/pi/stop_docker_copy.txt
-
-# 5. Pull test images (if built remotely — do this BEFORE blocking Docker Hub)
-#    Skip this if you built on-device in Step 2 Option C
-sudo docker pull functionland/go-fula:test147
-sudo docker pull functionland/fxsupport:test147
-sudo docker pull functionland/ipfs-cluster:test147
-
-# 6. Restart fula with test images
 sudo systemctl restart fula
 ```
 
@@ -403,7 +402,7 @@ sudo docker logs ipfs_cluster --tail 50
 #### Step 5: Revert to production
 
 ```bash
-# 1. Unblock Docker Hub
+# 1. If Docker Hub was blocked, unblock it
 sudo sed -i '/index.docker.io/d' /etc/hosts
 
 # 2. Restore release .env
@@ -415,22 +414,16 @@ WPA_SUPLICANT_PATH=/etc
 CURRENT_USER=pi
 EOF
 
-# 3. Remove the docker cp block
-rm -f /home/pi/stop_docker_copy.txt
-
-# 4. Restart fula (will pull release images)
+# 3. Restart fula (will pull release images)
 sudo systemctl restart fula
-
-# 5. Re-enable watchtower
-sudo docker start fula_updater
 ```
 
 #### Gotchas
 
-- **`fula.service` has `Restart=always`**: If fula crashes or restarts while Docker Hub is reachable, `fula.sh` will `docker-compose pull` and overwrite your test images with release. Always block Docker Hub in `/etc/hosts` during testing.
-- **Watchtower tag matching**: Watchtower updates images by matching the exact tag. If your containers are running `:test147`, watchtower won't replace them with `:release`. But if the containers are tagged `:release`, watchtower will pull the latest `:release` from Docker Hub.
-- **`docker cp` overwrites `.env`**: On every restart, `fula.sh` copies `.env` from the `fula_fxsupport` container to `/usr/bin/fula/`. Use `stop_docker_copy.txt` to prevent this.
-- **`stop_docker_copy.txt` expires after 24 hours**: If the file's mtime is older than 24h, `fula.sh` ignores it and resumes `docker cp`. Touch it again to extend.
+- **On-device builds need Docker Hub blocked**: `fula.sh` runs `docker-compose pull` on every restart if internet is available. This pulls from Docker Hub using tags from `.env`. For remote-built test images (Options A/B), this is fine — it pulls your `:test147` images. But for on-device builds (Option C), the pull would overwrite your local images with Docker Hub versions. Block Docker Hub in `/etc/hosts` for on-device builds.
+- **Watchtower tag matching**: Watchtower checks for updates to the exact tag the container is running. Containers running `:test147` won't be replaced with `:release`.
+- **`docker cp` and `.env`**: On every restart, `fula.sh` copies files from `fula_fxsupport` container to `/usr/bin/fula/`, including `.env`. This is safe when using test images built through `env_test.sh` (the `.env` inside the image matches your test tags). Use `stop_docker_copy.txt` only if you manually edited `.env` on-device without rebuilding fxsupport.
+- **`stop_docker_copy.txt` expires after 24 hours**: If needed, this file in `/home/pi/` blocks the `docker cp` step. Expires after 24h — touch it again to extend.
 
 ## Testing Changes on a Live Device
 

@@ -234,6 +234,7 @@ unblock_docker_hub() {
         HOSTS_MODIFIED=false
         log_info "  /etc/hosts: removed pull-guard entries"
     fi
+    rm -f /tmp/hardening_test_no_pull
 }
 
 # Record image digests after local build, before deploy
@@ -272,6 +273,21 @@ kill_pull_background() {
         sleep 2
         kill -9 $pids 2>/dev/null || true
     fi
+}
+
+# Patch the deployed fula.sh so check_internet() returns false when our flag
+# file exists. This is more reliable than /etc/hosts blocking (which DNS
+# caching and systemd-resolved can bypass). The flag file is cleaned up by
+# unblock_docker_hub() and the EXIT trap.
+patch_fula_check_internet() {
+    if [ -f "${FULA_PATH}/fula.sh" ]; then
+        if ! grep -q 'hardening_test_no_pull' "${FULA_PATH}/fula.sh"; then
+            sed -i '/^function check_internet() {$/a\  [ -f /tmp/hardening_test_no_pull ] && return 1' \
+                "${FULA_PATH}/fula.sh"
+            log_info "  Patched check_internet() in ${FULA_PATH}/fula.sh"
+        fi
+    fi
+    touch /tmp/hardening_test_no_pull
 }
 
 # Force-remove ALL containers from the fula compose project, including Dead ones.
@@ -330,6 +346,7 @@ cleanup_stale_containers() {
 # dockerComposeUp pulls from Docker Hub and overwrites locally-built images.
 # The user must run --finish to explicitly unblock when done testing.
 cleanup_pull_guard() {
+    rm -f /tmp/hardening_test_no_pull
     if $HOSTS_MODIFIED; then
         echo ""
         echo -e "${YELLOW}[NOTE] Docker Hub is still blocked in /etc/hosts.${NC}"
@@ -503,6 +520,11 @@ phase_deploy() {
     docker rm -f fula_fxsupport 2>/dev/null || true
     log_info "docker cp flow complete."
 
+    # Patch check_internet() to prevent Docker Hub pulls even if /etc/hosts
+    # blocking is bypassed by DNS caching or systemd-resolved.
+    log_info "Patching check_internet() to prevent Docker Hub pulls..."
+    patch_fula_check_internet
+
     # Replace tar backups with locally-built images so fula.sh's fallback
     # path (dockerComposeUp) loads our builds instead of Docker Hub versions.
     save_local_image_tars
@@ -655,6 +677,9 @@ phase_ota_sim() {
     : > "$FULA_LOG"
 
     log_step "OTA-3" "Start fula.service — fula.sh handles the entire update"
+
+    # Re-apply check_internet patch — previous docker cp may have restored unpatched fula.sh
+    patch_fula_check_internet
 
     log_info "This replicates the real production update path:"
     log_info "  fula.service ExecStartPre: sleep 60"
