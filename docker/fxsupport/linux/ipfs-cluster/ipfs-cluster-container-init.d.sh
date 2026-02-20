@@ -238,7 +238,8 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
         echo "Modifying service.json to replace allocator and informer sections..."
 
         # Use jq to update the JSON file
-        jq '
+        # --arg trust_peer passes the server cluster peer ID for peer_addresses tunnel fallback
+        jq --arg trust_peer "$CLUSTER_CRDT_TRUSTEDPEERS" '
             .cluster.connection_manager = {
                 "high_water": 400,
                 "low_water": 100,
@@ -288,12 +289,25 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
                         "group": "default"
                     }
                 }
-            }
+            } |
+            if $trust_peer != "" then
+                .cluster.peer_addresses = ["/ip4/127.0.0.1/tcp/19096/p2p/" + $trust_peer]
+            else . end
         ' "${IPFS_CLUSTER_PATH}/service.json" > "${IPFS_CLUSTER_PATH}/service_temp.json"
 
         mv "${IPFS_CLUSTER_PATH}/service_temp.json" "${IPFS_CLUSTER_PATH}/service.json"
 
         echo "Modification completed."
+    fi
+
+    # Register cluster tunnel forward on kubo (best-effort)
+    # This makes the tunnel available before the cluster daemon starts.
+    # go-fula's health check will maintain it if kubo restarts.
+    if [ -n "${MASTER_KUBO_PEERID}" ]; then
+        log "Registering cluster tunnel forward to server kubo: ${MASTER_KUBO_PEERID}"
+        curl -s -X POST "http://127.0.0.1:5001/api/v0/p2p/forward?arg=/x/fula-cluster&arg=/ip4/127.0.0.1/tcp/19096&target=/p2p/${MASTER_KUBO_PEERID}&allow-custom-protocol=true" \
+            --connect-timeout 5 --max-time 10 2>/dev/null || \
+            log "Warning: Could not register cluster tunnel forward (will be retried by go-fula)"
     fi
 
     # Check if CLUSTER_CRDT_TRUSTEDPEERS is not empty
