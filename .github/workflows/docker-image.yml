@@ -110,7 +110,7 @@ jobs:
               data: await fs.readFileSync("./kubo.tar")
             });
 
-  build_and_upload:
+  build_fxsupport:
     runs-on: ubuntu-latest
 
     steps:
@@ -123,12 +123,83 @@ jobs:
           password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-      - name: Build and push fxsupport
-        run: cd ./docker && source env_release.sh && cd ./fxsupport && bash ./build.sh
-      - name: Build and push go-fula
-        run: cd ./docker && source env_release.sh && cd ./go-fula && bash ./build.sh
-      - name: Build and push ipfs-cluster
-        run: cd ./docker && source env_release.sh && cd ./ipfs-cluster && bash ./build.sh
+      - name: Build fxsupport
+        run: |
+          cd ./docker && source env_release.sh
+          cd ./fxsupport
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_go_fula:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build go-fula
+        run: |
+          cd ./docker && source env_release.sh
+          cd ./go-fula
+          git clone -b "$GO_FULA_BRANCH" https://github.com/functionland/go-fula
+          cd go-fula && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_ipfs_cluster:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build ipfs-cluster
+        run: |
+          cd ./docker && source env_release.sh
+          cd ./ipfs-cluster
+          git clone -b "$IPFS_CLUSTER_BRANCH" https://github.com/ipfs-cluster/ipfs-cluster
+          cd ipfs-cluster && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  push_and_upload:
+    needs: [build_fxsupport, build_go_fula, build_ipfs_cluster]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Tag all images for release
+        run: |
+          cd ./docker && source env_release.sh
+          docker buildx imagetools create \
+            -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG" \
+            "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG" \
+            "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG" \
+            "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID"
       - name: Download fxsupport
         run: cd ./docker && source env_release.sh && cd ./fxsupport && bash ./download_image.sh
       - name: Download go-fula
