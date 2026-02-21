@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically check for Docker image updates
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

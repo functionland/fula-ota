@@ -1,0 +1,7 @@
+[Unit]
+Description=Check for Docker image updates and restart fula
+After=docker.service fula.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/fula/fula-ota-update.sh

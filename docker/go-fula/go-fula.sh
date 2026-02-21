@@ -242,6 +242,38 @@ while ! check_writable; do
   sleep 5
 done
 
+# === OTA update detection ===
+# When Watchtower pulls a newer go-fula image and restarts this container,
+# detect the binary change and trigger a host reboot so fula.sh can run
+# docker cp to extract updated host files (init scripts, fula.sh, etc.)
+OTA_MARKER="/home/.gofula_ota_marker"
+CURRENT_BUILD=$(md5sum /app 2>/dev/null | cut -d' ' -f1 || echo "unknown")
+PREV_BUILD=$(cat "$OTA_MARKER" 2>/dev/null || echo "")
+
+if [ "$CURRENT_BUILD" != "unknown" ] && [ "$CURRENT_BUILD" != "$PREV_BUILD" ]; then
+    # Write marker FIRST to prevent reboot loop on next startup
+    echo "$CURRENT_BUILD" > "$OTA_MARKER"
+    sync
+
+    # Verify marker was actually written (prevents reboot loop if write failed)
+    SAVED_BUILD=$(cat "$OTA_MARKER" 2>/dev/null || echo "")
+    if [ "$SAVED_BUILD" != "$CURRENT_BUILD" ]; then
+        log "Warning: Failed to write OTA marker, skipping reboot trigger to prevent loop"
+    elif [ -f "/home/stop_docker_copy.txt" ]; then
+        # Only trigger reboot on existing devices (stop_docker_copy.txt is created
+        # by fula.sh after docker cp — its existence means this is not a fresh install)
+        log "OTA update detected (build: ${PREV_BUILD:-initial} -> $CURRENT_BUILD), triggering host reboot for file extraction"
+        mkdir -p /home/commands
+        touch /home/commands/.command_reboot
+        # Wait for reboot to take effect (commands.sh triggers within seconds)
+        sleep 120
+        # If we reach here, reboot didn't happen (commands.sh not running?)
+        log "Warning: Reboot trigger did not take effect, continuing normal startup"
+    else
+        log "First device setup detected (build: $CURRENT_BUILD), skipping reboot trigger"
+    fi
+fi
+
 check_interfaces
 log "Waiting an additional 5 seconds after all wifi interfaces are up"
 sleep 5

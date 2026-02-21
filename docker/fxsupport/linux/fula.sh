@@ -2057,6 +2057,18 @@ case $1 in
       fi
     fi
 
+    # Check and update fula-ota-update service and timer
+    if [ -f "${FULA_PATH}/fula-ota-update.service" ]; then
+      if copy_service_file "${FULA_PATH}/fula-ota-update.service" "$SYSTEMD_PATH/fula-ota-update.service" "fula-ota-update"; then
+        systemd_reload_needed=true
+      fi
+    fi
+    if [ -f "${FULA_PATH}/fula-ota-update.timer" ]; then
+      if copy_service_file "${FULA_PATH}/fula-ota-update.timer" "$SYSTEMD_PATH/fula-ota-update.timer" "fula-ota-update.timer"; then
+        systemd_reload_needed=true
+      fi
+    fi
+
     # Reload systemd if needed
     if [ "$systemd_reload_needed" = true ]; then
       echo "Reloading systemd" | sudo tee -a $FULA_LOG_PATH
@@ -2115,6 +2127,11 @@ case $1 in
     sudo bash "${FULA_PATH}/firewall.sh" 2>&1 || {
       echo "WARNING: firewall.sh failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
     }
+  fi
+
+  # Enable and start the OTA update timer (catches fxsupport-only image updates)
+  if [ -f "$SYSTEMD_PATH/fula-ota-update.timer" ]; then
+    sudo systemctl enable --now fula-ota-update.timer 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
   ;;
 "stop")

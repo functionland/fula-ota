@@ -32,6 +32,29 @@ check_writable() {
   fi
 }
 
+# === OTA migration: PeerID collision detection ===
+# Old releases used the same identity for kubo and ipfs-cluster.
+# New releases derive a separate kubo identity via initipfs.
+if [ -f "/internal/.ipfs_setup" ] && \
+   [ -f "/internal/ipfs_data/config" ] && \
+   [ -f "/uniondrive/ipfs-cluster/identity.json" ]; then
+    kubo_pid=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' /internal/ipfs_data/config 2>/dev/null | head -1 | sed 's/.*"PeerID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    cluster_pid=$(grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' /uniondrive/ipfs-cluster/identity.json 2>/dev/null | head -1 | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    if [ -n "$kubo_pid" ] && [ -n "$cluster_pid" ] && [ "$kubo_pid" = "$cluster_pid" ]; then
+        log "PeerID collision detected (kubo=$kubo_pid == cluster=$cluster_pid) — removing .ipfs_setup to force re-derivation"
+        rm -f /internal/.ipfs_setup
+    fi
+fi
+
+# === OTA migration: kubo config field updates ===
+# Idempotent sed — safe to run on already-updated configs (exact-match, no-op).
+for cfg_file in "/internal/ipfs_data/config" "/internal/ipfs_config"; do
+    if [ -f "$cfg_file" ]; then
+        sed -i 's/"AcceleratedDHTClient": false/"AcceleratedDHTClient": true/' "$cfg_file" 2>/dev/null || true
+        sed -i 's/"RelayClient": {}/"RelayClient": {"Enabled": true}/' "$cfg_file" 2>/dev/null || true
+    fi
+done
+
 while ! check_files_and_folders || ! check_writable; do
   log "Waiting for /internal and /uniondrive to become available and writable..."
   sleep 5
