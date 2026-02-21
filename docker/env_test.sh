@@ -2,7 +2,7 @@
 export ARCH_SUPPORT="linux/arm64"
 
 export DOCKER_REPO="functionland"
-export TEST_TAG="${TEST_TAG:-test151}"
+export TEST_TAG="${TEST_TAG:-test152}"
 export DEFAULT_FX_TAG="$TEST_TAG"
 export DEFAULT_FULA_TAG="$TEST_TAG"
 export DEFAULT_NODE_TAG="$TEST_TAG"
