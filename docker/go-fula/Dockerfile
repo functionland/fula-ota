@@ -21,7 +21,7 @@ FROM alpine:3.21
 
 # Install necessary packages
 RUN apk update && \
-    apk add --no-cache hostapd iw wireless-tools networkmanager-wifi networkmanager-cli dhcp iptables curl mergerfs --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing
+    apk add --no-cache hostapd iw wireless-tools networkmanager-wifi networkmanager-cli dhcpcd iptables curl mergerfs --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing
 
 WORKDIR /
 
