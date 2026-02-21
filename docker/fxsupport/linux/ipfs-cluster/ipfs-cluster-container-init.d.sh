@@ -258,6 +258,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             .cluster.peer_watch_interval = "60s" |
             .cluster.pin_recover_interval = "8m0s" |
             .cluster.state_sync_interval = "5m0s" |
+            .cluster.listen_multiaddress = (.cluster.listen_multiaddress | map(if test("/quic$") then sub("/quic$"; "/quic-v1") else . end)) |
             .consensus.crdt.batching = {
                 "max_batch_size": 100,
                 "max_batch_age": "1m"
