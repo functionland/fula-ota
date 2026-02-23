@@ -57,8 +57,14 @@ class LocalCommandServer:
 
     def _combine_docker_info(self):
         try:
-            ps_output = subprocess.check_output('sudo docker ps -a', shell=True).decode('utf-8')
-            images_output = subprocess.check_output('sudo docker images', shell=True).decode('utf-8')
+            ps_output = subprocess.check_output(
+                'sudo docker ps -a --format "table {{.ID}}\t{{.Image}}\t{{.Command}}\t{{.CreatedAt}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}"',
+                shell=True, stderr=subprocess.DEVNULL
+            ).decode('utf-8')
+            images_output = subprocess.check_output(
+                'sudo docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}"',
+                shell=True, stderr=subprocess.DEVNULL
+            ).decode('utf-8')
             return {
                 'containers': ps_output,
                 'images': images_output
@@ -192,6 +198,7 @@ class LocalCommandServer:
             # Handle exec commands
             exec_logs = {}
             for cmd in data.get('exec', []):
+                print(f"[get_logs] exec cmd='{cmd}', known={cmd in self.exec_commands}, available={list(self.exec_commands.keys())}")
                 if cmd in self.exec_commands:
                     try:
                         if callable(self.exec_commands[cmd]):

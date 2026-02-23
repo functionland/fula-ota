@@ -145,8 +145,9 @@ class BLEResponseHandler:
         # JSON escaping of data content (quotes, backslashes, newlines) makes
         # the serialized chunk larger than the raw substring, so we verify the
         # real encoded size and shrink per-chunk if needed.
+        # Use 2x safety margin to account for worst-case double-escaping.
         base_overhead = len(json.dumps({"type": "ble_chunk", "index": 999, "data": ""}))
-        initial_data_size = self.mtu_size - base_overhead
+        initial_data_size = (self.mtu_size - base_overhead) // 2
 
         pos = 0
         data_chunks = []
@@ -164,8 +165,9 @@ class BLEResponseHandler:
                     data_chunks.append(chunk)
                     pos += size
                     break
-                # JSON escaping made it too big; shrink by the exact overage
-                size -= max(1, len(chunk_json) - self.mtu_size)
+                # JSON escaping made it too big; shrink and retry
+                overage = len(chunk_json) - self.mtu_size
+                size = max(1, size - max(1, overage))
             else:
                 raise ValueError(f"Cannot fit data into MTU {self.mtu_size}")
 
