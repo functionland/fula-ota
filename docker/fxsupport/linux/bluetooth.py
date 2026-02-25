@@ -643,7 +643,7 @@ class CommandCharacteristic(Characteristic):
         if os.path.exists('/home/pi/reset.txt'):
             os.remove('/home/pi/reset.txt')
             self.remove_wifi_connections()
-            subprocess.call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml'])
+            subprocess.call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml', '/home/pi/.internal/config.yaml.backup'])
             subprocess.Popen(['python', '/usr/bin/fula/control_led.py', 'red', '-1'])
             self.kill_led_processes()
             subprocess.call(['sudo', 'reboot'])

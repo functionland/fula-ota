@@ -1093,6 +1093,20 @@ def monitor_docker_logs_and_restart():
             restart_attempts += 1
             continue  # re-check after fixes
 
+        # Auto-recover missing config.yaml from backup (e.g. after filesystem corruption)
+        config_yaml_path = "/home/pi/.internal/config.yaml"
+        config_yaml_backup = config_yaml_path + ".backup"
+        if not os.path.exists(config_yaml_path) and os.path.exists(config_yaml_backup):
+            logging.warning(f"config.yaml missing but backup exists. Attempting restore from {config_yaml_backup}")
+            if restore_config_from_backup(config_yaml_path):
+                logging.info("config.yaml restored from backup. Restarting fula.service.")
+                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                time.sleep(30)
+                restart_attempts += 1
+                continue
+            else:
+                logging.error("Failed to restore config.yaml from backup.")
+
         if all_containers_running:
             # Check go-fula proxy health
             if not check_proxy_health():

@@ -82,7 +82,7 @@ class LocalCommandServer:
 
     def _reset_system(self):
         try:
-            subprocess.check_call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml'])
+            subprocess.check_call(['sudo', 'rm', '-f', '/home/pi/.internal/config.yaml', '/home/pi/.internal/config.yaml.backup'])
             subprocess.check_call('sudo reboot', shell=True)
             return "System reset initiated"
         except subprocess.CalledProcessError as e:

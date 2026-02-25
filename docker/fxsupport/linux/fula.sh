@@ -1140,10 +1140,14 @@ def perform_reset_actions():
         # 2. Delete user WiFi connections (keep FxBlox and docker)
         delete_user_wifi_connections()
         
-        # 3. Delete config.yaml
+        # 3. Delete config.yaml and backup
         if os.path.exists(CONFIG_FILE):
             os.remove(CONFIG_FILE)
             logger.info(f"Deleted {CONFIG_FILE}")
+        backup_file = CONFIG_FILE + ".backup"
+        if os.path.exists(backup_file):
+            os.remove(backup_file)
+            logger.info(f"Deleted {backup_file}")
         
         # 4. Start LED flashing
         start_led_flashing()
