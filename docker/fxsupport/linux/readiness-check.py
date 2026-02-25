@@ -656,6 +656,16 @@ def check_and_fix_ipfs_host():
         time.sleep(30)
         return True
 
+    if "'path' field is missing" in ipfs_host_logs:
+        logging.warning("IPFS Host 'path' field missing in datastore config. Deleting corrupted kubo config to force recreation.")
+        ipfs_config_path = "/home/pi/.internal/ipfs_data/config"
+        if os.path.exists(ipfs_config_path):
+            subprocess.run(["sudo", "rm", "-f", ipfs_config_path], capture_output=True, check=True)
+            logging.info(f"Deleted corrupted IPFS config: {ipfs_config_path}")
+        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+        time.sleep(30)
+        return True
+
     # Relay connection check
     global relay_fail_count
 
