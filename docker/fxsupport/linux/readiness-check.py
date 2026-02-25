@@ -1063,7 +1063,7 @@ def monitor_docker_logs_and_restart():
             if container_running:
                 logging.info(f"container_running inside monitor passed for {container}")
                 logs = subprocess.getoutput(f"sudo docker logs --tail 15 {container} 2>&1")
-                if "ERROR:" in logs:
+                if "ERROR:" in logs or "Error:" in logs:
                     logging.error(f"{container} logs contain ERROR:. Attempting to restart fula.service")
                     container_running = False
                 else:
@@ -1085,6 +1085,14 @@ def monitor_docker_logs_and_restart():
                 time.sleep(60)  # Delay between restart attempts
                 break  # Break to re-check all containers after an attempt
             
+        # Run fix checks BEFORE proxy health check so they can't be short-circuited
+        ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
+        ipfs_host_fixed = check_and_fix_ipfs_host()
+        config_yaml_fixed = check_and_fix_config_yaml()
+        if ipfs_cluster_fixed or ipfs_host_fixed or config_yaml_fixed:
+            restart_attempts += 1
+            continue  # re-check after fixes
+
         if all_containers_running:
             # Check go-fula proxy health
             if not check_proxy_health():
@@ -1126,13 +1134,6 @@ def monitor_docker_logs_and_restart():
             logging.warning(f"Low disk space detected ({free_gb:.2f}GB). Running docker prune.")
             subprocess.run(["sudo", "docker", "system", "prune", "-f"],
                            capture_output=True, timeout=120)
-
-        # Run all fix checks
-        ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
-        ipfs_host_fixed = check_and_fix_ipfs_host()
-        config_yaml_fixed = check_and_fix_config_yaml()
-        if ipfs_cluster_fixed or ipfs_host_fixed or config_yaml_fixed:
-            restart_attempts += 1
 
     if restart_attempts >= 4:
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
