@@ -103,6 +103,12 @@ format_storage_devices() {
             echo "The device $DEVICE does not exist." 2>&1 | sudo tee -a $FULA_LOG_PATH
             continue  # Skip to the next device
         fi
+        # Skip devices with no media or negligible size (e.g., empty card readers)
+        DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE" 2>/dev/null || echo "0")
+        if [ "$DEVICE_SIZE" -lt 1048576 ]; then
+            echo "Skipping $DEVICE: device too small (${DEVICE_SIZE} bytes)" 2>&1 | sudo tee -a $FULA_LOG_PATH
+            continue
+        fi
         sudo docker stop fula_go 2>&1 | sudo tee -a $FULA_LOG_PATH | true
         sudo docker stop ipfs_cluster 2>&1 | sudo tee -a $FULA_LOG_PATH | true
         sudo docker stop ipfs_host 2>&1 | sudo tee -a $FULA_LOG_PATH | true
