@@ -43,6 +43,19 @@ relay_fail_count = 0
 YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 
 
+def safe_restart_fula(**kwargs):
+    """Restart fula.service, clearing any start-limit failures first."""
+    subprocess.run(["sudo", "systemctl", "reset-failed", "fula.service"],
+                   capture_output=True, timeout=20)
+    return subprocess.run(["sudo", "systemctl", "restart", "fula.service"], **kwargs)
+
+def safe_start_fula(**kwargs):
+    """Start fula.service, clearing any start-limit failures first."""
+    subprocess.run(["sudo", "systemctl", "reset-failed", "fula.service"],
+                   capture_output=True, timeout=20)
+    return subprocess.run(["sudo", "systemctl", "start", "fula.service"], **kwargs)
+
+
 def has_yaml_invalid_chars(content):
     """Check for control characters that YAML parsers reject.
 
@@ -452,6 +465,18 @@ def check_and_fix_ipfs_cluster():
         
         if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
             logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
+
+            # Check disk space first — pebble fix is pointless if disk is full
+            has_space, free_gb = check_disk_space("/uniondrive", min_gb=0.5)
+            if not has_space:
+                logging.warning(f"Low disk ({free_gb:.2f}GB). Running docker prune before pebble fix.")
+                subprocess.run(["sudo", "docker", "system", "prune", "-f"],
+                               capture_output=True, timeout=120)
+                has_space, free_gb = check_disk_space("/uniondrive", min_gb=0.1)
+                if not has_space:
+                    logging.error("Disk still full after prune. Skipping pebble fix to avoid escalation.")
+                    return False  # Don't count toward restart_attempts
+
             subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, check=True)
             time.sleep(10)
             pebble_dir = "/uniondrive/ipfs-cluster/pebble"
@@ -461,7 +486,7 @@ def check_and_fix_ipfs_cluster():
                 logging.info("Pebble directory contents removed.")
             else:
                 logging.warning("Pebble directory not found.")
-            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, check=True)
+            safe_start_fula(capture_output=True, check=True)
             time.sleep(30)
             cluster_error_found = True
         elif "error obtaining execution lock: cannot acquire lock:" in ipfs_cluster_logs:
@@ -470,12 +495,12 @@ def check_and_fix_ipfs_cluster():
             time.sleep(10)
             subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs-cluster/cluster.lock"], capture_output=True, check=True)
             logging.info("IPFS Cluster lock file removed.")
-            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, check=True)
+            safe_start_fula(capture_output=True, check=True)
             time.sleep(30)
             cluster_error_found = True
         elif "status_code=000" in ipfs_cluster_logs and "Request failed, retrying in 60 seconds" in ipfs_cluster_logs:
             logging.warning("IPFS Cluster status code issue detected. Attempting to restart fula.")
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            safe_restart_fula(capture_output=True, check=True)
             time.sleep(30)
             cluster_error_found = True
         
@@ -556,7 +581,7 @@ def check_and_fix_ipfs_host():
 
         # Restart fula service
         logging.info("Restarting fula service after fixing error loading plugins issue.")
-        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+        safe_restart_fula(capture_output=True, check=True)
         time.sleep(30)
         return True
     
@@ -573,7 +598,7 @@ def check_and_fix_ipfs_host():
 
             # Restart fula service
             logging.info("Restarting fula service after fixing migration permission issue.")
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            safe_restart_fula(capture_output=True, check=True)
             time.sleep(30)
             return True
         except Exception as e:
@@ -623,7 +648,7 @@ def check_and_fix_ipfs_host():
             logging.info("Ipfs Blocks directory removed.")
         else:
             logging.warning("Ipfs Blocks directory not found.")
-        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        safe_start_fula(capture_output=True)
         time.sleep(30)
         return True
 
@@ -652,7 +677,7 @@ def check_and_fix_ipfs_host():
         else:
             logging.warning("Ipfs Datastore directory not found.")
 
-        subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True)
+        safe_start_fula(capture_output=True)
         time.sleep(30)
         return True
 
@@ -662,7 +687,7 @@ def check_and_fix_ipfs_host():
         if os.path.exists(ipfs_config_path):
             subprocess.run(["sudo", "rm", "-f", ipfs_config_path], capture_output=True, check=True)
             logging.info(f"Deleted corrupted IPFS config: {ipfs_config_path}")
-        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+        safe_restart_fula(capture_output=True, timeout=120)
         time.sleep(30)
         return True
 
@@ -733,7 +758,7 @@ def check_and_fix_ipfs_host():
             "Restarting fula.service."
         )
         relay_fail_count = 0
-        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True)
+        safe_restart_fula(capture_output=True)
         time.sleep(30)
         return True
 
@@ -795,7 +820,7 @@ def check_and_fix_config_yaml():
             logging.info(f"Config file does not exist: {config_yaml_path}")
             # Restart fula service to regenerate config
             logging.info("Restarting fula service to regenerate config.")
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            safe_restart_fula(capture_output=True, check=True)
             time.sleep(30)
             return True
 
@@ -816,7 +841,7 @@ def check_and_fix_config_yaml():
                 # Try to restore from backup first
                 if restore_config_from_backup(config_yaml_path):
                     logging.info("Config restored from backup. Restarting fula service.")
-                    subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                    safe_restart_fula(capture_output=True, check=True)
                     time.sleep(30)
                     return True
 
@@ -827,7 +852,7 @@ def check_and_fix_config_yaml():
 
                 # Restart fula service
                 logging.info("Restarting fula service after removing corrupted config.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                safe_restart_fula(capture_output=True, check=True)
                 time.sleep(30)
                 return True
 
@@ -842,7 +867,7 @@ def check_and_fix_config_yaml():
             # Try to restore from backup first
             if restore_config_from_backup(config_yaml_path):
                 logging.info("Config restored from backup after YAML syntax error. Restarting fula service.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+                safe_restart_fula(capture_output=True, check=True)
                 time.sleep(30)
                 return True
 
@@ -853,13 +878,13 @@ def check_and_fix_config_yaml():
 
             # Restart fula service
             logging.info("Restarting fula service after removing config with syntax error.")
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+            safe_restart_fula(capture_output=True, check=True)
             time.sleep(30)
             return True
 
         # Config appears valid but error was still detected - try restart anyway
         logging.info("Config appears valid but error was detected. Restarting fula service.")
-        subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, check=True)
+        safe_restart_fula(capture_output=True, check=True)
         time.sleep(30)
         return True
 
@@ -877,7 +902,31 @@ def check_internet_connection():
         logging.info("Internet connection is available.")
         return True
     except requests.RequestException:
-        logging.error("No internet connection available.")
+        logging.error("No internet connection available. Checking NetworkManager status...")
+        try:
+            result = subprocess.run(
+                ["sudo", "systemctl", "is-active", "NetworkManager"],
+                capture_output=True, text=True, timeout=10
+            )
+            nm_status = result.stdout.strip()
+            if nm_status != "active":
+                logging.error(f"NetworkManager is not running (status: {nm_status}). Attempting to restart...")
+                subprocess.run(
+                    ["sudo", "systemctl", "restart", "NetworkManager"],
+                    capture_output=True, timeout=30
+                )
+                time.sleep(10)
+                # Retry internet check after restarting NetworkManager
+                try:
+                    requests.head("https://www.google.com", timeout=5)
+                    logging.info("Internet connection restored after restarting NetworkManager.")
+                    return True
+                except requests.RequestException:
+                    logging.error("Internet still unavailable after restarting NetworkManager.")
+            else:
+                logging.info("NetworkManager is active, internet issue is not due to NetworkManager.")
+        except Exception as e:
+            logging.error(f"Error checking/restarting NetworkManager: {e}")
         return False
 
 
@@ -1026,6 +1075,13 @@ def monitor_docker_logs_and_restart():
         return
     
     containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
+    # Only monitor fula_pinning if its container has been created at least once.
+    # Avoids restart loops on devices that got this script before the image was pulled.
+    if "fula_pinning" in subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'"):
+        containers_to_check.append("fula_pinning")
+    # Only monitor fula_gateway if its container has been created at least once.
+    if "fula_gateway" in subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'"):
+        containers_to_check.append("fula_gateway")
     restart_attempts = 0
     if check_external_drive():
         # a partition needs reformatting, skip the loop and go to partition section
@@ -1049,7 +1105,7 @@ def monitor_docker_logs_and_restart():
             subprocess.run(["sudo", "systemctl", "start", "docker.service"], capture_output=True, timeout=120)
             # Wait a moment to let Docker restart
             time.sleep(20)
-            subprocess.run(["sudo", "systemctl", "start", "fula.service"], capture_output=True, timeout=120)
+            safe_start_fula(capture_output=True, timeout=120)
             time.sleep(35)
             restart_attempts += 1
             continue
@@ -1062,7 +1118,7 @@ def monitor_docker_logs_and_restart():
             subprocess.run(["sudo", "systemctl", "restart", "docker.service"], capture_output=True, timeout=120)
             # Wait a moment to let Docker restart
             time.sleep(15)
-            subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+            safe_restart_fula(capture_output=True, timeout=120)
             time.sleep(35)
             restart_attempts += 1
             docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
@@ -1082,7 +1138,7 @@ def monitor_docker_logs_and_restart():
                 all_containers_running = False
                 logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
                 subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
-                result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                result = safe_restart_fula(capture_output=True, timeout=120)
                 time.sleep(5)
                 if result.returncode == 0:
                     logging.info(f"fula.service restarted successfully for {container}.")
@@ -1110,7 +1166,7 @@ def monitor_docker_logs_and_restart():
             logging.warning(f"config.yaml missing but backup exists. Attempting restore from {config_yaml_backup}")
             if restore_config_from_backup(config_yaml_path):
                 logging.info("config.yaml restored from backup. Restarting fula.service.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                safe_restart_fula(capture_output=True, timeout=120)
                 time.sleep(30)
                 restart_attempts += 1
                 continue
@@ -1121,7 +1177,7 @@ def monitor_docker_logs_and_restart():
             # Check go-fula proxy health
             if not check_proxy_health():
                 logging.warning("go-fula proxy ports unreachable. Restarting fula.service.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                safe_restart_fula(capture_output=True, timeout=120)
                 time.sleep(30)
                 restart_attempts += 1
                 continue
@@ -1133,7 +1189,7 @@ def monitor_docker_logs_and_restart():
                 if os.path.exists(service_json):
                     subprocess.run(["sudo", "rm", "-f", service_json], capture_output=True, check=True, timeout=20)
                     logging.info(f"Deleted {service_json} to force PeerID regeneration.")
-                subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                safe_restart_fula(capture_output=True, timeout=120)
                 time.sleep(30)
                 restart_attempts += 1
                 continue
@@ -1169,8 +1225,16 @@ def monitor_docker_logs_and_restart():
             time_difference = current_time - file_mod_time
             
             if time_difference < 12 * 60 * 60:  # 12 hours in seconds
-                # Issue persists even after reboot within 24 hours
-                logging.error("Issue persists after recent reboot. Flashing red for up to ~1 hour then exiting.")
+                # Issue persists even after reboot within 12 hours
+                gave_up_path = os.path.join(HOME_PATH, ".readiness_gave_up")
+                if os.path.exists(gave_up_path):
+                    # Already ran red LED loop this cycle. Stay alive, keep WireGuard active.
+                    logging.error("Red LED loop already completed. Sleeping 1h before re-eval.")
+                    activate_wireguard_support()
+                    time.sleep(3600)
+                    return  # Back to main loop for fresh evaluation
+
+                logging.error("Issue persists after recent reboot. Flashing red ~17 min.")
                 red_iterations = 0
                 while red_iterations < 200:
                     subprocess.run(["sudo", "python", LED_PATH, "red", "15"], capture_output=True, timeout=30)
@@ -1178,8 +1242,13 @@ def monitor_docker_logs_and_restart():
                     get_wifi_info_and_ping()
                     time.sleep(5)
                     red_iterations += 1
-                logging.error("Red LED loop completed 200 iterations. Exiting to let systemd restart.")
-                sys.exit(1)
+
+                # Mark that we completed the red loop — prevent repeat on next entry
+                subprocess.run(['sudo', 'touch', gave_up_path], timeout=20)
+                logging.error("Red LED loop done. Sleeping 1h to prevent restart storm.")
+                activate_wireguard_support()
+                time.sleep(3600)
+                return  # NOT sys.exit(1) — stay alive in main loop
             else:
                 # More than 24 hours have passed, update the reboot flag
                 logging.warning("Previous reboot flag is older than 24 hours. Updating and initiating re-partition process.")
@@ -1201,6 +1270,9 @@ def main():
     subprocess.run(["sudo", "python", LED_PATH, "cyan", "-1"], timeout=20)
     subprocess.run(["sudo", "python", LED_PATH, "blue", "-1"], timeout=20)
     subprocess.run(["sudo", "python", LED_PATH, "green", "2"], capture_output=True, timeout=20)
+    # Clear red-LED-loop sentinel from previous run so we get a fresh start
+    gave_up_path = os.path.join(HOME_PATH, ".readiness_gave_up")
+    subprocess.run(['sudo', 'rm', '-f', gave_up_path], timeout=20)
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
@@ -1237,7 +1309,7 @@ def main():
                 all(container in docker_ps_output for container in ["fula_fxsupport", "fula_updater"]) and \
                 fula_restart_attempts < 4:
                     logging.info("fula_go container found but is not running. Attempting to restart fula.service")
-                    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], capture_output=True, timeout=120)
+                    result = safe_restart_fula(capture_output=True, timeout=120)
                     if result.returncode == 0:
                         logging.info("fula.service restarted successfully.")
                         if result.stdout:

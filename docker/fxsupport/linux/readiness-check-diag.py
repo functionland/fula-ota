@@ -611,6 +611,13 @@ def monitor_docker_logs_and_restart():
         return
 
     containers_to_check = ["fula_go", "ipfs_host", "ipfs_cluster"]
+    # Only monitor fula_pinning if its container has been created at least once.
+    # Avoids restart loops on devices that got this script before the image was pulled.
+    if "fula_pinning" in subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'"):
+        containers_to_check.append("fula_pinning")
+    # Only monitor fula_gateway if its container has been created at least once.
+    if "fula_gateway" in subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'"):
+        containers_to_check.append("fula_gateway")
     restart_attempts = 0
     if check_external_drive():
         logging.info("[L1020] External drive needs reformatting — skip to partition section (restart_attempts=4)")

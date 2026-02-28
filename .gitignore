@@ -9,3 +9,5 @@ docker/windows-amd64/.history
 docker/windows-amd64/cert
 /docker/fxsupport/linux/__pycache__
 .claude/settings.local.json
+/docker/fula-gateway/fula-local-gateway/target
+docker/fula-gateway/fula-local-gateway/.cargo/config.toml

@@ -1362,6 +1362,7 @@ function restart() {
   mkdir -p ${HOME_DIR}/.internal || true
   mkdir -p ${HOME_DIR}/.internal/plugins || true
   mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
+  mkdir -p ${HOME_DIR}/.internal/fula-gateway || true
 
   if [ -f "$HW_CHECK_SC" ]; then
     if python $HW_CHECK_SC > /tmp/hw_test.log 2>&1; then
@@ -1753,6 +1754,14 @@ DEFAULT_MAX_ATTEMPTS=10
 # If no argument is given, operates on all services.
 # shellcheck disable=SC2120
 function pullFailedServices() {
+  local PULL_PID_FILE="/tmp/pullFailedServices.pid"
+  # Prevent concurrent instances (backgrounded by nohup)
+  if [ -f "$PULL_PID_FILE" ] && kill -0 "$(cat "$PULL_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+      echo "pullFailedServices already running (PID $(cat "$PULL_PID_FILE")), skipping." | sudo tee -a $FULA_LOG_PATH
+      return 0
+  fi
+  echo "${BASHPID:-$$}" > "$PULL_PID_FILE" 2>/dev/null || true
+
   # If a parameter is provided, consider it as a single service
   if [ $# -gt 0 ]; then
     SERVICES=$1
@@ -1761,6 +1770,7 @@ function pullFailedServices() {
     SERVICES=$(docker-compose --env-file "$ENV_FILE" config --services)
   fi
 
+  local attempts=0
   while :; do
     for service in $SERVICES; do
       # Check if the service is running
@@ -1790,6 +1800,7 @@ function pullFailedServices() {
     echo "Next Time Will be " $DEFAULT_INTERVAL " Seconds Later..." | sudo tee -a $FULA_LOG_PATH
     sleep $DEFAULT_INTERVAL
   done
+  rm -f "$PULL_PID_FILE" 2>/dev/null || true
 }
 
 
@@ -1955,12 +1966,19 @@ case $1 in
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
+  FXSUPPORT_WAIT=0
+  FXSUPPORT_TIMEOUT=3600  # 1 hour
   while [ "$container_status" != "running" ]; do
       echo "Waiting for fula_fxsupport container to be up..." | sudo tee -a $FULA_LOG_PATH
-      sleep 5  # Wait for 5 seconds before checking again
+      sleep 5
+      FXSUPPORT_WAIT=$((FXSUPPORT_WAIT + 5))
+      if [ "$FXSUPPORT_WAIT" -ge "$FXSUPPORT_TIMEOUT" ]; then
+          echo "WARNING: fula_fxsupport not running after ${FXSUPPORT_TIMEOUT}s, skipping docker cp." | sudo tee -a $FULA_LOG_PATH
+          break
+      fi
       container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
   done
-  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
+  if [ "$container_status" = "running" ] && { [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; }; then
     declare -A file_info
     for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py; do
       if [ -f "${FULA_PATH}/${file}" ]; then

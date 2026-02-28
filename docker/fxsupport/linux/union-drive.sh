@@ -323,13 +323,14 @@ check_and_remount() {
             
             if mountpoint -q "$MOUNT_PATH"; then
                 echo "MergerFS remounted successfully"
+                touch "$SETUP_DONE_FILE"
+                last_mount_count=$current_mount_count
+                systemctl start fula
+                echo "fula started"
             else
-                echo "Failed to remount MergerFS"
+                echo "Failed to remount MergerFS. NOT starting fula — will retry on next drive event."
+                rm -f "$SETUP_DONE_FILE" 2>/dev/null || true
             fi
-            
-            last_mount_count=$current_mount_count
-            systemctl start fula
-            echo "fula started"
             if [ -f /usr/bin/fula/control_led.py ]; then
                 python /usr/bin/fula/control_led.py light_purple 0
             fi
@@ -486,6 +487,14 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
             sync
             sleep 1
             systemd-notify WATCHDOG=1
+            # Track exec restarts to prevent infinite loop
+            UNION_EXEC_COUNT=${UNION_EXEC_COUNT:-0}
+            UNION_EXEC_COUNT=$((UNION_EXEC_COUNT + 1))
+            export UNION_EXEC_COUNT
+            if [ "$UNION_EXEC_COUNT" -ge 5 ]; then
+                log "ERROR: Filesystem type still wrong after $UNION_EXEC_COUNT exec restarts. Exiting for systemd retry."
+                exit 1
+            fi
             # Restart the script from the beginning
             exec "$0" "$@"
         fi
