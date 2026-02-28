@@ -101,9 +101,8 @@ jobs:
         run: |
           cd ./docker && source env_test.sh
           cd ./fula-gateway
-          git clone -b main https://github.com/functionland/fula-api
           docker buildx build --platform "$ARCH_SUPPORT" \
-            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID" --push ./fula-api
+            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID" --push ./fula-local-gateway
 
   push_all:
     needs: [build_fxsupport, build_go_fula, build_ipfs_cluster, build_fula_pinning, build_fula_gateway]
