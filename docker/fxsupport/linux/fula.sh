@@ -755,6 +755,63 @@ function connectwifi() {
     fi
   fi
 }
+# Ensure .env contains entries for all docker-compose services.
+# Old devices may have an .env that predates fula-pinning / fula-gateway.
+# We derive the tag from the existing FX_SUPPROT line so new services
+# use the same tag (e.g. test153 or release) as the rest of the stack.
+function ensureEnvServices() {
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "ensureEnvServices: ENV_FILE ($ENV_FILE) not found, skipping" | sudo tee -a $FULA_LOG_PATH
+    return
+  fi
+
+  # Extract the tag from FX_SUPPROT (e.g. "functionland/fxsupport:test153" → "test153")
+  # Works with both "functionland/fxsupport:tag" and "index.docker.io/functionland/fxsupport:tag"
+  local fx_line current_tag prefix
+  fx_line=$(grep '^FX_SUPPROT=' "$ENV_FILE" | head -1 | sed 's/^FX_SUPPROT=//')
+  current_tag="${fx_line##*:}"
+  if [ -z "$current_tag" ]; then
+    echo "ensureEnvServices: could not determine tag from FX_SUPPROT, skipping" | sudo tee -a $FULA_LOG_PATH
+    return
+  fi
+
+  # Detect if existing entries use "index.docker.io/" prefix
+  prefix=""
+  if echo "$fx_line" | grep -q 'index\.docker\.io/'; then
+    prefix="index.docker.io/"
+  fi
+
+  local changed=false
+
+  if ! grep -q '^FULA_PINNING=' "$ENV_FILE"; then
+    echo "FULA_PINNING=${prefix}functionland/fula-pinning:${current_tag}" >> "$ENV_FILE"
+    echo "ensureEnvServices: added FULA_PINNING with tag ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+    changed=true
+  fi
+
+  if ! grep -q '^FULA_GATEWAY=' "$ENV_FILE"; then
+    echo "FULA_GATEWAY=${prefix}functionland/fula-gateway:${current_tag}" >> "$ENV_FILE"
+    echo "ensureEnvServices: added FULA_GATEWAY with tag ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+    changed=true
+  fi
+
+  # Also fix mismatched tags: if FULA_PINNING/FULA_GATEWAY exist but
+  # use a different tag than FX_SUPPROT, update them to match.
+  local pin_tag gw_tag
+  pin_tag=$(grep '^FULA_PINNING=' "$ENV_FILE" | head -1 | sed 's/.*://')
+  gw_tag=$(grep '^FULA_GATEWAY=' "$ENV_FILE" | head -1 | sed 's/.*://')
+
+  if [ -n "$pin_tag" ] && [ "$pin_tag" != "$current_tag" ]; then
+    sed -i "s|^FULA_PINNING=.*|FULA_PINNING=${prefix}functionland/fula-pinning:${current_tag}|" "$ENV_FILE"
+    echo "ensureEnvServices: updated FULA_PINNING tag from ${pin_tag} to ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+  fi
+
+  if [ -n "$gw_tag" ] && [ "$gw_tag" != "$current_tag" ]; then
+    sed -i "s|^FULA_GATEWAY=.*|FULA_GATEWAY=${prefix}functionland/fula-gateway:${current_tag}|" "$ENV_FILE"
+    echo "ensureEnvServices: updated FULA_GATEWAY tag from ${gw_tag} to ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+  fi
+}
+
 function dockerComposeUp() {
   local service image tar_path
 
@@ -1686,6 +1743,12 @@ PYEOF
 
   # Pre-flight: purge any ghost containers left from previous crashes
   purgeGhostContainers || { echo "purgeGhostContainers failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  # Pre-flight: ensure .env has FULA_PINNING and FULA_GATEWAY entries.
+  # Old devices updated via Watchtower/docker cp may have an .env that
+  # predates these services.  Derive the tag from the existing FX_SUPPROT
+  # image reference so the new services use the same tag as everything else.
+  ensureEnvServices
 
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
