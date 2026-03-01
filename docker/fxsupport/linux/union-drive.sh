@@ -137,12 +137,17 @@ unionfs_fuse_mount_drives() {
             # Check if the filesystem type is ext4
             fs_type=$(detect_type "$drive")
             if [ "$fs_type" = "ext4" ]; then
+                # Check that the block device still exists (not a stale mount)
+                blk_dev=$(findmnt -n -o SOURCE "$drive" 2>/dev/null)
+                if [ -n "$blk_dev" ] && [ ! -b "$blk_dev" ]; then
+                    echo "WARNING: Skipping $drive — block device $blk_dev no longer exists (stale mount). Lazy-unmounting."
+                    umount -l "$drive" 2>/dev/null || true
                 # Check for I/O errors before including drive
-                if ls "$drive" > /dev/null 2>&1; then
+                elif ! ls "$drive" > /dev/null 2>&1; then
+                    echo "WARNING: Skipping $drive due to I/O errors (drive may be failing)"
+                else
                     MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
                     FIRST=":"
-                else
-                    echo "WARNING: Skipping $drive due to I/O errors (drive may be failing)"
                 fi
             else
                 echo "Skipping $drive as it is not formatted as ext4. Detected type: $fs_type"
