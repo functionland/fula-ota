@@ -137,8 +137,13 @@ unionfs_fuse_mount_drives() {
             # Check if the filesystem type is ext4
             fs_type=$(detect_type "$drive")
             if [ "$fs_type" = "ext4" ]; then
-                MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
-                FIRST=":"
+                # Check for I/O errors before including drive
+                if ls "$drive" > /dev/null 2>&1; then
+                    MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
+                    FIRST=":"
+                else
+                    echo "WARNING: Skipping $drive due to I/O errors (drive may be failing)"
+                fi
             else
                 echo "Skipping $drive as it is not formatted as ext4. Detected type: $fs_type"
             fi
@@ -471,11 +476,24 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
                 systemd-notify --ready
                 break
             else
-                log "Filesystem is read-only. Attempting to remount as read-write."
-                if ! mount -o remount,rw,nonempty "$MOUNT_PATH"; then
-                    log "Failed to remount /uniondrive as read-write. exiting."
-                    exit 1
-                fi
+                log "Filesystem is not writable (attempt $check_mount_attempt)."
+                # Check underlying drives for I/O errors
+                for drive in /media/pi/*; do
+                    if mountpoint -q "$drive"; then
+                        if ! ls "$drive" > /dev/null 2>&1; then
+                            log "WARNING: $drive has I/O errors — drive may be failing or disconnected."
+                        fi
+                    fi
+                done
+                # Cannot use 'mount -o remount' on FUSE — kernel injects
+                # options like 'relatime' that mergerfs does not understand.
+                # Unmount and re-mount, excluding bad drives.
+                log "Remounting mergerfs without bad drives..."
+                umount_drives
+                sync
+                sleep 2
+                mount_drives
+                check_mount_attempt=$((check_mount_attempt + 1))
             fi
         else
             log "Incorrect filesystem type. Expected fuse.mergerfs."
