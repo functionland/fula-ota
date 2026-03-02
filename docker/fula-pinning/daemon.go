@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,17 +19,22 @@ type Daemon struct {
 	priorityQueue   chan string
 	lastSyncAt      time.Time
 	registryCIDPath string
+	lastSyncFile    string
+	syncCycle       int
 }
 
-func NewDaemon(kubo *KuboClient, pinning *PinningClient, syncInterval time.Duration, registryCIDPath string) *Daemon {
-	return &Daemon{
+func NewDaemon(kubo *KuboClient, pinning *PinningClient, syncInterval time.Duration, registryCIDPath, lastSyncFile string) *Daemon {
+	d := &Daemon{
 		kubo:            kubo,
 		pinning:         pinning,
 		pinnedCIDs:      make(map[string]bool),
 		syncInterval:    syncInterval,
 		priorityQueue:   make(chan string, 100),
 		registryCIDPath: registryCIDPath,
+		lastSyncFile:    lastSyncFile,
 	}
+	d.loadLastSync()
+	return d
 }
 
 func (d *Daemon) Run(ctx context.Context) {
@@ -65,16 +71,34 @@ func (d *Daemon) Run(ctx context.Context) {
 }
 
 func (d *Daemon) syncPins(ctx context.Context) {
-	log.Println("daemon: starting sync cycle")
+	d.syncCycle++
 	startTime := time.Now()
 
-	// Fetch remote pins from pinning service
-	remotePins, err := d.pinning.ListAllPins()
+	// Every 10th cycle, force a full sync to catch any missed pins
+	forceFullSync := d.syncCycle%10 == 0
+	incremental := !d.lastSyncAt.IsZero() && !forceFullSync
+
+	log.Printf("daemon: starting sync cycle #%d (incremental=%v)", d.syncCycle, incremental)
+
+	var remotePins []PinEntry
+	var err error
+	if incremental {
+		// Subtract 1 minute for clock skew safety
+		since := d.lastSyncAt.Add(-1 * time.Minute)
+		remotePins, err = d.pinning.ListPinsSince(since)
+		if err != nil {
+			log.Printf("daemon: incremental fetch failed: %v, trying full sync", err)
+			remotePins, err = d.pinning.ListAllPins()
+			incremental = false
+		}
+	} else {
+		remotePins, err = d.pinning.ListAllPins()
+	}
 	if err != nil {
 		log.Printf("daemon: failed to fetch remote pins: %v", err)
 		return
 	}
-	log.Printf("daemon: fetched %d remote pins", len(remotePins))
+	log.Printf("daemon: fetched %d remote pins (incremental=%v)", len(remotePins), incremental)
 
 	// Find registry pin and write CID to shared file for fula-gateway
 	for _, pin := range remotePins {
@@ -129,9 +153,39 @@ func (d *Daemon) syncPins(ctx context.Context) {
 		pinned++
 	}
 
-	d.lastSyncAt = time.Now()
+	d.lastSyncAt = startTime
+	d.persistLastSync()
 	log.Printf("daemon: sync complete in %v — pinned=%d skipped=%d failed=%d",
 		time.Since(startTime), pinned, skipped, failed)
+}
+
+func (d *Daemon) loadLastSync() {
+	if d.lastSyncFile == "" {
+		return
+	}
+	data, err := os.ReadFile(d.lastSyncFile)
+	if err != nil {
+		return
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return
+	}
+	d.lastSyncAt = t
+	log.Printf("daemon: loaded lastSyncAt=%s from %s", t.Format(time.RFC3339), d.lastSyncFile)
+}
+
+func (d *Daemon) persistLastSync() {
+	if d.lastSyncFile == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(d.lastSyncFile), 0755); err != nil {
+		log.Printf("daemon: failed to create lastSync dir: %v", err)
+		return
+	}
+	if err := os.WriteFile(d.lastSyncFile, []byte(d.lastSyncAt.Format(time.RFC3339)+"\n"), 0644); err != nil {
+		log.Printf("daemon: failed to persist lastSyncAt: %v", err)
+	}
 }
 
 func (d *Daemon) pinImmediately(ctx context.Context, cid string) {

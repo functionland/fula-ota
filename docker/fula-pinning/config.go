@@ -16,6 +16,7 @@ type Config struct {
 	SyncInterval    time.Duration
 	PropsFile       string
 	RegistryCIDPath string
+	LastSyncFile    string
 }
 
 func LoadConfig() *Config {
@@ -25,6 +26,7 @@ func LoadConfig() *Config {
 		PropsFile:       getEnv("PROPS_FILE", "/internal/box_props.json"),
 		SyncInterval:    parseDuration(getEnv("SYNC_INTERVAL", "3m")),
 		RegistryCIDPath: getEnv("REGISTRY_CID_PATH", "/internal/fula-gateway/registry.cid"),
+		LastSyncFile:    getEnv("LAST_SYNC_FILE", "/internal/fula-pinning/last_sync.txt"),
 	}
 	cfg.loadProps()
 	return cfg

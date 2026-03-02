@@ -44,7 +44,7 @@ func runWithConfig(ctx context.Context, cfg *Config) {
 
 		kubo := NewKuboClient(cfg.KuboAPI)
 		pinning := NewPinningClient(cfg.PinningEndpoint, cfg.PinningToken)
-		daemon := NewDaemon(kubo, pinning, cfg.SyncInterval, cfg.RegistryCIDPath)
+		daemon := NewDaemon(kubo, pinning, cfg.SyncInterval, cfg.RegistryCIDPath, cfg.LastSyncFile)
 		server := NewServer(daemon, cfg.PairingSecret)
 
 		go daemon.Run(dctx)

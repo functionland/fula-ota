@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var zeroTime time.Time
+
 type PinningClient struct {
 	endpoint string
 	token    string
@@ -34,18 +36,27 @@ func NewPinningClient(endpoint, token string) *PinningClient {
 	return &PinningClient{
 		endpoint: endpoint,
 		token:    token,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		client:   &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
 // ListAllPins fetches all pins from the pinning service, paginating as needed.
 func (p *PinningClient) ListAllPins() ([]PinEntry, error) {
+	return p.listPinsPaginated(zeroTime)
+}
+
+// ListPinsSince fetches only pins created after the given time.
+func (p *PinningClient) ListPinsSince(after time.Time) ([]PinEntry, error) {
+	return p.listPinsPaginated(after)
+}
+
+func (p *PinningClient) listPinsPaginated(after time.Time) ([]PinEntry, error) {
 	var allPins []PinEntry
 	limit := 1000
 	before := ""
 
 	for {
-		pins, err := p.listPins(limit, before)
+		pins, err := p.listPinsFiltered(limit, before, after)
 		if err != nil {
 			return allPins, err
 		}
@@ -62,7 +73,7 @@ func (p *PinningClient) ListAllPins() ([]PinEntry, error) {
 	return allPins, nil
 }
 
-func (p *PinningClient) listPins(limit int, before string) (*PinListResponse, error) {
+func (p *PinningClient) listPinsFiltered(limit int, before string, after time.Time) (*PinListResponse, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/pins", p.endpoint))
 	if err != nil {
 		return nil, fmt.Errorf("invalid pinning endpoint: %w", err)
@@ -72,6 +83,9 @@ func (p *PinningClient) listPins(limit int, before string) (*PinListResponse, er
 	q.Set("limit", fmt.Sprintf("%d", limit))
 	if before != "" {
 		q.Set("before", before)
+	}
+	if !after.IsZero() {
+		q.Set("after", after.Format(time.RFC3339))
 	}
 	u.RawQuery = q.Encode()
 
