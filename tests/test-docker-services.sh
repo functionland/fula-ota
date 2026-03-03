@@ -26,6 +26,7 @@ TESTS_TOTAL=0
 declare -A EXPECTED_SERVICES=(
     ["watchtower"]="containrrr/watchtower"
     ["kubo"]="ipfs/kubo:release"
+    ["kubo-local"]="ipfs/kubo:release"
     ["ipfs-cluster"]="functionland/ipfs-cluster:release"
     ["go-fula"]="GO_FULA"
     ["fxsupport"]="FX_SUPPROT"
@@ -33,12 +34,14 @@ declare -A EXPECTED_SERVICES=(
 
 declare -A EXPECTED_PORTS=(
     ["kubo"]="4001:4001,4001:4001/udp,127.0.0.1:8081:8081,127.0.0.1:5001:5001"
+    ["kubo-local"]="127.0.0.1:5002:5001"
     ["ipfs-cluster"]="9094:9094,9095:9095,9096:9096"
     ["go-fula"]="40001:40001,3500:3500"
 )
 
 declare -A EXPECTED_VOLUMES=(
     ["kubo"]="/uniondrive,/storage,/internal,/container-init.d,/export"
+    ["kubo-local"]="/uniondrive,/internal,/container-init.d"
     ["ipfs-cluster"]="/uniondrive,/internal,/container-init.d,.env.cluster"
     ["go-fula"]="/storage,/internal,/uniondrive,docker.sock,.env.cluster,.env"
 )
@@ -305,6 +308,7 @@ test_container_status() {
     local expected_containers=(
         "fula_updater"
         "ipfs_host"
+        "ipfs_local"
         "ipfs_cluster"
         "fula_go"
         "fula_fxsupport"

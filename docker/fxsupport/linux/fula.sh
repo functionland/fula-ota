@@ -480,12 +480,14 @@ function install() {
 
 
     cp -r ${INSTALLATION_FULA_DIR}/kubo $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo folder" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp -r ${INSTALLATION_FULA_DIR}/kubo-local $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo-local folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/ipfs-cluster $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying ipfs-cluster folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/plugins $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying plugins folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/wireguard $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying wireguard folder" | sudo tee -a $FULA_LOG_PATH; } || true
 
 
     sudo chmod -R 755 ${FULA_PATH}/kubo
+    sudo chmod -R 755 ${FULA_PATH}/kubo-local
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
     sudo chmod -R 755 ${FULA_PATH}/plugins
     sudo chmod -R 755 ${FULA_PATH}/wireguard 2>/dev/null || true
@@ -2057,7 +2059,7 @@ case $1 in
     # Restore execute permissions on init scripts after docker cp
     find ${FULA_PATH} -name "*.sh" -exec sudo chmod +x {} + 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     # Restore directory permissions after docker cp (which may reset them)
-    for subdir in kubo ipfs-cluster wireguard plugins; do
+    for subdir in kubo kubo-local ipfs-cluster wireguard plugins; do
       if [ -d "${FULA_PATH}/${subdir}" ]; then
         sudo chmod -R 755 "${FULA_PATH}/${subdir}" || { echo "chmod ${subdir} after docker cp failed" | sudo tee -a $FULA_LOG_PATH; } || true
       fi
