@@ -74,6 +74,12 @@ func (d *Daemon) syncPins(ctx context.Context) {
 	d.syncCycle++
 	startTime := time.Now()
 
+	// Signal to go-fula that we are actively syncing pins
+	syncingPath := "/internal/fula-pinning/.syncing"
+	_ = os.MkdirAll(filepath.Dir(syncingPath), 0755)
+	_ = os.WriteFile(syncingPath, []byte(time.Now().Format(time.RFC3339)), 0644)
+	defer os.Remove(syncingPath)
+
 	// Every 10th cycle, force a full sync to catch any missed pins
 	forceFullSync := d.syncCycle%10 == 0
 	incremental := !d.lastSyncAt.IsZero() && !forceFullSync
@@ -121,7 +127,8 @@ func (d *Daemon) syncPins(ctx context.Context) {
 	d.pinnedMu.Unlock()
 
 	// Pin missing CIDs
-	var pinned, skipped, failed int
+	total := len(remotePins)
+	var pinned, skipped, failed, processed int
 	for _, pin := range remotePins {
 		if ctx.Err() != nil {
 			return
@@ -131,6 +138,8 @@ func (d *Daemon) syncPins(ctx context.Context) {
 		if cid == "" {
 			continue
 		}
+
+		processed++
 
 		d.pinnedMu.RLock()
 		alreadyPinned := d.pinnedCIDs[cid]
@@ -151,6 +160,12 @@ func (d *Daemon) syncPins(ctx context.Context) {
 		d.pinnedCIDs[cid] = true
 		d.pinnedMu.Unlock()
 		pinned++
+
+		// Log progress every 50 pins
+		if pinned%50 == 0 {
+			log.Printf("daemon: progress %d/%d — pinned=%d skipped=%d failed=%d elapsed=%v",
+				processed, total, pinned, skipped, failed, time.Since(startTime))
+		}
 	}
 
 	d.lastSyncAt = startTime
