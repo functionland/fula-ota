@@ -51,6 +51,17 @@ func (d *Daemon) Run(ctx context.Context) {
 	}
 	log.Println("daemon: kubo is healthy")
 
+	// Detect kubo instance reset: if we think we've synced before but kubo
+	// has zero pins, the kubo instance was likely replaced (e.g. switched
+	// from main kubo to kubo-local). Force a full sync to re-pin everything.
+	if !d.lastSyncAt.IsZero() {
+		localPins, err := d.kubo.PinLs()
+		if err == nil && len(localPins) == 0 {
+			log.Println("daemon: kubo has 0 pins but lastSyncAt is set — kubo instance was likely reset. Forcing full sync.")
+			d.lastSyncAt = time.Time{}
+		}
+	}
+
 	// Initial sync
 	d.syncPins(ctx)
 
