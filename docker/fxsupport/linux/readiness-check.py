@@ -18,6 +18,7 @@ LED_PATH = os.path.join(FULA_PATH, "control_led.py")
 
 RELAY_MULTIADDR = "/dns/relay.dev.fx.land/tcp/4001/p2p/12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"
 IPFS_API_URL = "http://127.0.0.1:5001"
+IPFS_LOCAL_API_URL = "http://127.0.0.1:5002"
 BOOTSTRAP_PEERS = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
@@ -769,6 +770,153 @@ def check_and_fix_ipfs_host():
     return False
 
 
+def check_and_fix_kubo_local():
+    """Check kubo-local (ipfs_local) container for common errors and fix them.
+
+    This is a non-disruptive check: it only restarts the ipfs_local container
+    itself. It never restarts fula.service, never triggers reboots, and never
+    counts toward restart_attempts. The device works fine without kubo-local,
+    so issues here must not disturb other processes.
+
+    Returns:
+        bool: True if an issue was detected and a fix was attempted, False otherwise
+    """
+    try:
+        # Skip if container doesn't exist
+        all_containers = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
+        if "ipfs_local" not in all_containers:
+            return False
+
+        ipfs_local_logs = subprocess.getoutput("sudo docker logs ipfs_local --tail 20 2>&1")
+
+        # 1. IPFS_PATH directory missing — kubo entrypoint chown fails
+        if "chown:" in ipfs_local_logs and "ipfs_data_local" in ipfs_local_logs and "No such file or directory" in ipfs_local_logs:
+            logging.warning("kubo-local: IPFS_PATH directory missing. Creating it and restarting container.")
+            subprocess.run(["sudo", "mkdir", "-p", "/home/pi/.internal/ipfs_data_local"],
+                           capture_output=True, timeout=20)
+            subprocess.run(["sudo", "chown", "-R", "1000:1000", "/home/pi/.internal/ipfs_data_local"],
+                           capture_output=True, timeout=20)
+            subprocess.run(["sudo", "docker", "restart", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 2. Pebble database corruption
+        if "failed to open pebble database" in ipfs_local_logs:
+            logging.warning("kubo-local: Pebble database error. Clearing datastore and restarting.")
+            subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(5)
+            datastore_dir = "/uniondrive/ipfs_datastore_local/datastore"
+            if os.path.exists(datastore_dir):
+                subprocess.run(["sudo", "rm", "-rf", datastore_dir], capture_output=True, timeout=30)
+                subprocess.run(["sudo", "mkdir", "-p", datastore_dir], capture_output=True, timeout=10)
+                subprocess.run(["sudo", "chown", "-R", "1000:1000", datastore_dir],
+                               capture_output=True, timeout=20)
+            blocks_dir = "/uniondrive/ipfs_datastore_local/blocks"
+            if os.path.exists(blocks_dir):
+                subprocess.run(["sudo", "rm", "-rf", blocks_dir], capture_output=True, timeout=30)
+                subprocess.run(["sudo", "mkdir", "-p", blocks_dir], capture_output=True, timeout=10)
+                subprocess.run(["sudo", "chown", "-R", "1000:1000", blocks_dir],
+                               capture_output=True, timeout=20)
+            subprocess.run(["sudo", "docker", "start", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 3. Flatfs shard or blocks directory issues
+        if ("Error: invalid or no prefix in shard identifier:" in ipfs_local_logs or
+                "Error: directory missing SHARDING file:" in ipfs_local_logs or
+                "no such file or directory" in ipfs_local_logs and "ipfs_datastore_local/blocks" in ipfs_local_logs):
+            logging.warning("kubo-local: Flatfs blocks issue. Clearing blocks and restarting.")
+            subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(5)
+            blocks_dir = "/uniondrive/ipfs_datastore_local/blocks"
+            if os.path.exists(blocks_dir):
+                subprocess.run(["sudo", "rm", "-rf", blocks_dir], capture_output=True, timeout=30)
+            subprocess.run(["sudo", "mkdir", "-p", blocks_dir], capture_output=True, timeout=10)
+            subprocess.run(["sudo", "chown", "-R", "1000:1000", blocks_dir],
+                           capture_output=True, timeout=20)
+            subprocess.run(["sudo", "docker", "start", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 4. Version mismatch — write correct version and restart
+        if "Error: Your programs version" in ipfs_local_logs and "is lower than your repos" in ipfs_local_logs:
+            logging.warning("kubo-local: Version mismatch. Updating version file.")
+            version_file = "/home/pi/.internal/ipfs_data_local/version"
+            # Extract the expected version from the error message
+            for ver in ["17", "16"]:
+                if f"version ({ver})" in ipfs_local_logs:
+                    subprocess.run(["sudo", "tee", version_file],
+                                   input=ver.encode(), capture_output=True, timeout=10)
+                    break
+            subprocess.run(["sudo", "docker", "restart", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 5. Migration permission error
+        if "permission denied" in ipfs_local_logs and "ipfs_data_local" in ipfs_local_logs:
+            logging.warning("kubo-local: Permission error. Fixing ownership and restarting.")
+            subprocess.run(["sudo", "chown", "-R", "1000:1000", "/home/pi/.internal/ipfs_data_local"],
+                           capture_output=True, timeout=30)
+            if os.path.exists("/uniondrive/ipfs_datastore_local"):
+                subprocess.run(["sudo", "chown", "-R", "1000:1000", "/uniondrive/ipfs_datastore_local"],
+                               capture_output=True, timeout=30)
+            subprocess.run(["sudo", "docker", "restart", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 6. Config 'path' field missing — delete config to let init script regenerate
+        if "'path' field is missing" in ipfs_local_logs:
+            logging.warning("kubo-local: Config 'path' field missing. Deleting config for regeneration.")
+            config_path = "/home/pi/.internal/ipfs_data_local/config"
+            if os.path.exists(config_path):
+                subprocess.run(["sudo", "rm", "-f", config_path], capture_output=True, timeout=10)
+            subprocess.run(["sudo", "docker", "restart", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 7. Lock file stuck — remove and restart
+        if "lock" in ipfs_local_logs.lower() and ("acquire" in ipfs_local_logs.lower() or "already locked" in ipfs_local_logs.lower()):
+            logging.warning("kubo-local: Lock file issue. Removing locks and restarting.")
+            subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(5)
+            subprocess.run(["sudo", "rm", "-f", "/home/pi/.internal/ipfs_data_local/repo.lock"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs_datastore_local/datastore/LOCK"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["sudo", "docker", "start", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 8. Container is not running but exists — just start it
+        running_containers = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
+        if "ipfs_local" not in running_containers:
+            logging.warning("kubo-local: Container exists but not running. Starting it.")
+            # Clean up stale locks before starting
+            subprocess.run(["sudo", "rm", "-f", "/home/pi/.internal/ipfs_data_local/repo.lock"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["sudo", "rm", "-f", "/uniondrive/ipfs_datastore_local/datastore/LOCK"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["sudo", "docker", "start", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        return False
+    except Exception as e:
+        logging.error(f"Error in check_and_fix_kubo_local: {e}")
+        return False
+
+
 def check_and_fix_config_yaml():
     """Check fula_go container logs for config.yaml errors and fix them.
 
@@ -1082,6 +1230,9 @@ def monitor_docker_logs_and_restart():
     # Only monitor fula_gateway if its container has been created at least once.
     if "fula_gateway" in subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'"):
         containers_to_check.append("fula_gateway")
+    # kubo-local is non-critical — exclude from containers_to_check so its
+    # downtime never triggers fula.service restarts or counts toward reboot.
+    # It has its own self-contained check_and_fix_kubo_local() instead.
     restart_attempts = 0
     if check_external_drive():
         # a partition needs reformatting, skip the loop and go to partition section
@@ -1158,6 +1309,9 @@ def monitor_docker_logs_and_restart():
         if ipfs_cluster_fixed or ipfs_host_fixed or config_yaml_fixed:
             restart_attempts += 1
             continue  # re-check after fixes
+
+        # kubo-local: non-disruptive self-heal (never affects restart_attempts)
+        check_and_fix_kubo_local()
 
         # Auto-recover missing config.yaml from backup (e.g. after filesystem corruption)
         config_yaml_path = "/home/pi/.internal/config.yaml"

@@ -359,6 +359,7 @@ function install() {
   mkdir -p ${HOME_DIR}/.internal
   mkdir -p ${FULA_PATH}/kubo
   mkdir -p ${HOME_DIR}/.internal/ipfs_data
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data_local
 
   touch ${HOME_DIR}/.internal/ipfs_data/version
   touch ${HOME_DIR}/.internal/ipfs_data/datastore_spec
@@ -1421,6 +1422,7 @@ function restart() {
   mkdir -p ${HOME_DIR}/.internal || true
   mkdir -p ${HOME_DIR}/.internal/plugins || true
   mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data_local || true
   mkdir -p ${HOME_DIR}/.internal/fula-gateway || true
 
   if [ -f "$HW_CHECK_SC" ]; then
@@ -1729,9 +1731,17 @@ PYEOF
     rm -f "${HOME_DIR}/.internal/ipfs_data/repo.lock" 2>/dev/null || true
     chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
+  if [ -d "${HOME_DIR}/.internal/ipfs_data_local" ]; then
+    rm -f "${HOME_DIR}/.internal/ipfs_data_local/repo.lock" 2>/dev/null || true
+    chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data_local" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
   if [ -d "/uniondrive/ipfs_datastore" ]; then
     rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
     chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+  if [ -d "/uniondrive/ipfs_datastore_local" ]; then
+    rm -f /uniondrive/ipfs_datastore_local/datastore/LOCK 2>/dev/null || true
+    chown -R 1000:1000 /uniondrive/ipfs_datastore_local 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
 
   # Pre-flight: check root filesystem space. If critically low, prune Docker
