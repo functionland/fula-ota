@@ -54,6 +54,13 @@ cp /container-init.d/config-local "$IPFS_PATH/config"
 sed -i "s|\"PeerID\": \"\"|\"PeerID\": \"${PEER_ID}\"|" "$IPFS_PATH/config"
 sed -i "s|\"PrivKey\": \"\"|\"PrivKey\": \"${PRIV_KEY}\"|" "$IPFS_PATH/config"
 
+# Overwrite datastore_spec to match our config-local.
+# ipfs init writes a default spec (relative paths, levelds) that doesn't match
+# our custom paths and pebbleds. Kubo refuses to start on mismatch.
+cat > "$IPFS_PATH/datastore_spec" << 'DSEOF'
+{"mounts":[{"mountpoint":"/blocks","path":"/uniondrive/ipfs_datastore_local/blocks","shardFunc":"/repo/flatfs/shard/v1/next-to-last/2","type":"flatfs"},{"mountpoint":"/","path":"/uniondrive/ipfs_datastore_local/datastore","type":"pebbleds"}],"type":"mount"}
+DSEOF
+
 # Add main kubo as peering peer (persistent connection for bitswap)
 MAIN_PID=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' /internal/ipfs_data/config 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 if [ -n "$MAIN_PID" ]; then
