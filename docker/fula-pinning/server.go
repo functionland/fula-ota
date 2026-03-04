@@ -3,8 +3,6 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"log"
-	"net"
 	"net/http"
 	"strings"
 )
@@ -28,15 +26,6 @@ func NewServer(daemon *Daemon, pairingSecret string) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
-}
-
-func (s *Server) ListenAndServe(addr string) error {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	log.Printf("server: listening on %s", addr)
-	return http.Serve(listener, s)
 }
 
 func (s *Server) auth(r *http.Request) bool {

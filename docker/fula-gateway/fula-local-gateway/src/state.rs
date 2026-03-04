@@ -116,10 +116,16 @@ pub fn spawn_cid_watcher(
                     "Registry CID changed, reloading"
                 );
                 match bucket_manager.load_registry().await {
-                    Ok(count) => info!("Reloaded {} bucket(s) from registry", count),
-                    Err(e) => error!("Failed to reload registry: {}", e),
+                    Ok(count) => {
+                        info!("Reloaded {} bucket(s) from registry", count);
+                        // Re-read CID file to capture any change during async load
+                        last_cid = read_cid_file(&cid_path);
+                    }
+                    Err(e) => {
+                        error!("Failed to reload registry: {}", e);
+                        // Keep last_cid unchanged so next poll retries
+                    }
                 }
-                last_cid = current_cid;
             }
         }
     });

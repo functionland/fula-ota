@@ -41,7 +41,7 @@ func (d *Daemon) Run(ctx context.Context) {
 	log.Println("daemon: starting auto-pin daemon")
 
 	// Wait for kubo to become healthy
-	for !d.kubo.IsHealthy() {
+	for !d.kubo.IsHealthy(ctx) {
 		log.Println("daemon: waiting for kubo to become healthy...")
 		select {
 		case <-ctx.Done():
@@ -55,10 +55,12 @@ func (d *Daemon) Run(ctx context.Context) {
 	// has zero pins, the kubo instance was likely replaced (e.g. switched
 	// from main kubo to kubo-local). Force a full sync to re-pin everything.
 	if !d.lastSyncAt.IsZero() {
-		localPins, err := d.kubo.PinLs()
+		localPins, err := d.kubo.PinLs(ctx)
 		if err == nil && len(localPins) == 0 {
 			log.Println("daemon: kubo has 0 pins but lastSyncAt is set — kubo instance was likely reset. Forcing full sync.")
+			d.pinnedMu.Lock()
 			d.lastSyncAt = time.Time{}
+			d.pinnedMu.Unlock()
 		}
 	}
 
@@ -126,7 +128,7 @@ func (d *Daemon) syncPins(ctx context.Context) {
 	}
 
 	// Fetch local pins from kubo
-	localPins, err := d.kubo.PinLs()
+	localPins, err := d.kubo.PinLs(ctx)
 	if err != nil {
 		log.Printf("daemon: failed to fetch local pins: %v", err)
 		return
@@ -161,7 +163,7 @@ func (d *Daemon) syncPins(ctx context.Context) {
 			continue
 		}
 
-		if err := d.kubo.PinAdd(cid); err != nil {
+		if err := d.kubo.PinAdd(ctx, cid); err != nil {
 			log.Printf("daemon: failed to pin %s: %v", cid, err)
 			failed++
 			continue
@@ -179,7 +181,9 @@ func (d *Daemon) syncPins(ctx context.Context) {
 		}
 	}
 
+	d.pinnedMu.Lock()
 	d.lastSyncAt = startTime
+	d.pinnedMu.Unlock()
 	d.persistLastSync()
 	log.Printf("daemon: sync complete in %v — pinned=%d skipped=%d failed=%d",
 		time.Since(startTime), pinned, skipped, failed)
@@ -209,8 +213,13 @@ func (d *Daemon) persistLastSync() {
 		log.Printf("daemon: failed to create lastSync dir: %v", err)
 		return
 	}
-	if err := os.WriteFile(d.lastSyncFile, []byte(d.lastSyncAt.Format(time.RFC3339)+"\n"), 0644); err != nil {
-		log.Printf("daemon: failed to persist lastSyncAt: %v", err)
+	tmpPath := d.lastSyncFile + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(d.lastSyncAt.Format(time.RFC3339)+"\n"), 0644); err != nil {
+		log.Printf("daemon: failed to write lastSyncAt to %s: %v", tmpPath, err)
+		return
+	}
+	if err := os.Rename(tmpPath, d.lastSyncFile); err != nil {
+		log.Printf("daemon: failed to rename %s to %s: %v", tmpPath, d.lastSyncFile, err)
 	}
 }
 
@@ -224,7 +233,7 @@ func (d *Daemon) pinImmediately(ctx context.Context, cid string) {
 	}
 
 	log.Printf("daemon: priority pinning %s", cid)
-	if err := d.kubo.PinAdd(cid); err != nil {
+	if err := d.kubo.PinAdd(ctx, cid); err != nil {
 		log.Printf("daemon: failed to priority pin %s: %v", cid, err)
 		return
 	}
@@ -279,14 +288,15 @@ func (d *Daemon) QueuePriority(cids []string) int {
 func (d *Daemon) Status() DaemonStatus {
 	d.pinnedMu.RLock()
 	totalPinned := len(d.pinnedCIDs)
+	lastSync := d.lastSyncAt
 	d.pinnedMu.RUnlock()
 
 	return DaemonStatus{
 		Paired:       true,
 		TotalPinned:  totalPinned,
 		TotalPending: len(d.priorityQueue),
-		LastSyncAt:   d.lastSyncAt,
-		NextSyncAt:   d.lastSyncAt.Add(d.syncInterval),
+		LastSyncAt:   lastSync,
+		NextSyncAt:   lastSync.Add(d.syncInterval),
 	}
 }
 

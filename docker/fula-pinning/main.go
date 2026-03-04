@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -31,9 +33,9 @@ func main() {
 }
 
 func runWithConfig(ctx context.Context, cfg *Config) {
-	var daemonCancel context.CancelFunc
+	var cleanup func()
 
-	startDaemon := func() context.CancelFunc {
+	startDaemon := func() func() {
 		if !cfg.IsPaired() {
 			log.Println("fula-pinning: not paired, waiting for config...")
 			return nil
@@ -45,20 +47,40 @@ func runWithConfig(ctx context.Context, cfg *Config) {
 		kubo := NewKuboClient(cfg.KuboAPI)
 		pinning := NewPinningClient(cfg.PinningEndpoint, cfg.PinningToken)
 		daemon := NewDaemon(kubo, pinning, cfg.SyncInterval, cfg.RegistryCIDPath, cfg.LastSyncFile)
-		server := NewServer(daemon, cfg.PairingSecret)
+		appServer := NewServer(daemon, cfg.PairingSecret)
 
-		go daemon.Run(dctx)
+		addr := "0.0.0.0:" + cfg.AutoPinPort
+		httpServer := &http.Server{Addr: addr, Handler: appServer}
+
+		var wg sync.WaitGroup
+
+		wg.Add(1)
 		go func() {
-			addr := "0.0.0.0:" + cfg.AutoPinPort
-			if err := server.ListenAndServe(addr); err != nil {
+			defer wg.Done()
+			daemon.Run(dctx)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("server: listening on %s", addr)
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Printf("server error: %v", err)
 			}
 		}()
 
-		return dcancel
+		return func() {
+			dcancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if err := httpServer.Shutdown(shutdownCtx); err != nil {
+				log.Printf("server shutdown error: %v", err)
+			}
+			wg.Wait()
+		}
 	}
 
-	daemonCancel = startDaemon()
+	cleanup = startDaemon()
 
 	// Poll config file for changes (pair/unpair/token refresh)
 	ticker := time.NewTicker(30 * time.Second)
@@ -74,14 +96,14 @@ func runWithConfig(ctx context.Context, cfg *Config) {
 
 			if oldPaired != newPaired || oldToken != cfg.PinningToken {
 				log.Printf("fula-pinning: config changed (paired: %v → %v)", oldPaired, newPaired)
-				if daemonCancel != nil {
-					daemonCancel()
+				if cleanup != nil {
+					cleanup()
 				}
-				daemonCancel = startDaemon()
+				cleanup = startDaemon()
 			}
 		case <-ctx.Done():
-			if daemonCancel != nil {
-				daemonCancel()
+			if cleanup != nil {
+				cleanup()
 			}
 			return
 		}

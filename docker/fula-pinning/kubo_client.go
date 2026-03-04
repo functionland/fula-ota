@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,9 +24,13 @@ func NewKuboClient(apiURL string) *KuboClient {
 }
 
 // PinAdd pins a CID recursively on the local kubo node.
-func (k *KuboClient) PinAdd(cid string) error {
+func (k *KuboClient) PinAdd(ctx context.Context, cid string) error {
 	u := fmt.Sprintf("%s/api/v0/pin/add?arg=%s&recursive=true", k.apiURL, url.QueryEscape(cid))
-	resp, err := k.client.Post(u, "", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	if err != nil {
+		return fmt.Errorf("kubo pin/add %s: %w", cid, err)
+	}
+	resp, err := k.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("kubo pin/add %s: %w", cid, err)
 	}
@@ -42,9 +47,13 @@ type pinLsKey struct {
 }
 
 // PinLs returns the set of recursively pinned CIDs.
-func (k *KuboClient) PinLs() (map[string]bool, error) {
+func (k *KuboClient) PinLs(ctx context.Context) (map[string]bool, error) {
 	u := fmt.Sprintf("%s/api/v0/pin/ls?type=recursive", k.apiURL)
-	resp, err := k.client.Post(u, "", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("kubo pin/ls: %w", err)
+	}
+	resp, err := k.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("kubo pin/ls: %w", err)
 	}
@@ -69,9 +78,14 @@ func (k *KuboClient) PinLs() (map[string]bool, error) {
 }
 
 // IsHealthy checks if the kubo API is reachable.
-func (k *KuboClient) IsHealthy() bool {
+func (k *KuboClient) IsHealthy(ctx context.Context) bool {
 	u := fmt.Sprintf("%s/api/v0/id", k.apiURL)
-	resp, err := k.client.Post(u, "", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	if err != nil {
+		log.Printf("kubo health check failed: %v", err)
+		return false
+	}
+	resp, err := k.client.Do(req)
 	if err != nil {
 		log.Printf("kubo health check failed: %v", err)
 		return false
