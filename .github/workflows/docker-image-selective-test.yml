@@ -1,0 +1,200 @@
+name: Docker Image CI Selective TEST
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_fxsupport:
+        description: 'Build fxsupport'
+        type: boolean
+        default: true
+      build_go_fula:
+        description: 'Build go-fula'
+        type: boolean
+        default: false
+      build_ipfs_cluster:
+        description: 'Build ipfs-cluster'
+        type: boolean
+        default: false
+      build_fula_pinning:
+        description: 'Build fula-pinning'
+        type: boolean
+        default: false
+      build_fula_gateway:
+        description: 'Build fula-gateway'
+        type: boolean
+        default: false
+      test_tag:
+        description: 'Docker tag override (default: test153)'
+        type: string
+        required: false
+
+jobs:
+
+  build_fxsupport:
+    if: ${{ inputs.build_fxsupport }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build fxsupport
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export FX_SUPPORT_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          cd ./fxsupport
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_go_fula:
+    if: ${{ inputs.build_go_fula }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build go-fula
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export GO_FULA_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          cd ./go-fula
+          git clone -b "$GO_FULA_BRANCH" https://github.com/functionland/go-fula
+          cd go-fula && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_ipfs_cluster:
+    if: ${{ inputs.build_ipfs_cluster }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build ipfs-cluster
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export IPFS_CLUSTER_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          cd ./ipfs-cluster
+          git clone -b "$IPFS_CLUSTER_BRANCH" https://github.com/ipfs-cluster/ipfs-cluster
+          cd ipfs-cluster && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_fula_pinning:
+    if: ${{ inputs.build_fula_pinning }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build fula-pinning
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export FULA_PINNING_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          cd ./fula-pinning
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_fula_gateway:
+    if: ${{ inputs.build_fula_gateway }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build fula-gateway
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export FULA_GATEWAY_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          cd ./fula-gateway
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID" --push ./fula-local-gateway
+
+  push_selected:
+    needs: [build_fxsupport, build_go_fula, build_ipfs_cluster, build_fula_pinning, build_fula_gateway]
+    if: ${{ !cancelled() && (needs.build_fxsupport.result == 'success' || needs.build_go_fula.result == 'success' || needs.build_ipfs_cluster.result == 'success' || needs.build_fula_pinning.result == 'success' || needs.build_fula_gateway.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Tag selected images for release
+        run: |
+          cd ./docker && source env_test.sh
+          if [ -n "${{ inputs.test_tag }}" ]; then
+            export FX_SUPPORT_DOCKER_TAG="${{ inputs.test_tag }}"
+            export GO_FULA_DOCKER_TAG="${{ inputs.test_tag }}"
+            export IPFS_CLUSTER_DOCKER_TAG="${{ inputs.test_tag }}"
+            export FULA_PINNING_DOCKER_TAG="${{ inputs.test_tag }}"
+            export FULA_GATEWAY_DOCKER_TAG="${{ inputs.test_tag }}"
+          fi
+          if [ "${{ inputs.build_fxsupport }}" = "true" ]; then
+            docker buildx imagetools create \
+              -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG" \
+              "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          fi
+          if [ "${{ inputs.build_go_fula }}" = "true" ]; then
+            docker buildx imagetools create \
+              -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG" \
+              "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          fi
+          if [ "${{ inputs.build_ipfs_cluster }}" = "true" ]; then
+            docker buildx imagetools create \
+              -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG" \
+              "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          fi
+          if [ "${{ inputs.build_fula_pinning }}" = "true" ]; then
+            docker buildx imagetools create \
+              -t "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG" \
+              "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          fi
+          if [ "${{ inputs.build_fula_gateway }}" = "true" ]; then
+            docker buildx imagetools create \
+              -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG" \
+              "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          fi
