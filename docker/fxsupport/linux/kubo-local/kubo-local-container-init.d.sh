@@ -3,6 +3,9 @@
 # This script runs before kubo-local container starts.
 # It initializes a second lightweight kubo instance dedicated to
 # fula-pinning and fula-gateway user CIDs, isolated from ipfs-cluster.
+#
+# NOTE: jq is NOT available in ipfs/kubo:release. Use ipfs config
+# commands (work offline) and grep/sed for JSON extraction.
 set -ex
 
 log() {
@@ -24,7 +27,7 @@ rm -f /uniondrive/.tmp_local_check
 
 log "Prerequisites ready. Initializing kubo-local..."
 
-IPFS_PATH=/internal/ipfs_data_local
+export IPFS_PATH=/internal/ipfs_data_local
 
 # Create directories
 mkdir -p "$IPFS_PATH"
@@ -37,20 +40,24 @@ if [ ! -f "$IPFS_PATH/version" ]; then
     ipfs init --profile=flatfs
 fi
 
-# Overwrite config with our template, preserving identity
-IDENTITY=$(jq '.Identity' "$IPFS_PATH/config")
+# Save identity before overwriting config (ipfs config works offline)
+PEER_ID=$(ipfs config Identity.PeerID)
+PRIV_KEY=$(ipfs config Identity.PrivKey)
+log "Preserving identity: $PEER_ID"
+
+# Overwrite config with our template
 cp /container-init.d/config-local "$IPFS_PATH/config"
-jq --argjson id "$IDENTITY" '.Identity = $id' "$IPFS_PATH/config" > "$IPFS_PATH/config.tmp"
-mv "$IPFS_PATH/config.tmp" "$IPFS_PATH/config"
+
+# Re-inject preserved identity
+ipfs config Identity.PeerID "$PEER_ID"
+ipfs config Identity.PrivKey "$PRIV_KEY"
 
 # Add main kubo as peering peer (persistent connection for bitswap)
-MAIN_PID=$(jq -r '.Identity.PeerID' /internal/ipfs_data/config)
-if [ -n "$MAIN_PID" ] && [ "$MAIN_PID" != "null" ]; then
+# Extract PeerID using grep/sed (same technique as main kubo init script)
+MAIN_PID=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' /internal/ipfs_data/config 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+if [ -n "$MAIN_PID" ]; then
     log "Adding main kubo ($MAIN_PID) as peering peer..."
-    jq --arg pid "$MAIN_PID" \
-       '.Peering.Peers = [{"ID": $pid, "Addrs": ["/dns4/ipfs_host/tcp/4001"]}]' \
-       "$IPFS_PATH/config" > "$IPFS_PATH/config.tmp"
-    mv "$IPFS_PATH/config.tmp" "$IPFS_PATH/config"
+    ipfs config --json Peering.Peers "[{\"ID\": \"$MAIN_PID\", \"Addrs\": [\"/dns4/ipfs_host/tcp/4001\"]}]"
 fi
 
 # Remove stale lock files from a previous crashed instance.
