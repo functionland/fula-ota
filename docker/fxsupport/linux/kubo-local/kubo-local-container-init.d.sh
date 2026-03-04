@@ -30,6 +30,16 @@ log "Prerequisites ready. Initializing kubo-local..."
 
 export IPFS_PATH=/internal/ipfs_data_local
 
+# === OTA migration: strip deprecated Provider/Reprovider from existing config ===
+# kubo 0.40+ FATALs if Provider field exists. Remove it from on-disk config
+# before overwriting with template (handles case where template cp fails).
+if [ -f "$IPFS_PATH/config" ]; then
+    # Remove "Provider": { ... } block (single-line or compact)
+    sed -i '/"Provider":/,/}/d' "$IPFS_PATH/config" 2>/dev/null || true
+    # Remove "Reprovider": {} line
+    sed -i '/"Reprovider":/d' "$IPFS_PATH/config" 2>/dev/null || true
+fi
+
 # Create directories
 mkdir -p "$IPFS_PATH"
 mkdir -p /uniondrive/ipfs_datastore_local/blocks
@@ -61,13 +71,23 @@ cat > "$IPFS_PATH/datastore_spec" << 'DSEOF'
 {"mounts":[{"mountpoint":"/blocks","path":"/uniondrive/ipfs_datastore_local/blocks","shardFunc":"/repo/flatfs/shard/v1/next-to-last/2","type":"flatfs"},{"mountpoint":"/","path":"/uniondrive/ipfs_datastore_local/datastore","type":"pebbleds"}],"type":"mount"}
 DSEOF
 
-# Add main kubo as peering peer (persistent connection for bitswap)
+# Build Peering.Peers: main kubo (on Docker bridge) + relay node
 MAIN_PID=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' /internal/ipfs_data/config 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+PEERS_JSON=""
 if [ -n "$MAIN_PID" ]; then
     log "Adding main kubo ($MAIN_PID) as peering peer..."
-    # Replace the empty Peers array with the main kubo peer entry
-    sed -i "s|\"Peers\": \[\]|\"Peers\": [{\"ID\": \"${MAIN_PID}\", \"Addrs\": [\"/dns4/ipfs_host/tcp/4001\"]}]|" "$IPFS_PATH/config"
+    PEERS_JSON="{\"ID\": \"${MAIN_PID}\", \"Addrs\": [\"/dns4/ipfs_host/tcp/4001\"]}"
 fi
+
+# Add the Functionland relay as a peering peer (same as main kubo)
+RELAY_PEER="{\"ID\": \"12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835\", \"Addrs\": [\"/dns/relay.dev.fx.land/tcp/4001\"]}"
+if [ -n "$PEERS_JSON" ]; then
+    PEERS_JSON="${PEERS_JSON}, ${RELAY_PEER}"
+else
+    PEERS_JSON="${RELAY_PEER}"
+fi
+
+sed -i "s|\"Peers\": \[\]|\"Peers\": [${PEERS_JSON}]|" "$IPFS_PATH/config"
 
 # Remove stale lock files from a previous crashed instance.
 # Note: this script runs as the ipfs user (kubo's entrypoint does

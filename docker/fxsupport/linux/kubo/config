@@ -120,14 +120,10 @@
   "Plugins": {
     "Plugins": null
   },
-  "Provider": {
-    "Strategy": ""
-  },
   "Pubsub": {
     "DisableSigning": false,
     "Router": ""
   },
-  "Reprovider": {},
   "Routing": {
     "AcceleratedDHTClient": true,
     "Methods": null,

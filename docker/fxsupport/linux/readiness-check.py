@@ -4,6 +4,7 @@ import subprocess
 import time
 import logging
 import sys
+import json
 import requests
 import re
 import threading
@@ -93,6 +94,49 @@ def validate_yaml_syntax(file_path):
         return False, str(e)
     except Exception as e:
         return False, str(e)
+
+
+def strip_deprecated_provider_fields(config_path):
+    """Remove deprecated Provider/Reprovider fields from a kubo config JSON file.
+
+    kubo 0.40+ emits a FATAL and refuses to start if the deprecated Provider
+    field exists.  This reads the config via sudo, strips the offending keys,
+    and writes it back (preserving ipfs user ownership).
+
+    Args:
+        config_path: Absolute path to the kubo config JSON file.
+
+    Returns:
+        True if fields were removed, False if nothing changed or on error.
+    """
+    try:
+        result = subprocess.run(
+            ["sudo", "cat", config_path],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return False
+        config = json.loads(result.stdout)
+        changed = False
+        for key in ("Provider", "Reprovider"):
+            if key in config:
+                del config[key]
+                changed = True
+        if changed:
+            new_content = json.dumps(config, indent=2) + "\n"
+            subprocess.run(
+                ["sudo", "tee", config_path],
+                input=new_content.encode(), capture_output=True, timeout=10
+            )
+            subprocess.run(
+                ["sudo", "chown", "1000:1000", config_path],
+                capture_output=True, timeout=10
+            )
+            logging.info(f"Stripped deprecated Provider/Reprovider fields from {config_path}")
+        return changed
+    except Exception as e:
+        logging.error(f"Error stripping Provider fields from {config_path}: {e}")
+        return False
 
 
 def backup_config_if_valid(config_path):
@@ -586,10 +630,26 @@ def check_and_fix_ipfs_host():
         time.sleep(30)
         return True
     
+    # Check for deprecated Provider config field (kubo 0.40+ FATAL)
+    if "Deprecated configuration detected" in ipfs_host_logs and "Provider" in ipfs_host_logs:
+        logging.warning("IPFS Host: deprecated Provider config field detected. Stripping it.")
+        ipfs_config_path = "/home/pi/.internal/ipfs_data/config"
+        if os.path.exists(ipfs_config_path):
+            strip_deprecated_provider_fields(ipfs_config_path)
+        # Also fix the template so initipfs doesn't re-introduce it
+        ipfs_template_path = "/home/pi/.internal/ipfs_config"
+        if os.path.exists(ipfs_template_path):
+            strip_deprecated_provider_fields(ipfs_template_path)
+        logging.info("Restarting ipfs_host after removing deprecated Provider field.")
+        subprocess.run(["sudo", "docker", "restart", "ipfs_host"],
+                       capture_output=True, timeout=60)
+        time.sleep(15)
+        return True
+
     # Check for migration permission error
     if "embedded migration fs-repo-16-to-17 failed: open /internal/ipfs_data/version: permission denied" in ipfs_host_logs:
         logging.warning("IPFS Host migration permission error detected. Fixing version file.")
-        
+
         version_file_path = "/home/pi/.internal/ipfs_data/version"
         try:
             # Write "17" to the version file (no newline)
@@ -801,7 +861,18 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 2. Pebble database corruption
+        # 2. Deprecated Provider config field (kubo 0.40+ FATAL)
+        if "Deprecated configuration detected" in ipfs_local_logs and "Provider" in ipfs_local_logs:
+            logging.warning("kubo-local: deprecated Provider config field detected. Stripping it.")
+            config_path = "/home/pi/.internal/ipfs_data_local/config"
+            if os.path.exists(config_path):
+                strip_deprecated_provider_fields(config_path)
+            subprocess.run(["sudo", "docker", "restart", "ipfs_local"],
+                           capture_output=True, timeout=60)
+            time.sleep(15)
+            return True
+
+        # 3. Pebble database corruption
         if "failed to open pebble database" in ipfs_local_logs:
             logging.warning("kubo-local: Pebble database error. Clearing datastore and restarting.")
             subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
@@ -824,7 +895,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 3. Flatfs shard or blocks directory issues
+        # 4. Flatfs shard or blocks directory issues
         if ("Error: invalid or no prefix in shard identifier:" in ipfs_local_logs or
                 "Error: directory missing SHARDING file:" in ipfs_local_logs or
                 "no such file or directory" in ipfs_local_logs and "ipfs_datastore_local/blocks" in ipfs_local_logs):
@@ -843,7 +914,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 4. Version mismatch — write correct version and restart
+        # 5. Version mismatch — write correct version and restart
         if "Error: Your programs version" in ipfs_local_logs and "is lower than your repos" in ipfs_local_logs:
             logging.warning("kubo-local: Version mismatch. Updating version file.")
             version_file = "/home/pi/.internal/ipfs_data_local/version"
@@ -858,7 +929,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 5. Migration permission error
+        # 6. Migration permission error
         if "permission denied" in ipfs_local_logs and "ipfs_data_local" in ipfs_local_logs:
             logging.warning("kubo-local: Permission error. Fixing ownership and restarting.")
             subprocess.run(["sudo", "chown", "-R", "1000:1000", "/home/pi/.internal/ipfs_data_local"],
@@ -871,7 +942,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 6. Config 'path' field missing — delete config to let init script regenerate
+        # 7. Config 'path' field missing — delete config to let init script regenerate
         if "'path' field is missing" in ipfs_local_logs:
             logging.warning("kubo-local: Config 'path' field missing. Deleting config for regeneration.")
             config_path = "/home/pi/.internal/ipfs_data_local/config"
@@ -882,7 +953,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 7. Lock file stuck — remove and restart
+        # 8. Lock file stuck — remove and restart
         if "lock" in ipfs_local_logs.lower() and ("acquire" in ipfs_local_logs.lower() or "already locked" in ipfs_local_logs.lower()):
             logging.warning("kubo-local: Lock file issue. Removing locks and restarting.")
             subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
@@ -897,7 +968,7 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 8. Container is not running but exists — just start it
+        # 9. Container is not running but exists — just start it
         running_containers = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
         if "ipfs_local" not in running_containers:
             logging.warning("kubo-local: Container exists but not running. Starting it.")

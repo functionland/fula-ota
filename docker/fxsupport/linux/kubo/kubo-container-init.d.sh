@@ -52,6 +52,9 @@ for cfg_file in "/internal/ipfs_data/config" "/internal/ipfs_config"; do
     if [ -f "$cfg_file" ]; then
         sed -i 's/"AcceleratedDHTClient": false/"AcceleratedDHTClient": true/' "$cfg_file" 2>/dev/null || true
         sed -i 's/"RelayClient": {}/"RelayClient": {"Enabled": true}/' "$cfg_file" 2>/dev/null || true
+        # kubo 0.40+ FATALs if deprecated Provider field exists. Remove it.
+        sed -i '/"Provider":/,/}/d' "$cfg_file" 2>/dev/null || true
+        sed -i '/"Reprovider":/d' "$cfg_file" 2>/dev/null || true
     fi
 done
 
