@@ -54,6 +54,7 @@ services:
     environment:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data
+      - IPFS_TELEMETRY=off
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -66,7 +67,7 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-  
+
   kubo-local:
     image: ipfs/kubo:release
     container_name: ipfs_local
@@ -83,6 +84,7 @@ services:
     environment:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data_local
+      - IPFS_TELEMETRY=off
     dns:
       - 8.8.8.8
       - 8.8.4.4
