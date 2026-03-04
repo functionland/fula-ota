@@ -4,6 +4,8 @@ PartOf=docker.service
 After=docker.service uniondrive.service firewall.service
 Requires=docker.service uniondrive.service
 Wants=firewall.service
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple

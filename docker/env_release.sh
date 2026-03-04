@@ -18,6 +18,14 @@ export IPFS_CLUSTER_BRANCH="master"
 export IPFS_CLUSTER_IMAGE="$DOCKER_REPO/ipfs-cluster"
 export IPFS_CLUSTER_DOCKER_TAG="$DEFAULT_TAG"
 
+#build fula-pinning
+export FULA_PINNING_IMAGE="$DOCKER_REPO/fula-pinning"
+export FULA_PINNING_DOCKER_TAG="$DEFAULT_TAG"
+
+#build fula-gateway
+export FULA_GATEWAY_IMAGE="$DOCKER_REPO/fula-gateway"
+export FULA_GATEWAY_DOCKER_TAG="$DEFAULT_TAG"
+
 #create .env in fxsupport/linux/.env
 echo "docker images will produce with following variables:"
 DOCKER_URI="index.docker.io"
@@ -25,6 +33,8 @@ tee fxsupport/linux/.env << END
 GO_FULA=$DOCKER_URI/$DOCKER_REPO/go-fula:$GO_FULA_DOCKER_TAG
 FX_SUPPROT=$DOCKER_URI/$DOCKER_REPO/fxsupport:$FX_SUPPORT_DOCKER_TAG
 IPFS_CLUSTER=$DOCKER_URI/$DOCKER_REPO/ipfs-cluster:$IPFS_CLUSTER_DOCKER_TAG
+FULA_PINNING=$DOCKER_URI/$DOCKER_REPO/fula-pinning:$FULA_PINNING_DOCKER_TAG
+FULA_GATEWAY=$DOCKER_URI/$DOCKER_REPO/fula-gateway:$FULA_GATEWAY_DOCKER_TAG
 WPA_SUPLICANT_PATH=/etc
 CURRENT_USER=pi
 END

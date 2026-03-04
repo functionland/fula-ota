@@ -359,6 +359,7 @@ function install() {
   mkdir -p ${HOME_DIR}/.internal
   mkdir -p ${FULA_PATH}/kubo
   mkdir -p ${HOME_DIR}/.internal/ipfs_data
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data_local
 
   touch ${HOME_DIR}/.internal/ipfs_data/version
   touch ${HOME_DIR}/.internal/ipfs_data/datastore_spec
@@ -480,12 +481,14 @@ function install() {
 
 
     cp -r ${INSTALLATION_FULA_DIR}/kubo $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo folder" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp -r ${INSTALLATION_FULA_DIR}/kubo-local $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying kubo-local folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/ipfs-cluster $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying ipfs-cluster folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/plugins $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying plugins folder" | sudo tee -a $FULA_LOG_PATH; } || true
     cp -r ${INSTALLATION_FULA_DIR}/wireguard $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying wireguard folder" | sudo tee -a $FULA_LOG_PATH; } || true
 
 
     sudo chmod -R 755 ${FULA_PATH}/kubo
+    sudo chmod -R 755 ${FULA_PATH}/kubo-local
     sudo chmod -R 755 ${FULA_PATH}/ipfs-cluster
     sudo chmod -R 755 ${FULA_PATH}/plugins
     sudo chmod -R 755 ${FULA_PATH}/wireguard 2>/dev/null || true
@@ -755,6 +758,63 @@ function connectwifi() {
     fi
   fi
 }
+# Ensure .env contains entries for all docker-compose services.
+# Old devices may have an .env that predates fula-pinning / fula-gateway.
+# We derive the tag from the existing FX_SUPPROT line so new services
+# use the same tag (e.g. test153 or release) as the rest of the stack.
+function ensureEnvServices() {
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "ensureEnvServices: ENV_FILE ($ENV_FILE) not found, skipping" | sudo tee -a $FULA_LOG_PATH
+    return
+  fi
+
+  # Extract the tag from FX_SUPPROT (e.g. "functionland/fxsupport:test153" → "test153")
+  # Works with both "functionland/fxsupport:tag" and "index.docker.io/functionland/fxsupport:tag"
+  local fx_line current_tag prefix
+  fx_line=$(grep '^FX_SUPPROT=' "$ENV_FILE" | head -1 | sed 's/^FX_SUPPROT=//')
+  current_tag="${fx_line##*:}"
+  if [ -z "$current_tag" ]; then
+    echo "ensureEnvServices: could not determine tag from FX_SUPPROT, skipping" | sudo tee -a $FULA_LOG_PATH
+    return
+  fi
+
+  # Detect if existing entries use "index.docker.io/" prefix
+  prefix=""
+  if echo "$fx_line" | grep -q 'index\.docker\.io/'; then
+    prefix="index.docker.io/"
+  fi
+
+  local changed=false
+
+  if ! grep -q '^FULA_PINNING=' "$ENV_FILE"; then
+    echo "FULA_PINNING=${prefix}functionland/fula-pinning:${current_tag}" >> "$ENV_FILE"
+    echo "ensureEnvServices: added FULA_PINNING with tag ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+    changed=true
+  fi
+
+  if ! grep -q '^FULA_GATEWAY=' "$ENV_FILE"; then
+    echo "FULA_GATEWAY=${prefix}functionland/fula-gateway:${current_tag}" >> "$ENV_FILE"
+    echo "ensureEnvServices: added FULA_GATEWAY with tag ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+    changed=true
+  fi
+
+  # Also fix mismatched tags: if FULA_PINNING/FULA_GATEWAY exist but
+  # use a different tag than FX_SUPPROT, update them to match.
+  local pin_tag gw_tag
+  pin_tag=$(grep '^FULA_PINNING=' "$ENV_FILE" | head -1 | sed 's/.*://')
+  gw_tag=$(grep '^FULA_GATEWAY=' "$ENV_FILE" | head -1 | sed 's/.*://')
+
+  if [ -n "$pin_tag" ] && [ "$pin_tag" != "$current_tag" ]; then
+    sed -i "s|^FULA_PINNING=.*|FULA_PINNING=${prefix}functionland/fula-pinning:${current_tag}|" "$ENV_FILE"
+    echo "ensureEnvServices: updated FULA_PINNING tag from ${pin_tag} to ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+  fi
+
+  if [ -n "$gw_tag" ] && [ "$gw_tag" != "$current_tag" ]; then
+    sed -i "s|^FULA_GATEWAY=.*|FULA_GATEWAY=${prefix}functionland/fula-gateway:${current_tag}|" "$ENV_FILE"
+    echo "ensureEnvServices: updated FULA_GATEWAY tag from ${gw_tag} to ${current_tag}" | sudo tee -a $FULA_LOG_PATH
+  fi
+}
+
 function dockerComposeUp() {
   local service image tar_path
 
@@ -1362,6 +1422,8 @@ function restart() {
   mkdir -p ${HOME_DIR}/.internal || true
   mkdir -p ${HOME_DIR}/.internal/plugins || true
   mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
+  mkdir -p ${HOME_DIR}/.internal/ipfs_data_local || true
+  mkdir -p ${HOME_DIR}/.internal/fula-gateway || true
 
   if [ -f "$HW_CHECK_SC" ]; then
     if python $HW_CHECK_SC > /tmp/hw_test.log 2>&1; then
@@ -1669,9 +1731,17 @@ PYEOF
     rm -f "${HOME_DIR}/.internal/ipfs_data/repo.lock" 2>/dev/null || true
     chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
+  if [ -d "${HOME_DIR}/.internal/ipfs_data_local" ]; then
+    rm -f "${HOME_DIR}/.internal/ipfs_data_local/repo.lock" 2>/dev/null || true
+    chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data_local" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
   if [ -d "/uniondrive/ipfs_datastore" ]; then
     rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
     chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+  fi
+  if [ -d "/uniondrive/ipfs_datastore_local" ]; then
+    rm -f /uniondrive/ipfs_datastore_local/datastore/LOCK 2>/dev/null || true
+    chown -R 1000:1000 /uniondrive/ipfs_datastore_local 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
 
   # Pre-flight: check root filesystem space. If critically low, prune Docker
@@ -1685,6 +1755,12 @@ PYEOF
 
   # Pre-flight: purge any ghost containers left from previous crashes
   purgeGhostContainers || { echo "purgeGhostContainers failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; } || true
+
+  # Pre-flight: ensure .env has FULA_PINNING and FULA_GATEWAY entries.
+  # Old devices updated via Watchtower/docker cp may have an .env that
+  # predates these services.  Derive the tag from the existing FX_SUPPROT
+  # image reference so the new services use the same tag as everything else.
+  ensureEnvServices
 
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -1753,6 +1829,14 @@ DEFAULT_MAX_ATTEMPTS=10
 # If no argument is given, operates on all services.
 # shellcheck disable=SC2120
 function pullFailedServices() {
+  local PULL_PID_FILE="/tmp/pullFailedServices.pid"
+  # Prevent concurrent instances (backgrounded by nohup)
+  if [ -f "$PULL_PID_FILE" ] && kill -0 "$(cat "$PULL_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+      echo "pullFailedServices already running (PID $(cat "$PULL_PID_FILE")), skipping." | sudo tee -a $FULA_LOG_PATH
+      return 0
+  fi
+  echo "${BASHPID:-$$}" > "$PULL_PID_FILE" 2>/dev/null || true
+
   # If a parameter is provided, consider it as a single service
   if [ $# -gt 0 ]; then
     SERVICES=$1
@@ -1761,6 +1845,7 @@ function pullFailedServices() {
     SERVICES=$(docker-compose --env-file "$ENV_FILE" config --services)
   fi
 
+  local attempts=0
   while :; do
     for service in $SERVICES; do
       # Check if the service is running
@@ -1790,6 +1875,7 @@ function pullFailedServices() {
     echo "Next Time Will be " $DEFAULT_INTERVAL " Seconds Later..." | sudo tee -a $FULA_LOG_PATH
     sleep $DEFAULT_INTERVAL
   done
+  rm -f "$PULL_PID_FILE" 2>/dev/null || true
 }
 
 
@@ -1955,12 +2041,19 @@ case $1 in
   echo "docker cp for $FX_SUPPROT : last_pull_time_docker= $last_pull_time_docker and last_modification_time_stop_docker= $last_modification_time_stop_docker" | sudo tee -a $FULA_LOG_PATH;
   
   container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
+  FXSUPPORT_WAIT=0
+  FXSUPPORT_TIMEOUT=3600  # 1 hour
   while [ "$container_status" != "running" ]; do
       echo "Waiting for fula_fxsupport container to be up..." | sudo tee -a $FULA_LOG_PATH
-      sleep 5  # Wait for 5 seconds before checking again
+      sleep 5
+      FXSUPPORT_WAIT=$((FXSUPPORT_WAIT + 5))
+      if [ "$FXSUPPORT_WAIT" -ge "$FXSUPPORT_TIMEOUT" ]; then
+          echo "WARNING: fula_fxsupport not running after ${FXSUPPORT_TIMEOUT}s, skipping docker cp." | sudo tee -a $FULA_LOG_PATH
+          break
+      fi
       container_status=$(sudo docker inspect --format='{{.State.Status}}' fula_fxsupport 2>/dev/null || echo "not found")
   done
-  if [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; then
+  if [ "$container_status" = "running" ] && { [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; }; then
     declare -A file_info
     for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py; do
       if [ -f "${FULA_PATH}/${file}" ]; then
@@ -1976,7 +2069,7 @@ case $1 in
     # Restore execute permissions on init scripts after docker cp
     find ${FULA_PATH} -name "*.sh" -exec sudo chmod +x {} + 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     # Restore directory permissions after docker cp (which may reset them)
-    for subdir in kubo ipfs-cluster wireguard plugins; do
+    for subdir in kubo kubo-local ipfs-cluster wireguard plugins; do
       if [ -d "${FULA_PATH}/${subdir}" ]; then
         sudo chmod -R 755 "${FULA_PATH}/${subdir}" || { echo "chmod ${subdir} after docker cp failed" | sudo tee -a $FULA_LOG_PATH; } || true
       fi

@@ -49,6 +49,7 @@ umount_drives() {
             break
         fi
         systemd-notify WATCHDOG=1
+        ATTEMPT=$((ATTEMPT + 1))
         sleep 5
     done
 
@@ -99,30 +100,15 @@ check_mounted_drives() {
 
 detect_type() {
     local_mount_point="$1"
-
-    # Check if argument is provided
-    if [ -z "$local_mount_point" ]; then
-        echo "Error: Mount point argument is required"
-        exit 1
+    if [ -z "$local_mount_point" ] || [ ! -d "$local_mount_point" ]; then
+        echo ""
+        return 1
     fi
-
-    # Check if mount point exists
-    if [ ! -d "$local_mount_point" ]; then
-        echo "Error: Mount point does not exist"
-        exit 1
-    fi
-
-    # Use df -PT to get the actual filesystem type, ignoring FUSE layers
-    # -P for POSIX format
-    # grep to find the specific mount point
-    # awk to extract just the filesystem type
-    fs_type=$(df -PT "$local_mount_point" | grep "$local_mount_point" | awk '{print $2}')
-
+    fs_type=$(df -PT "$local_mount_point" 2>/dev/null | grep "$local_mount_point" | awk '{print $2}')
     if [ -z "$fs_type" ]; then
-        echo "Error: Could not detect filesystem type"
-        exit 1
+        echo ""
+        return 1
     fi
-
     echo "$fs_type"
 }
 
@@ -137,8 +123,18 @@ unionfs_fuse_mount_drives() {
             # Check if the filesystem type is ext4
             fs_type=$(detect_type "$drive")
             if [ "$fs_type" = "ext4" ]; then
-                MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
-                FIRST=":"
+                # Check that the block device still exists (not a stale mount)
+                blk_dev=$(findmnt -n -o SOURCE "$drive" 2>/dev/null)
+                if [ -n "$blk_dev" ] && [ ! -b "$blk_dev" ]; then
+                    echo "WARNING: Skipping $drive — block device $blk_dev no longer exists (stale mount). Lazy-unmounting."
+                    umount -l "$drive" 2>/dev/null || true
+                # Check for I/O errors before including drive
+                elif ! ls "$drive" > /dev/null 2>&1; then
+                    echo "WARNING: Skipping $drive due to I/O errors (drive may be failing)"
+                else
+                    MOUNT_ARG="${MOUNT_ARG}${FIRST}${drive}=RW"
+                    FIRST=":"
+                fi
             else
                 echo "Skipping $drive as it is not formatted as ext4. Detected type: $fs_type"
             fi
@@ -188,31 +184,74 @@ check_mount() {
         echo "External disk(s) detected:$external_disks"
         for disk in $external_disks; do
             systemd-notify WATCHDOG=1
-            partition="${disk}1"
+            # Derive correct partition name (NVMe uses 'p1' suffix, SATA uses '1')
+            case "$disk" in
+                nvme*)
+                    partition="${disk}p1"
+                    ;;
+                *)
+                    partition="${disk}1"
+                    ;;
+            esac
             if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
-                echo "Attempting to mount ${partition}"
+                echo "Attempting to mount ${partition} (attempt $check_mount_attempt)"
                 systemd-notify WATCHDOG=1
-                sudo systemctl restart "automount@${partition}"
+
+                # Strategy 1: systemctl restart automount service
+                sudo systemctl restart "automount@${partition}" 2>/dev/null || true
                 sync
                 systemd-notify WATCHDOG=1
                 sleep 5
                 systemd-notify WATCHDOG=1
+
                 if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
-                    echo "Automount failed. Attempting a parition."
-                    if [ -d "${MOUNT_USB_PATH}/${partition}" ]; then
+                    echo "Automount service failed for ${partition}. Trying automount.sh directly..."
+
+                    # Ensure mount point directory exists and is clean
+                    if [ -d "${MOUNT_USB_PATH}/${partition}" ] && ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
                         sudo rm -rf "${MOUNT_USB_PATH}/${partition}"
                     fi
-                    sync
-                    sleep 1
-                    systemd-notify WATCHDOG=1
                     sudo mkdir -p "${MOUNT_USB_PATH}/${partition}"
                     sync
-                    sleep 1
                     systemd-notify WATCHDOG=1
-                    if [ "$check_mount_attempt" -eq 1 ]; then
-                        sudo touch "$COMMANDS_DIR/.command_partition"
-                        log "created partition flag. exiting."
-                        exit 1
+
+                    # Strategy 2: call automount.sh directly (bypasses systemd)
+                    if [ -x /usr/local/bin/automount.sh ]; then
+                        sudo /usr/local/bin/automount.sh "${partition}" 2>/dev/null || true
+                        sleep 2
+                        systemd-notify WATCHDOG=1
+                    fi
+
+                    if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
+                        echo "automount.sh failed for ${partition}. Trying direct mount..."
+
+                        # Strategy 3: bare mount command
+                        if [ -b "/dev/${partition}" ]; then
+                            sudo mount "/dev/${partition}" "${MOUNT_USB_PATH}/${partition}" 2>/dev/null && \
+                                sudo chown pi:pi "${MOUNT_USB_PATH}/${partition}" 2>/dev/null || true
+                            sleep 1
+                            systemd-notify WATCHDOG=1
+                        fi
+
+                        if ! mountpoint -q "${MOUNT_USB_PATH}/${partition}"; then
+                            echo "All mount strategies failed for ${partition}."
+                            # Only consider partitioning after max attempts AND confirmed no filesystem
+                            if [ "$check_mount_attempt" -ge "$check_mount_max_attempts" ]; then
+                                if [ -b "/dev/${partition}" ]; then
+                                    fs_type=$(blkid -o value -s TYPE "/dev/${partition}" 2>/dev/null)
+                                else
+                                    fs_type=""
+                                fi
+                                if [ -z "$fs_type" ]; then
+                                    echo "No filesystem on /dev/${partition} after $check_mount_attempt attempts. Creating partition flag."
+                                    sudo touch "$COMMANDS_DIR/.command_partition"
+                                    log "created partition flag. exiting."
+                                    exit 1
+                                else
+                                    echo "Filesystem '$fs_type' exists on /dev/${partition} but mount failed. Will keep retrying."
+                                fi
+                            fi
+                        fi
                     fi
                 fi
             fi
@@ -241,14 +280,15 @@ check_mount() {
 while [ "$(check_mounted_drives)" -eq 0 ]; do
     echo "Waiting for at least one drive to be mounted under /media/pi..."
     systemd-notify WATCHDOG=1
-    if [ $check_mount_attempt -le $check_mount_max_attempts ]; then
-        if ! check_mount; then
-            systemd-notify WATCHDOG=1
-            echo "Attempt $check_mount_attempt of $check_mount_max_attempts"
-            echo "There might be an issue with mounting. Please check the system logs."
-        fi
+    if ! check_mount; then
+        systemd-notify WATCHDOG=1
+        echo "Mount attempt $check_mount_attempt failed."
     fi
-    sleep 5  # Wait for 5 seconds before checking again
+    if [ "$check_mount_attempt" -gt "$check_mount_max_attempts" ]; then
+        echo "Max attempts exceeded. Waiting 30s before retrying..."
+        sleep 25  # + 5 below = 30 total, within WatchdogSec=120
+    fi
+    sleep 5  # Wait before checking again
 done
 
 echo "Drive(s) detected. Proceeding with the script..."
@@ -281,11 +321,10 @@ check_and_remount() {
         fi
     else
         echo "$MOUNT_PATH is not mounted."
-        if [ $check_mount_attempt -le $check_mount_max_attempts ]; then
-            if ! check_mount; then
-                echo "There might be an issue with mounting. Please check the system logs."
-                is_correctly_mounted=false
-            fi
+        check_mount_attempt=1  # Reset for monitoring retry
+        if ! check_mount; then
+            echo "There might be an issue with mounting. Please check the system logs."
+            is_correctly_mounted=false
         fi
     fi
 
@@ -323,13 +362,14 @@ check_and_remount() {
             
             if mountpoint -q "$MOUNT_PATH"; then
                 echo "MergerFS remounted successfully"
+                touch "$SETUP_DONE_FILE"
+                last_mount_count=$current_mount_count
+                systemctl start fula
+                echo "fula started"
             else
-                echo "Failed to remount MergerFS"
+                echo "Failed to remount MergerFS. NOT starting fula — will retry on next drive event."
+                rm -f "$SETUP_DONE_FILE" 2>/dev/null || true
             fi
-            
-            last_mount_count=$current_mount_count
-            systemctl start fula
-            echo "fula started"
             if [ -f /usr/bin/fula/control_led.py ]; then
                 python /usr/bin/fula/control_led.py light_purple 0
             fi
@@ -470,11 +510,24 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
                 systemd-notify --ready
                 break
             else
-                log "Filesystem is read-only. Attempting to remount as read-write."
-                if ! mount -o remount,rw,nonempty "$MOUNT_PATH"; then
-                    log "Failed to remount /uniondrive as read-write. exiting."
-                    exit 1
-                fi
+                log "Filesystem is not writable (attempt $check_mount_attempt)."
+                # Check underlying drives for I/O errors
+                for drive in /media/pi/*; do
+                    if mountpoint -q "$drive"; then
+                        if ! ls "$drive" > /dev/null 2>&1; then
+                            log "WARNING: $drive has I/O errors — drive may be failing or disconnected."
+                        fi
+                    fi
+                done
+                # Cannot use 'mount -o remount' on FUSE — kernel injects
+                # options like 'relatime' that mergerfs does not understand.
+                # Unmount and re-mount, excluding bad drives.
+                log "Remounting mergerfs without bad drives..."
+                umount_drives
+                sync
+                sleep 2
+                mount_drives
+                check_mount_attempt=$((check_mount_attempt + 1))
             fi
         else
             log "Incorrect filesystem type. Expected fuse.mergerfs."
@@ -486,6 +539,14 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
             sync
             sleep 1
             systemd-notify WATCHDOG=1
+            # Track exec restarts to prevent infinite loop
+            UNION_EXEC_COUNT=${UNION_EXEC_COUNT:-0}
+            UNION_EXEC_COUNT=$((UNION_EXEC_COUNT + 1))
+            export UNION_EXEC_COUNT
+            if [ "$UNION_EXEC_COUNT" -ge 5 ]; then
+                log "ERROR: Filesystem type still wrong after $UNION_EXEC_COUNT exec restarts. Exiting for systemd retry."
+                exit 1
+            fi
             # Restart the script from the beginning
             exec "$0" "$@"
         fi

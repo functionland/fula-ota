@@ -50,9 +50,11 @@ services:
       - "4001:4001/udp"
       - "127.0.0.1:8081:8081"
       - "127.0.0.1:5001:5001"
+      - "0.0.0.0:8080:8080"
     environment:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data
+      - IPFS_TELEMETRY=off
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -65,7 +67,35 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-  
+
+  kubo-local:
+    image: ipfs/kubo:release
+    container_name: ipfs_local
+    restart: always
+    depends_on:
+      - fxsupport
+      - kubo
+    volumes:
+      - shared-volume-external:/uniondrive:rw
+      - /home/pi/.internal:/internal:rw,rshared
+      - /usr/bin/fula/kubo-local:/container-init.d:rw,rshared,uid=1000,gid=1000
+    ports:
+      - "127.0.0.1:5002:5001"
+    environment:
+      - IPFS_PROFILE=flatfs
+      - IPFS_PATH=/internal/ipfs_data_local
+      - IPFS_TELEMETRY=off
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   ipfs-cluster:
     image: ${IPFS_CLUSTER:-functionland/ipfs-cluster:release}
     container_name: ipfs_cluster
@@ -158,6 +188,59 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+  fula-pinning:
+    image: ${FULA_PINNING:-functionland/fula-pinning:release}
+    container_name: fula_pinning
+    restart: unless-stopped
+    network_mode: "host"
+    volumes:
+      - /home/pi/.internal:/internal:rw,rshared
+    depends_on:
+      - kubo-local
+    environment:
+      - KUBO_API=http://127.0.0.1:5002
+      - AUTO_PIN_PORT=3501
+      - SYNC_INTERVAL=3m
+      - REGISTRY_CID_PATH=/internal/fula-gateway/registry.cid
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  fula-gateway:
+    image: ${FULA_GATEWAY:-functionland/fula-gateway:release}
+    container_name: fula_gateway
+    restart: unless-stopped
+    network_mode: "host"
+    volumes:
+      - /home/pi/.internal:/internal:rw,rshared
+    depends_on:
+      - kubo-local
+    environment:
+      - FULA_HOST=0.0.0.0
+      - FULA_PORT=9000
+      - IPFS_API_URL=http://127.0.0.1:5002
+      - REGISTRY_CID_PATH=/internal/fula-gateway/registry.cid
+      - BOX_PROPS_FILE=/internal/box_props.json
+      - RUST_LOG=info
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 volumes:
  shared-volume:
  shared-volume-external:

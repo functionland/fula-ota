@@ -97,6 +97,21 @@ iptables -A "$CHAIN" -p tcp --dport 8083 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 172.16.0.0/12 -j ACCEPT
 
+# 14a. Kubo gateway — LAN only (for local file retrieval by FxFiles)
+iptables -A "$CHAIN" -p tcp --dport 8080 -s 192.168.0.0/16 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 8080 -s 10.0.0.0/8 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 8080 -s 172.16.0.0/12 -j ACCEPT
+
+# 14b. Auto-pin API — LAN only (status + report-missing)
+iptables -A "$CHAIN" -p tcp --dport 3501 -s 192.168.0.0/16 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 3501 -s 10.0.0.0/8 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 3501 -s 172.16.0.0/12 -j ACCEPT
+
+# 14c. Fula S3 gateway — LAN only (local file access by FxFiles)
+iptables -A "$CHAIN" -p tcp --dport 9000 -s 192.168.0.0/16 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 9000 -s 10.0.0.0/8 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport 9000 -s 172.16.0.0/12 -j ACCEPT
+
 # 15. WireGuard support tunnel — restricted to SSH and kubo API
 iptables -A "$CHAIN" -i support -p tcp --dport 22 -j ACCEPT
 iptables -A "$CHAIN" -i support -p tcp --dport 5001 -j ACCEPT

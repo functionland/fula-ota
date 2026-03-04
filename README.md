@@ -1,10 +1,10 @@
 # Fula OTA
 
-Over-the-air update system for FxBlox devices. Manages Docker-based services for IPFS storage, cluster pinning, and the Fula protocol on ARM64 hardware (RK3588/RK1).
+Over-the-air update system for FxBlox devices. Manages Docker-based services for IPFS storage, cluster pinning, auto-pinning, and the Fula protocol on ARM64 hardware (RK3588/RK1).
 
 ## Architecture Overview
 
-Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
+Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
 
 ```
 +---------------------+     +-------------------+     +---------------------+
@@ -14,23 +14,27 @@ Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
 | Carries all config  |     |                   |     |  host network       |
 | and scripts in      |     | Ports: 4001, 5001 |     |  Ports: 9094-9096   |
 | /linux/ directory   |     |  8081             |     |                     |
-+---------------------+     +-------------------+     +---------------------+
-         |                           |                          |
-         | docker cp to             | IPFS block storage       | Cluster state
-         | /usr/bin/fula/           | /uniondrive/ipfs_*       | /uniondrive/ipfs-cluster/
-         v                          v                          v
-+-------------------------------------------------------------------------+
-|                        /uniondrive (merged storage)                     |
-|                    union-drive.sh (mergerfs mount)                      |
-+-------------------------------------------------------------------------+
-         |                                                      |
-+--------+--------+     +-------------------+     +-------------+--------+
-|    go-fula       |     |    watchtower     |     |  fula.service       |
-| (functionland/   |     | (auto-updates)   |     |  (systemd)          |
-|  go-fula)        |     | polls Docker Hub |     |  runs fula.sh       |
-|  host network    |     | every 3600s      |     |                     |
-|  Port: 40001     |     +-------------------+     +---------------------+
-+------------------+
++---------------------+     +---+---------------+     +---------------------+
+         |                       |           ^
+         | docker cp to         | IPFS       | pin/add, pin/ls
+         | /usr/bin/fula/       | block      |
+         v                      | storage  +-+-----------------+   +-------------------+
++----------------------------+  |          |   fula-pinning    |   |   fula-gateway     |
+| /uniondrive (merged)      |  |          | (auto-pin daemon) |   | (S3-compatible     |
+| union-drive.sh (mergerfs) |  |          | host network      |   |  storage gateway)  |
++----------------------------+  |          | Port: 3501        |   | host network       |
+         |                      |          +---+---+-----------+   | Port: 9000         |
++--------+--------+     +------+------+        |   |               +--------+-----------+
+|    go-fula       |     |  watchtower |   Syncs |   | registry.cid        |
+| (functionland/   |     | auto-update |   pins  |   +----> shared file --+
+|  go-fula)        |     | every 3600s |   from  |         /internal/fula-gateway/
+|  host network    |     +-------------+  remote |
+|  Port: 40001     |                      pinning|
++------------------+     +---------------------+ |
+                         |  fula.service        | |
+                         |  (systemd)           | |
+                         |  runs fula.sh        | |
+                         +---------------------+ |
 ```
 
 ### Container Details
@@ -41,13 +45,16 @@ Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
 | `ipfs_host` | `ipfs/kubo:release` | bridge | IPFS node. Stores blocks on `/uniondrive`. Config template at `kubo/config`, runtime config at `/home/pi/.internal/ipfs_data/config`. |
 | `ipfs_cluster` | `functionland/ipfs-cluster:release` | host | IPFS Cluster follower node. Manages pin replication across the network. Config at `/uniondrive/ipfs-cluster/service.json`. |
 | `fula_go` | `functionland/go-fula:release` | host | Fula protocol: blockchain proxy, libp2p blox, WAP server. |
+| `fula_pinning` | `functionland/fula-pinning:release` | host | Auto-pinning daemon. Syncs pins from a remote IPFS Pinning Service to local Kubo. Writes `registry.cid` for fula-gateway. See [docker/fula-pinning/README.md](docker/fula-pinning/README.md). |
+| `fula_gateway` | `functionland/fula-gateway:release` | host | Local S3-compatible gateway. Serves the paired user's files from local Kubo on port 9000 (LAN only). FxFiles switches between this and the remote gateway. Auth via pairing secret from `box_props.json`. |
 | `fula_updater` | `containrrr/watchtower:latest` | default | Polls Docker Hub hourly for updated images, auto-restarts containers. |
 
 ### Networking
 
 - **kubo** runs in Docker bridge networking (ports mapped: `4001:4001`, `5001:5001`)
-- **go-fula** and **ipfs-cluster** run with `network_mode: "host"` (direct host networking)
+- **go-fula**, **ipfs-cluster**, **fula-pinning**, and **fula-gateway** run with `network_mode: "host"` (direct host networking)
 - go-fula cannot reach kubo at `127.0.0.1` from host network — it uses the `docker0` bridge IP (typically `172.17.0.1`), auto-detected in `go-fula/blox/kubo_proxy.go`
+- **fula-gateway** reaches kubo at `127.0.0.1:5001` via host network (kubo's port mapping), serves S3 API on `0.0.0.0:9000` (LAN-only via firewall)
 
 ### Storage Layout
 
@@ -62,6 +69,8 @@ Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
   ipfs_data/config              # Deployed kubo config (runtime)
   ipfs_config                   # Template copy (used by initipfs)
   config.yaml                   # Fula device config (pool, authorizer, etc.)
+  box_props.json                # Pairing credentials (JWT, secret, endpoint)
+  fula-gateway/registry.cid     # Bucket registry CID (written by fula-pinning)
 
 /usr/bin/fula/                  # On-host scripts and configs (copied from fxsupport)
   fula.sh                       # Main orchestrator script
@@ -78,6 +87,62 @@ Each FxBlox device runs four Docker containers orchestrated by `docker-compose`:
   control_led.py                # LED control
   ...
 ```
+
+### Auto-Pinning (fula-pinning)
+
+The `fula-pinning` daemon replicates data from the remote Fula Storage API to this device's local IPFS node. The local blox is a **sync consumer only** — uploads go to the remote Fula Gateway S3 server, not to this device:
+
+```
+User uploads via S3 API → remote Fula Gateway → stores in Gateway's Kubo + pins on Remote Pinning Service
+                                                                                       │
+fula-pinning daemon (this device) ◄── fetches pin list every 3 min (user's JWT) ───────┘
+        │
+        └──► pins missing CIDs on local Kubo (fetches data via IPFS P2P network)
+```
+
+**User isolation**: The daemon uses the paired user's JWT (`auto_pin_token`) to query the pinning service. The service only returns pins belonging to that token, so the local Kubo only pins the paired user's data.
+
+**Configuration**: Pairing credentials are stored in `/home/pi/.internal/box_props.json`:
+```json
+{
+  "auto_pin_token": "user-jwt-token",
+  "auto_pin_endpoint": "https://api.pinata.cloud/psa",
+  "auto_pin_pairing_secret": "local-api-secret"
+}
+```
+
+The daemon monitors this file every 30 seconds — pair/unpair/rotate tokens without restarting the container. When unpaired (empty token/endpoint), the daemon idles.
+
+**Local HTTP API** (port 3501, requires `Bearer {pairing_secret}`):
+- `GET /api/v1/auto-pin/status` — pinned count, last/next sync times
+- `POST /api/v1/auto-pin/report-missing` — request immediate pinning of specific CIDs
+
+See [docker/fula-pinning/README.md](docker/fula-pinning/README.md) for full documentation.
+
+### Local S3 Gateway (fula-gateway)
+
+The `fula-gateway` container runs the same fula-cli S3 gateway that powers the remote cloud service (`s3.cloud.fx.land`), but locally on the blox. This lets FxFiles access files over LAN with the same S3 protocol — no special local decryption logic needed:
+
+```
+FxFiles (client-side encryption/decryption)
+    │
+    ├── Remote: S3 API → s3.cloud.fx.land:443 ─→ remote fula-cli ─→ remote kubo
+    │
+    └── Local (LAN): S3 API → blox-ip:9000 ─→ local fula-cli ─→ local kubo
+                                                     ↑
+                                              registry.cid written by
+                                              fula-pinning daemon
+```
+
+**Registry sync**: fula-pinning writes the bucket registry CID to `/internal/fula-gateway/registry.cid` (atomic write). fula-gateway polls this file every 30 seconds and reloads the registry when the CID changes.
+
+**User scoping**: The remote registry contains all users' buckets. On the blox, fula-gateway filters to only the paired user's buckets by deriving the owner ID (BLAKE3 hash of JWT `sub` claim) from `box_props.json`.
+
+**Authentication**: Uses the `auto_pin_pairing_secret` from `box_props.json` as a static Bearer token. FxFiles sends `Authorization: Bearer {pairing_secret}` to authenticate. When unpaired (no secret), auth is disabled (safe — port 9000 is LAN-only via firewall).
+
+**Firewall**: Port 9000 is restricted to RFC1918 private addresses only (192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12).
+
+**mDNS**: go-fula advertises `s3Port=9000` in mDNS TXT records so FxFiles can discover the local gateway automatically.
 
 ## Update Propagation Flow
 
@@ -145,6 +210,14 @@ fula-ota/
         control_led.py          # LED control for device status
         plugins/                # Optional plugin system (loyal-agent, streamr-node)
         ...
+    fula-pinning/
+      Dockerfile                # Go build stage + alpine runtime (auto-pin daemon)
+      build.sh                  # buildx build + push
+      *.go                      # Daemon source: config, sync loop, HTTP server, kubo/pinning clients
+      README.md                 # Full service documentation
+    fula-gateway/
+      build.sh                  # buildx build using fula-api/Dockerfile
+      download_image.sh         # Pull pre-built image from Docker Hub
     go-fula/
       Dockerfile                # Go build stage + alpine runtime
       build.sh                  # Clones go-fula repo, buildx build + push
@@ -294,10 +367,12 @@ source env_release.sh
 bash ./build_and_push_images.sh
 ```
 
-This builds and pushes all three images:
+This builds and pushes all images:
 - `functionland/fxsupport:release`
 - `functionland/go-fula:release`
 - `functionland/ipfs-cluster:release`
+- `functionland/fula-pinning:release`
+- `functionland/fula-gateway:release`
 
 ### Test Build and Deploy Workflow
 
@@ -366,6 +441,8 @@ sudo tee /usr/bin/fula/.env << 'EOF'
 GO_FULA=functionland/go-fula:test147
 FX_SUPPROT=functionland/fxsupport:test147
 IPFS_CLUSTER=functionland/ipfs-cluster:test147
+FULA_PINNING=functionland/fula-pinning:test147
+FULA_GATEWAY=functionland/fula-gateway:test147
 WPA_SUPLICANT_PATH=/etc
 CURRENT_USER=pi
 EOF
@@ -377,6 +454,8 @@ sudo systemctl restart fula
 That's it. `fula.sh` runs `docker-compose pull --env-file .env` which pulls whatever tags are in `.env`. Watchtower also respects the running container's tag — it will check for updates to `:test147`, not `:release`.
 
 The `docker cp` step (which copies files from `fula_fxsupport` to `/usr/bin/fula/`) is also safe: the `fxsupport:test147` image was built with `env_test.sh`, so the `.env` baked inside it already has test tags.
+
+> **Note**: `FULA_PINNING` and `FULA_GATEWAY` are optional in `.env`. The `docker-compose.yml` uses default fallbacks (e.g. `${FULA_GATEWAY:-functionland/fula-gateway:release}`), so older `.env` files without these variables will still work.
 
 **If you built on-device (Option C)**, you must also block Docker Hub so `fula.sh` doesn't pull release images over your local builds:
 
@@ -410,6 +489,8 @@ sudo tee /usr/bin/fula/.env << 'EOF'
 GO_FULA=functionland/go-fula:release
 FX_SUPPROT=functionland/fxsupport:release
 IPFS_CLUSTER=functionland/ipfs-cluster:release
+FULA_PINNING=functionland/fula-pinning:release
+FULA_GATEWAY=functionland/fula-gateway:release
 WPA_SUPLICANT_PATH=/etc
 CURRENT_USER=pi
 EOF
@@ -520,6 +601,27 @@ cat /uniondrive/ipfs-cluster/service.json | jq '.pin_tracker.stateless.concurren
 cat /uniondrive/ipfs-cluster/service.json | jq '.consensus.crdt.batching'
 # Expected: max_batch_size: 100, max_batch_age: "1m"
 
+# Fula-pinning status (requires pairing secret)
+curl -s -H "Authorization: Bearer YOUR_PAIRING_SECRET" http://127.0.0.1:3501/api/v1/auto-pin/status | jq .
+# Expected: {"paired":true,"total_pinned":N,...}
+
+# Fula-pinning logs
+docker logs fula_pinning --tail 20
+
+# Fula-gateway status (requires pairing secret)
+curl -s -H "Authorization: Bearer YOUR_PAIRING_SECRET" http://127.0.0.1:9000/ | head -20
+# Expected: XML bucket listing
+
+# Fula-gateway health (no auth)
+curl -s http://127.0.0.1:9000/healthz
+# Expected: 200 OK
+
+# Fula-gateway logs
+docker logs fula_gateway --tail 20
+
+# Registry CID (written by fula-pinning, read by fula-gateway)
+cat /home/pi/.internal/fula-gateway/registry.cid
+
 # IPFS repo stats
 docker exec ipfs_host ipfs repo stat
 
@@ -575,5 +677,7 @@ Selectively merges managed fields from template into deployed config while prese
 - **Watchtower** polls Docker Hub every 3600 seconds (1 hour). After pushing new images, devices update within the next polling cycle.
 - **`stop_docker_copy.txt`** — when this file exists in `/home/pi/` and was modified within the last 24 hours, `fula.sh` skips the `docker cp` step. Useful for testing local file changes without them being overwritten.
 - **Kubo** uses the upstream `ipfs/kubo:release` image (not custom-built). Only the config template and init script are customized.
-- **go-fula** and **ipfs-cluster** are custom-built from source in their respective Dockerfiles using Go 1.25.
-- All containers except kubo run with `privileged: true` and `CAP_ADD: ALL`.
+- **go-fula**, **ipfs-cluster**, and **fula-pinning** are custom-built from source in their respective Dockerfiles using Go 1.25.
+- **fula-gateway** is built from the [fula-api](https://github.com/functionland/fula-api) Rust codebase (same binary as the remote cloud gateway).
+- **fula-pinning** and **fula-gateway** run with `no-new-privileges:true` (no elevated privileges needed).
+- All other containers except kubo run with `privileged: true` and `CAP_ADD: ALL`.

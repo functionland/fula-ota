@@ -1,13 +1,17 @@
 #!/bin/bash
-# Check if Watchtower has pulled newer images since last docker cp
-source /usr/bin/fula/.env 2>/dev/null || true
-last_cp=$(stat -c %Y /home/pi/stop_docker_copy.txt 2>/dev/null || echo 0)
-for img in "$FX_SUPPROT" "$GO_FULA"; do
-    [ -z "$img" ] && continue
-    created=$(docker inspect --format='{{.Created}}' "$img" 2>/dev/null) || continue
-    img_epoch=$(date -d "$created" +%s 2>/dev/null || echo 0)
-    if [ "$img_epoch" -gt "$last_cp" ]; then
-        logger -t fula-ota-update "Image $img is newer than last docker cp, restarting fula.service"
+# Detect when Watchtower has pulled a newer image that a running
+# container hasn't picked up yet.
+
+for container in fula_fxsupport fula_go fula_gateway fula_pinning; do
+    # Image ID the running container was created from
+    running_id=$(docker inspect --format='{{.Image}}' "$container" 2>/dev/null) || continue
+    # Image reference (tag) the container uses
+    img_ref=$(docker inspect --format='{{.Config.Image}}' "$container" 2>/dev/null) || continue
+    # Current image ID for that tag (Watchtower may have updated it)
+    current_id=$(docker inspect --format='{{.Id}}' "$img_ref" 2>/dev/null) || continue
+
+    if [ "$running_id" != "$current_id" ]; then
+        logger -t fula-ota-update "Container $container uses stale image (tag $img_ref updated), restarting fula.service"
         systemctl restart fula.service
         exit 0
     fi

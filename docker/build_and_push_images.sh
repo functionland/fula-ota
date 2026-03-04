@@ -21,3 +21,11 @@ cd ${SCRIPTS_DIR}/go-fula/ && bash ./build.sh
 #build ipfs-cluster
 echo "Building $IPFS_CLUSTER_IMAGE ..."
 cd ${SCRIPTS_DIR}/ipfs-cluster/ && bash ./build.sh
+
+#build fula-pinning
+echo "Building $FULA_PINNING_IMAGE ..."
+cd ${SCRIPTS_DIR}/fula-pinning/ && bash ./build.sh
+
+#build fula-gateway
+echo "Building $FULA_GATEWAY_IMAGE ..."
+cd ${SCRIPTS_DIR}/fula-gateway/ && bash ./build.sh

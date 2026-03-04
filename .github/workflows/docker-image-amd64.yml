@@ -54,6 +54,43 @@ jobs:
       - name: Build go-fula
         run: cd ./docker && source env_release_amd64.sh && cd ./go-fula && bash ./build.sh
 
+  build_fula_pinning:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build fula-pinning
+        run: cd ./docker && source env_release_amd64.sh && cd ./fula-pinning && bash ./build.sh
+
+  build_fula_gateway:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build fula-gateway
+        run: |
+          cd ./docker && source env_release_amd64.sh
+          cd ./fula-gateway
+          git clone -b main https://github.com/functionland/fula-api
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG" --push ./fula-api
+
   build_node:
     runs-on: self-hosted
 
