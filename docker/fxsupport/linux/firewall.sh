@@ -46,7 +46,11 @@ iptables -A "$CHAIN" -p icmp -j DROP
 iptables -A "$CHAIN" -i docker0 -j ACCEPT
 iptables -A "$CHAIN" -i br-+ -j ACCEPT
 
-# 5. Accept hotspot AP subnet (for WAP setup)
+# 5. Accept DHCP on hotspot AP (clients send DHCPDISCOVER from 0.0.0.0,
+#    so the source-based rule below can't match until they have an IP)
+iptables -A "$CHAIN" -p udp --dport 67 -j ACCEPT
+
+# 5a. Accept hotspot AP subnet (for WAP setup — once clients have an IP)
 iptables -A "$CHAIN" -s 10.42.0.0/24 -j ACCEPT
 
 # --- Ports open to ALL (P2P / cluster) ---
