@@ -2,7 +2,7 @@
 
 use crate::config::LocalGatewayConfig;
 use crate::multipart_manager::MultipartManager;
-use fula_blockstore::{FlexibleBlockStore, IpfsPinningBlockStore, IpfsPinningConfig, MemoryBlockStore};
+use fula_blockstore::{FlexibleBlockStore, IpfsPinningBlockStore, IpfsPinningConfig};
 use fula_core::BucketManager;
 use std::sync::Arc;
 use tracing::{info, warn, error};
@@ -32,23 +32,12 @@ pub struct AppState {
 impl AppState {
     /// Create a new application state
     pub async fn new(config: LocalGatewayConfig) -> anyhow::Result<Self> {
-        // Connect to IPFS
-        let block_store = match Self::create_ipfs_store(&config).await {
-            Ok(store) => {
-                info!("Connected to IPFS at {}", config.ipfs_url);
-                Arc::new(FlexibleBlockStore::IpfsPinning(store))
-            }
-            Err(e) => {
-                warn!("Failed to connect to IPFS ({}), falling back to in-memory storage", e);
-                Arc::new(FlexibleBlockStore::Memory(MemoryBlockStore::new()))
-            }
-        };
-
-        if block_store.is_persistent() {
-            info!("Storage mode: IPFS (persistent)");
-        } else {
-            warn!("Storage mode: In-memory (NOT persistent)");
-        }
+        // Wait for IPFS to become available — kubo-local may still be initializing
+        // its repo/config. We poll until the connection succeeds rather than falling
+        // back to in-memory storage, which would lose data.
+        let store = Self::wait_for_ipfs(&config).await;
+        let block_store = Arc::new(FlexibleBlockStore::IpfsPinning(store));
+        info!("Storage mode: IPFS (persistent)");
 
         // Initialize bucket manager with persistence
         let bucket_manager = if let Some(ref registry_path) = config.registry_cid_path {
@@ -95,6 +84,33 @@ impl AppState {
         let ipfs_config = IpfsPinningConfig::with_ipfs(&config.ipfs_url);
         let store = IpfsPinningBlockStore::new(ipfs_config).await?;
         Ok(store)
+    }
+
+    /// Wait indefinitely for IPFS to become available, retrying every 5 seconds.
+    /// kubo-local may be running but still initializing its repo — the API on
+    /// port 5002 won't respond until that's done. We must not fall back to
+    /// in-memory storage because that loses data.
+    async fn wait_for_ipfs(config: &LocalGatewayConfig) -> IpfsPinningBlockStore {
+        let mut attempt = 0u64;
+        loop {
+            attempt += 1;
+            match Self::create_ipfs_store(config).await {
+                Ok(store) => {
+                    info!("Connected to IPFS at {} (attempt {})", config.ipfs_url, attempt);
+                    return store;
+                }
+                Err(e) => {
+                    // Log every attempt for the first 5, then every ~60s (12 * 5s) to avoid spam
+                    if attempt <= 5 || attempt % 12 == 0 {
+                        warn!(
+                            "Waiting for IPFS at {} (attempt {}, error: {}), retrying in 5s...",
+                            config.ipfs_url, attempt, e
+                        );
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
     }
 }
 
