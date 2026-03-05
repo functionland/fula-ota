@@ -119,12 +119,19 @@ func (d *Daemon) syncPins(ctx context.Context) {
 	}
 	log.Printf("daemon: fetched %d remote pins (incremental=%v)", len(remotePins), incremental)
 
-	// Find registry pin and write CID to shared file for fula-gateway
+	// Find the LATEST registry pin by Created timestamp (don't write to file yet —
+	// blocks must be pinned first so the gateway can load the registry DAG).
+	var registryCID, registryCreated string
 	for _, pin := range remotePins {
 		if pin.Pin.Name == "fula-bucket-registry" && pin.Pin.CID != "" {
-			d.writeRegistryCID(pin.Pin.CID)
-			break
+			if registryCID == "" || pin.Created > registryCreated {
+				registryCID = pin.Pin.CID
+				registryCreated = pin.Created
+			}
 		}
+	}
+	if registryCID != "" {
+		log.Printf("daemon: found registry CID %s (created=%s)", registryCID, registryCreated)
 	}
 
 	// Fetch local pins from kubo
@@ -138,6 +145,23 @@ func (d *Daemon) syncPins(ctx context.Context) {
 	d.pinnedMu.Lock()
 	d.pinnedCIDs = localPins
 	d.pinnedMu.Unlock()
+
+	// Pin registry CID first so its DAG is fetched early
+	if registryCID != "" {
+		d.pinnedMu.RLock()
+		alreadyPinned := d.pinnedCIDs[registryCID]
+		d.pinnedMu.RUnlock()
+		if !alreadyPinned {
+			log.Printf("daemon: pinning registry CID %s first", registryCID)
+			if err := d.kubo.PinAdd(ctx, registryCID); err != nil {
+				log.Printf("daemon: failed to pin registry CID %s: %v", registryCID, err)
+			} else {
+				d.pinnedMu.Lock()
+				d.pinnedCIDs[registryCID] = true
+				d.pinnedMu.Unlock()
+			}
+		}
+	}
 
 	// Pin missing CIDs
 	total := len(remotePins)
@@ -179,6 +203,11 @@ func (d *Daemon) syncPins(ctx context.Context) {
 			log.Printf("daemon: progress %d/%d — pinned=%d skipped=%d failed=%d elapsed=%v",
 				processed, total, pinned, skipped, failed, time.Since(startTime))
 		}
+	}
+
+	// Write registry CID AFTER all pins complete (blocks now available on kubo-local)
+	if registryCID != "" {
+		d.writeRegistryCID(registryCID)
 	}
 
 	d.pinnedMu.Lock()
