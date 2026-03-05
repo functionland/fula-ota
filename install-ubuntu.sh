@@ -197,7 +197,9 @@ install_dependencies() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         mergerfs \
         inotify-tools \
-        logrotate || error_exit "Failed to install system utilities"
+        logrotate \
+        samba \
+        samba-common-bin || error_exit "Failed to install system utilities"
     
     log "System dependencies installed successfully"
 }

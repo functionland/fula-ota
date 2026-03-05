@@ -237,11 +237,15 @@ directory mask = 0777"
             echo "Warning: Neither smbd nor samba service found. Installing and setting up Samba..."
             # Install Samba if not already installed
             if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
-                echo "Installing Samba..."
-                sudo apt update
-                sudo apt install -y samba samba-common-bin
+                if check_internet; then
+                    echo "Installing Samba..."
+                    sudo apt update
+                    sudo apt install -y samba samba-common-bin
+                else
+                    echo "Samba not installed and no internet available, skipping" | sudo tee -a $FULA_LOG_PATH
+                fi
             fi
-            
+
             # Enable and start the service
             if service_exists "smbd"; then
                 sudo systemctl enable smbd
@@ -262,9 +266,13 @@ directory mask = 0777"
 
     # Install Samba if not already installed
     if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
-        echo "Installing Samba..."
-        sudo apt update
-        sudo apt install -y samba samba-common-bin
+        if check_internet; then
+            echo "Installing Samba..."
+            sudo apt update
+            sudo apt install -y samba samba-common-bin
+        else
+            echo "Samba not installed and no internet available, skipping" | sudo tee -a $FULA_LOG_PATH
+        fi
     fi
 
     # Create shared folder
@@ -399,6 +407,11 @@ function install() {
       sudo apt-get install -y inotify-tools || { echo "Could not  install inotify-tools" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
     }
 
+    dpkg -s samba samba-common-bin >/dev/null 2>&1 || {
+      echo "samba not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y samba samba-common-bin || { echo "Could not install samba" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
+    }
+
     python -c "import dbus" 2>/dev/null || {
       echo "python3-dbus not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
       sudo apt-get install -y python3-dbus || { echo "Could not  install python3-dbus" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }
@@ -441,6 +454,7 @@ function install() {
     python -c "import requests" 2>/dev/null || { echo "requests not found"; all_success=false; }
     python -c "import pexpect" 2>/dev/null || { echo "pexpect not found"; all_success=false; }
     python -c "import psutil" 2>/dev/null || { echo "psutil not found"; all_success=false; }
+    dpkg -s samba samba-common-bin >/dev/null 2>&1 || { echo "samba not found"; all_success=false; }
   fi
 
   echo "Call modify_bluetooth, but don't stop the script if it fails" 2>&1 | sudo tee -a $FULA_LOG_PATH
