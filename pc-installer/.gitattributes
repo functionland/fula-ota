@@ -1,0 +1,12 @@
+# Ensure shell scripts always use LF line endings, even on Windows checkout.
+# These scripts run inside Linux Docker containers — CRLF breaks the shebang.
+*.sh text eol=lf
+
+# Config files used by Docker containers must also be LF
+templates/**/* text eol=lf
+
+# Keep JS/HTML/CSS as auto (git decides based on platform)
+*.js text
+*.html text
+*.css text
+*.json text
