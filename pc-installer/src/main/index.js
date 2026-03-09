@@ -5,15 +5,28 @@ const path = require('path');
 // Handle Squirrel.Windows install/uninstall events (must be early, before app.ready)
 if (process.platform === 'win32') {
   const squirrelEvent = process.argv[1];
-  if (squirrelEvent === '--squirrel-uninstall') {
-    app.setLoginItemSettings({ openAtLogin: false });
-    app.quit();
-  } else if (
-    squirrelEvent === '--squirrel-install' ||
-    squirrelEvent === '--squirrel-updated' ||
-    squirrelEvent === '--squirrel-obsolete'
-  ) {
-    app.quit();
+  if (squirrelEvent) {
+    const { spawnSync } = require('child_process');
+    const updateExe = path.resolve(process.execPath, '..', '..', 'Update.exe');
+    const exeName = path.basename(process.execPath);
+
+    switch (squirrelEvent) {
+      case '--squirrel-install':
+      case '--squirrel-updated':
+        // Create/update Start Menu and Desktop shortcuts
+        spawnSync(updateExe, ['--createShortcut', exeName], { detached: true });
+        app.quit();
+        break;
+      case '--squirrel-uninstall':
+        // Remove shortcuts and disable auto-start
+        spawnSync(updateExe, ['--removeShortcut', exeName], { detached: true });
+        app.setLoginItemSettings({ openAtLogin: false });
+        app.quit();
+        break;
+      case '--squirrel-obsolete':
+        app.quit();
+        break;
+    }
   }
 }
 
