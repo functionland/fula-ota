@@ -7,6 +7,19 @@ const path = require('path');
  * @returns {winston.Logger}
  */
 function createLogger(logDir) {
+  const transports = [new winston.transports.Console()];
+
+  if (logDir) {
+    transports.push(
+      new winston.transports.File({
+        filename: path.join(logDir, 'fula-node.log'),
+        maxsize: 10 * 1024 * 1024, // 10 MB
+        maxFiles: 5,
+        tailable: true,
+      })
+    );
+  }
+
   return winston.createLogger({
     level: 'info',
     format: winston.format.combine(
@@ -15,15 +28,7 @@ function createLogger(logDir) {
         ({ timestamp, level, message }) => `${timestamp} [${level}] ${message}`
       )
     ),
-    transports: [
-      new winston.transports.Console(),
-      new winston.transports.File({
-        filename: path.join(logDir, 'fula-node.log'),
-        maxsize: 10 * 1024 * 1024, // 10 MB
-        maxFiles: 5,
-        tailable: true,
-      }),
-    ],
+    transports,
   });
 }
 

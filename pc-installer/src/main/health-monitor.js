@@ -3,11 +3,11 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs/promises');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
 const YAML = require('yaml');
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const {
   PORTS,
@@ -385,8 +385,8 @@ class HealthMonitor extends EventEmitter {
   /** Check kubo (ipfs_host) logs for plugin/config errors. */
   async checkKuboHostErrors() {
     try {
-      const { stdout } = await execAsync(
-        `docker logs ${CONTAINERS.kubo} --tail 17 2>&1`,
+      const { stdout } = await execFileAsync(
+        'docker', ['logs', CONTAINERS.kubo, '--tail', '17'],
         { timeout: 10000 }
       );
       const patterns = [
@@ -413,8 +413,8 @@ class HealthMonitor extends EventEmitter {
   /** Check kubo-local (ipfs_local) logs for fatal/error patterns. */
   async checkKuboLocalErrors() {
     try {
-      const { stdout } = await execAsync(
-        `docker logs ${CONTAINERS.kuboLocal} --tail 20 2>&1`,
+      const { stdout } = await execFileAsync(
+        'docker', ['logs', CONTAINERS.kuboLocal, '--tail', '20'],
         { timeout: 10000 }
       );
       const patterns = [

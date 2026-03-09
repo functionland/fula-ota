@@ -195,30 +195,30 @@ class StorageManager {
         `storage-manager: fs.statfs failed (${err.message}), falling back to CLI`
       );
       try {
-        const { execSync } = require('child_process');
+        const { execFileSync } = require('child_process');
         let freeGB, totalGB;
 
         if (process.platform === 'win32') {
           // Extract drive letter from dir (e.g. "C:" from "C:\Users\...")
           const drive = dir.match(/^([A-Za-z]:)/)?.[1] || 'C:';
-          const output = execSync(
-            `wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:csv`,
+          const output = execFileSync(
+            'powershell',
+            ['-NoProfile', '-Command',
+             `Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='${drive}'" | Select-Object -Property FreeSpace,Size | ConvertTo-Json`],
             { timeout: 10000, encoding: 'utf-8' }
           );
-          const lines = output.trim().split('\n').filter(l => l.trim());
-          const lastLine = lines[lines.length - 1];
-          const parts = lastLine.split(',');
-          // CSV format: Node,FreeSpace,Size
-          const freeBytes = parseInt(parts[1], 10);
-          const totalBytes = parseInt(parts[2], 10);
+          const diskInfo = JSON.parse(output.trim());
+          const freeBytes = diskInfo.FreeSpace;
+          const totalBytes = diskInfo.Size;
           freeGB = freeBytes / GB;
           totalGB = totalBytes / GB;
         } else {
-          const output = execSync(`df -B1 "${dir}" | tail -1`, {
+          const output = execFileSync('df', ['-B1', dir], {
             timeout: 10000,
             encoding: 'utf-8',
           });
-          const parts = output.trim().split(/\s+/);
+          const lines = output.trim().split('\n');
+          const parts = lines[lines.length - 1].split(/\s+/);
           // df -B1 columns: Filesystem 1B-blocks Used Available Use% Mounted
           totalGB = parseInt(parts[1], 10) / GB;
           freeGB = parseInt(parts[3], 10) / GB;

@@ -1,9 +1,9 @@
 const { EventEmitter } = require('events');
 const fs = require('fs/promises');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // Plugins that require specific hardware (excluded on PC)
 const PC_EXCLUDED_PLUGINS = ['loyal-agent'];
@@ -32,7 +32,7 @@ class PluginManager extends EventEmitter {
           .map(([name, info]) => ({ name, ...info }));
       } catch {
         // Try to extract from fxsupport container
-        await execAsync(`docker cp fula_fxsupport:/linux/plugins/info.json "${infoPath}"`);
+        await execFileAsync('docker', ['cp', `fula_fxsupport:/linux/plugins/info.json`, infoPath]);
         const data = await fs.readFile(infoPath, 'utf-8');
         const plugins = JSON.parse(data);
         return Object.entries(plugins)
@@ -57,6 +57,10 @@ class PluginManager extends EventEmitter {
   }
 
   async installPlugin(name) {
+    // Validate plugin name: alphanumeric, hyphens, underscores only
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+      throw new Error(`Invalid plugin name: ${name}`);
+    }
     if (PC_EXCLUDED_PLUGINS.includes(name)) {
       throw new Error(`Plugin ${name} is not available on PC`);
     }
@@ -66,13 +70,13 @@ class PluginManager extends EventEmitter {
     this.logger.info(`Installing plugin: ${name}`);
 
     // Extract plugin files from fxsupport
-    await execAsync(`docker cp fula_fxsupport:/linux/plugins/${name} "${pluginDir}"`);
+    await execFileAsync('docker', ['cp', `fula_fxsupport:/linux/plugins/${name}`, pluginDir]);
 
     // Run docker-compose up for the plugin
     const composePath = path.join(pluginDir, 'docker-compose.yml');
     try {
       await fs.access(composePath);
-      await execAsync(`docker compose -f "${composePath}" up -d`);
+      await execFileAsync('docker', ['compose', '-f', composePath, 'up', '-d']);
     } catch (e) {
       this.logger.warn(`No compose file for plugin ${name}, running install script`);
     }
@@ -92,14 +96,14 @@ class PluginManager extends EventEmitter {
   async startPlugin(name) {
     const dataDir = this.configStore.getDataDir();
     const composePath = path.join(dataDir, 'internal', 'plugins', name, 'docker-compose.yml');
-    await execAsync(`docker compose -f "${composePath}" up -d`);
+    await execFileAsync('docker', ['compose', '-f', composePath, 'up', '-d']);
     this.logger.info(`Plugin ${name} started`);
   }
 
   async stopPlugin(name) {
     const dataDir = this.configStore.getDataDir();
     const composePath = path.join(dataDir, 'internal', 'plugins', name, 'docker-compose.yml');
-    await execAsync(`docker compose -f "${composePath}" down`);
+    await execFileAsync('docker', ['compose', '-f', composePath, 'down']);
     this.logger.info(`Plugin ${name} stopped`);
   }
 

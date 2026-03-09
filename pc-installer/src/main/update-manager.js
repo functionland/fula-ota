@@ -1,7 +1,7 @@
 const { EventEmitter } = require('events');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 class UpdateManager extends EventEmitter {
   constructor(dockerManager, logger) {
@@ -35,11 +35,11 @@ class UpdateManager extends EventEmitter {
       let staleFound = false;
       for (const svc of services) {
         try {
-          const { stdout: runningId } = await execAsync(
-            `docker inspect --format="{{.Image}}" ${svc.container}`
+          const { stdout: runningId } = await execFileAsync(
+            'docker', ['inspect', '--format={{.Image}}', svc.container]
           );
-          const { stdout: currentId } = await execAsync(
-            `docker inspect --format="{{.Id}}" ${svc.image}`
+          const { stdout: currentId } = await execFileAsync(
+            'docker', ['inspect', '--format={{.Id}}', svc.image]
           );
           if (runningId.trim() !== currentId.trim()) {
             this.logger.info(`Stale image detected for ${svc.container}`);

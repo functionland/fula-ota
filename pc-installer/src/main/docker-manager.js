@@ -10,13 +10,12 @@
  */
 
 const { EventEmitter } = require('events');
-const { execFile, exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
 const path = require('path');
 const fs = require('fs/promises');
 
 const execFileAsync = promisify(execFile);
-const execAsync = promisify(exec);
 
 class DockerManager extends EventEmitter {
   /**
@@ -112,7 +111,7 @@ class DockerManager extends EventEmitter {
 
     // Try V2 plugin form first
     try {
-      await execAsync('docker compose version', { timeout: 10000 });
+      await execFileAsync('docker', ['compose', 'version'], { timeout: 10000 });
       this._composeCommand = 'docker compose';
       return this._composeCommand;
     } catch {
@@ -121,7 +120,7 @@ class DockerManager extends EventEmitter {
 
     // Try standalone binary
     try {
-      await execAsync('docker-compose version', { timeout: 10000 });
+      await execFileAsync('docker-compose', ['version'], { timeout: 10000 });
       this._composeCommand = 'docker-compose';
       return this._composeCommand;
     } catch {
