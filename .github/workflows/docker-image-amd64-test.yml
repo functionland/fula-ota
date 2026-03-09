@@ -1,0 +1,137 @@
+name: Docker Image AMD64 FULL TEST
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  build_fxsupport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build fxsupport
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          cd ./fxsupport
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_go_fula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build go-fula
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          cd ./go-fula
+          git clone -b "$GO_FULA_BRANCH" https://github.com/functionland/go-fula
+          cd go-fula && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_ipfs_cluster:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build ipfs-cluster
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          cd ./ipfs-cluster
+          git clone -b "$IPFS_CLUSTER_BRANCH" https://github.com/ipfs-cluster/ipfs-cluster
+          cd ipfs-cluster && git pull && cd ..
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_fula_pinning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build fula-pinning
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          cd ./fula-pinning
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
+
+  build_fula_gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build fula-gateway
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          cd ./fula-gateway
+          docker buildx build --platform "$ARCH_SUPPORT" \
+            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID" --push ./fula-local-gateway
+
+  push_all:
+    needs: [build_fxsupport, build_go_fula, build_ipfs_cluster, build_fula_pinning, build_fula_gateway]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ORG_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Tag all images for release
+        run: |
+          cd ./docker && source env_test_amd64.sh
+          docker buildx imagetools create \
+            -t "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG" \
+            "$FX_SUPPORT_IMAGE:$FX_SUPPORT_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG" \
+            "$GO_FULA_IMAGE:$GO_FULA_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG" \
+            "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG" \
+            "$FULA_PINNING_IMAGE:$FULA_PINNING_DOCKER_TAG-build-$GITHUB_RUN_ID"
+          docker buildx imagetools create \
+            -t "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG" \
+            "$FULA_GATEWAY_IMAGE:$FULA_GATEWAY_DOCKER_TAG-build-$GITHUB_RUN_ID"

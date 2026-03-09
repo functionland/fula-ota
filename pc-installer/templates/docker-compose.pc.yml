@@ -43,10 +43,10 @@ services:
     depends_on:
       - fxsupport
     volumes:
-      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_STORAGE_DIR}:/uniondrive:rw
       - ${FULA_DATA_DIR}/internal:/internal:rw
       - ${FULA_DATA_DIR}/config/kubo:/container-init.d:rw
-      - ${FULA_DATA_DIR}/storage/ipfs_staging:/export:rw
+      - ${FULA_STORAGE_DIR}/ipfs_staging:/export:rw
     ports:
       - "4001:4001"
       - "4001:4001/udp"
@@ -79,7 +79,7 @@ services:
       - fxsupport
       - kubo
     volumes:
-      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_STORAGE_DIR}:/uniondrive:rw
       - ${FULA_DATA_DIR}/internal:/internal:rw
       - ${FULA_DATA_DIR}/config/kubo-local:/container-init.d:rw
     ports:
@@ -107,7 +107,7 @@ services:
     depends_on:
       - kubo
     volumes:
-      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_STORAGE_DIR}:/uniondrive:rw
       - ${FULA_DATA_DIR}/internal:/internal:rw
       - ${FULA_DATA_DIR}/config/ipfs-cluster:/container-init.d:rw
       - ${FULA_DATA_DIR}/config/.env.cluster:/.env.cluster
@@ -138,7 +138,7 @@ services:
     networks: [fula-net]
     volumes:
       - ${FULA_DATA_DIR}/internal:/internal:rw
-      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_STORAGE_DIR}:/uniondrive:rw
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${FULA_DATA_DIR}/home:/home:rw
       - ${FULA_DATA_DIR}/config/.env.cluster:/.env.cluster

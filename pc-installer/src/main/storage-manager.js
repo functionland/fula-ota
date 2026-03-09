@@ -35,9 +35,11 @@ class StorageManager {
    *
    * @param {string} dataDir - Root directory chosen by the user.
    */
-  async initialize(dataDir) {
-    const dirs = [
-      // internal
+  async initialize(dataDir, storageDir) {
+    const effectiveStorageDir = storageDir || path.join(dataDir, 'storage');
+
+    // Directories under dataDir (config, internal, home, logs)
+    const dataDirs = [
       'internal',
       path.join('internal', 'ipfs_data'),
       path.join('internal', 'ipfs_data_local'),
@@ -45,35 +47,30 @@ class StorageManager {
       path.join('internal', 'fula-pinning'),
       path.join('internal', '.secrets'),
       path.join('internal', 'plugins'),
-
-      // storage
-      'storage',
-      path.join('storage', 'ipfs_datastore'),
-      path.join('storage', 'ipfs_datastore', 'blocks'),
-      path.join('storage', 'ipfs_datastore', 'datastore'),
-      path.join('storage', 'ipfs_staging'),
-      path.join('storage', 'chain'),
-      path.join('storage', 'ipfs-cluster'),
-      path.join('storage', 'fxblox'),
-      path.join('storage', 'ipfs_datastore_local'),
-      path.join('storage', 'ipfs_datastore_local', 'blocks'),
-      path.join('storage', 'ipfs_datastore_local', 'datastore'),
-
-      // config
       'config',
       path.join('config', 'kubo'),
       path.join('config', 'kubo-local'),
       path.join('config', 'ipfs-cluster'),
-
-      // home
       'home',
       path.join('home', 'commands'),
-
-      // logs
       'logs',
     ];
 
-    for (const rel of dirs) {
+    // Directories under storageDir (heavy data — IPFS blocks, chain, cluster)
+    const storageDirs = [
+      'ipfs_datastore',
+      path.join('ipfs_datastore', 'blocks'),
+      path.join('ipfs_datastore', 'datastore'),
+      'ipfs_staging',
+      'chain',
+      'ipfs-cluster',
+      'fxblox',
+      'ipfs_datastore_local',
+      path.join('ipfs_datastore_local', 'blocks'),
+      path.join('ipfs_datastore_local', 'datastore'),
+    ];
+
+    for (const rel of dataDirs) {
       const abs = path.join(dataDir, rel);
       try {
         await fs.mkdir(abs, { recursive: true });
@@ -83,7 +80,17 @@ class StorageManager {
       }
     }
 
-    this.logger.info(`storage-manager: directory tree initialized under ${dataDir}`);
+    for (const rel of storageDirs) {
+      const abs = path.join(effectiveStorageDir, rel);
+      try {
+        await fs.mkdir(abs, { recursive: true });
+      } catch (err) {
+        this.logger.error(`storage-manager: failed to create ${abs}: ${err.message}`);
+        throw err;
+      }
+    }
+
+    this.logger.info(`storage-manager: directory tree initialized under ${dataDir} (storage: ${effectiveStorageDir})`);
   }
 
   // ---------------------------------------------------------------------------

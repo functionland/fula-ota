@@ -38,16 +38,31 @@
 
     <!-- Step 1: Storage Selection -->
     <div class="step" id="step-storage">
-      <h2>Data Directory</h2>
-      <p class="description">Choose where Fula Node stores its data, including IPFS blocks, configuration, and logs. Pick a drive with at least 20 GB of free space.</p>
+      <h2>Data &amp; Storage Directories</h2>
+      <p class="description">Choose where Fula Node stores configuration and heavy data. You can use separate drives — the storage directory holds IPFS blocks and blockchain data, which can grow large.</p>
 
-      <div class="folder-picker">
-        <input type="text" id="data-dir-input" placeholder="Select a directory..." readonly>
-        <button id="btn-browse">Browse</button>
+      <div class="folder-section">
+        <label class="folder-label">Configuration Directory</label>
+        <p class="folder-hint">Stores config files, keys, and logs.</p>
+        <div class="folder-picker">
+          <input type="text" id="data-dir-input" placeholder="Select a directory..." readonly>
+          <button id="btn-browse">Browse</button>
+        </div>
+        <div class="disk-info" id="disk-info" style="display:none;">
+          Free space: <span class="value" id="disk-free"></span>
+        </div>
       </div>
 
-      <div class="disk-info" id="disk-info" style="display:none;">
-        Free space: <span class="value" id="disk-free"></span>
+      <div class="folder-section">
+        <label class="folder-label">Storage Directory</label>
+        <p class="folder-hint">Stores IPFS blocks, blockchain data, and cluster state. Needs at least 20 GB.</p>
+        <div class="folder-picker">
+          <input type="text" id="storage-dir-input" placeholder="Default: inside data directory" readonly>
+          <button id="btn-browse-storage">Browse</button>
+        </div>
+        <div class="disk-info" id="storage-disk-info" style="display:none;">
+          Free space: <span class="value" id="storage-disk-free"></span>
+        </div>
       </div>
 
       <div class="error-message" id="storage-error"></div>

@@ -166,7 +166,7 @@ function openWizard() {
     width: 800,
     height: 600,
     resizable: false,
-    icon: path.join(__dirname, '..', 'assets', 'icons', 'icon.png'),
+    icon: path.join(__dirname, '..', 'assets', 'icons', 'fula.ico'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
       contextIsolation: true,
@@ -187,7 +187,7 @@ function openDashboard() {
   dashboardWindow = new BrowserWindow({
     width: 900,
     height: 700,
-    icon: path.join(__dirname, '..', 'assets', 'icons', 'icon.png'),
+    icon: path.join(__dirname, '..', 'assets', 'icons', 'fula.ico'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
       contextIsolation: true,
@@ -220,17 +220,21 @@ function registerIpcHandlers() {
     return result.filePaths[0];
   });
 
-  ipcMain.handle('setup-initialize', async (_, dataDir) => {
+  ipcMain.handle('setup-initialize', async (_, dataDir, storageDir) => {
     try {
       configStore.setDataDir(dataDir);
-      await storageManager.initialize(dataDir);
+      if (storageDir) {
+        configStore.setStorageDir(storageDir);
+      }
+      const effectiveStorageDir = configStore.getStorageDir();
+      await storageManager.initialize(dataDir, effectiveStorageDir);
       // In packaged app: extraResource puts templates/ in process.resourcesPath
       // In dev: templates/ is at ../../templates relative to this file
       const resourcesDir = app.isPackaged
         ? path.join(process.resourcesPath, 'templates')
         : path.join(__dirname, '..', '..', 'templates');
       await storageManager.copyTemplates(dataDir, resourcesDir);
-      // Write compose files with FULA_DATA_DIR substitution (overwrites raw templates)
+      // Write compose files with FULA_DATA_DIR / FULA_STORAGE_DIR substitution
       await dockerManager.writeComposeFiles(resourcesDir);
       return { success: true };
     } catch (e) {

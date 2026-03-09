@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('fulaNode', {
   // Setup
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
-  setupInitialize: (dataDir) => ipcRenderer.invoke('setup-initialize', dataDir),
+  setupInitialize: (dataDir, storageDir) => ipcRenderer.invoke('setup-initialize', dataDir, storageDir),
   setupPullImages: () => ipcRenderer.invoke('setup-pull-images'),
   setupStart: () => ipcRenderer.invoke('setup-start'),
 

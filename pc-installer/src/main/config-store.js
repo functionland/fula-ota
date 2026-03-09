@@ -11,6 +11,10 @@ const schema = {
       ? path.join(process.env.LOCALAPPDATA || '', 'FulaData')
       : path.join(os.homedir(), '.fula-data'),
   },
+  storageDir: {
+    type: 'string',
+    default: '',
+  },
   setupComplete: {
     type: 'boolean',
     default: false,
@@ -36,6 +40,14 @@ module.exports = {
 
   setDataDir(dir) {
     store.set('dataDir', dir);
+  },
+
+  getStorageDir() {
+    return store.get('storageDir') || path.join(store.get('dataDir'), 'storage');
+  },
+
+  setStorageDir(dir) {
+    store.set('storageDir', dir);
   },
 
   isSetupComplete() {

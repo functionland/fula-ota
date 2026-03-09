@@ -35,7 +35,7 @@ class DockerManager extends EventEmitter {
 
   /** Resolved data directory from the config store. */
   _getDataDir() {
-    return this.configStore.get('dataDir');
+    return this.configStore.getDataDir();
   }
 
   /** Absolute path to the compose file inside dataDir/config/. */
@@ -160,18 +160,22 @@ class DockerManager extends EventEmitter {
 
         let content = await fs.readFile(src, 'utf-8');
 
-        // Replace the data-dir placeholder with the actual path.
+        // Replace placeholders with actual paths.
         // On Windows, convert backslashes to forward slashes so YAML
         // doesn't interpret sequences like \U, \J as escape characters.
         const normalizedDir = dataDir.replace(/\\/g, '/');
+        const storageDir = this.configStore.getStorageDir
+          ? this.configStore.getStorageDir()
+          : path.join(dataDir, 'storage');
+        const normalizedStorageDir = storageDir.replace(/\\/g, '/');
         content = content.replace(/\$\{FULA_DATA_DIR\}/g, normalizedDir);
+        content = content.replace(/\$\{FULA_STORAGE_DIR\}/g, normalizedStorageDir);
 
         await fs.writeFile(dest, content, 'utf-8');
         this.logger.info(`docker-manager: wrote ${dest}`);
       }
     } catch (err) {
       this.logger.error(`docker-manager: writeComposeFiles failed: ${err.message}`);
-      this.emit('error', err);
       throw err;
     }
   }
@@ -195,7 +199,6 @@ class DockerManager extends EventEmitter {
       const child = execFile(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           this.logger.error(`docker-manager: pull failed: ${err.message}`);
-          this.emit('error', err);
           return reject(err);
         }
         this.logger.info('docker-manager: pull complete');

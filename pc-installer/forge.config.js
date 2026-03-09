@@ -2,7 +2,7 @@ module.exports = {
   packagerConfig: {
     asar: true,
     name: 'Fula Node',
-    icon: 'src/assets/icons/icon',
+    icon: 'src/assets/icons/fula',
     extraResource: ['templates'],
   },
   makers: [
@@ -10,15 +10,16 @@ module.exports = {
       name: '@electron-forge/maker-squirrel',
       config: {
         name: 'FulaNode',
-        iconUrl: 'src/assets/icons/icon.ico',
-        setupIcon: 'src/assets/icons/icon.ico',
+        authors: 'Functionland',
+        description: 'Fula Node for PC — run a Fula decentralized storage node on your computer',
+        setupIcon: 'src/assets/icons/fula.ico',
       },
     },
     {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
-          icon: 'src/assets/icons/icon.png',
+          icon: 'src/assets/icons/fula.ico',
           maintainer: 'Functionland',
           homepage: 'https://fx.land',
         },

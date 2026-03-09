@@ -9,6 +9,7 @@
   let portsOk = false;
   let pullOk = false;
   let selectedDataDir = '';
+  let selectedStorageDir = '';
 
   const REQUIRED_PORTS = [4001, 5001, 5002, 8080, 8081, 40001, 3500, 3501, 4020, 4021, 9000, 9094, 9095, 9096];
   const MIN_FREE_GB = 20;
@@ -109,14 +110,13 @@
       const dir = await api.getDefaultDataDir();
       selectedDataDir = dir;
       document.getElementById('data-dir-input').value = dir;
-      await checkDiskSpace(dir);
+      await checkDiskSpaceFor(dir, 'disk-info', 'disk-free', false);
+      validateStorage();
     } catch {}
   }
 
-  async function checkDiskSpace(dir) {
-    hideError('storage-error');
-    document.getElementById('btn-storage-next').disabled = true;
-    const diskInfo = document.getElementById('disk-info');
+  async function checkDiskSpaceFor(dir, infoId, freeId, isStorage) {
+    const diskInfo = document.getElementById(infoId);
 
     if (!dir) {
       diskInfo.style.display = 'none';
@@ -127,23 +127,27 @@
       const result = await api.checkDiskSpace(dir);
       diskInfo.style.display = 'block';
       const freeGB = result.freeGB != null ? result.freeGB : 0;
-      document.getElementById('disk-free').textContent = `${freeGB.toFixed(1)} GB`;
+      document.getElementById(freeId).textContent = `${freeGB.toFixed(1)} GB`;
 
       diskInfo.className = 'disk-info';
-      if (freeGB < MIN_FREE_GB) {
+      if (isStorage && freeGB < MIN_FREE_GB) {
         diskInfo.classList.add('warning');
         showError('storage-error',
-          `At least ${MIN_FREE_GB} GB of free space is recommended. You have ${freeGB.toFixed(1)} GB.`);
-        // Allow proceeding with a warning, not a hard block
-        storageOk = true;
-        document.getElementById('btn-storage-next').disabled = false;
-      } else {
-        storageOk = true;
-        document.getElementById('btn-storage-next').disabled = false;
+          `At least ${MIN_FREE_GB} GB of free space is recommended for storage. You have ${freeGB.toFixed(1)} GB.`);
       }
     } catch (e) {
       diskInfo.style.display = 'none';
-      showError('storage-error', e.message || 'Could not check disk space');
+    }
+  }
+
+  function validateStorage() {
+    hideError('storage-error');
+    if (selectedDataDir) {
+      storageOk = true;
+      document.getElementById('btn-storage-next').disabled = false;
+    } else {
+      storageOk = false;
+      document.getElementById('btn-storage-next').disabled = true;
     }
   }
 
@@ -153,11 +157,32 @@
       if (result) {
         selectedDataDir = result;
         document.getElementById('data-dir-input').value = result;
-        await checkDiskSpace(result);
+        // If no separate storage dir selected, update its placeholder
+        if (!selectedStorageDir) {
+          document.getElementById('storage-dir-input').placeholder = `Default: ${result}\\storage`;
+        }
+        await checkDiskSpaceFor(result, 'disk-info', 'disk-free', false);
+        validateStorage();
       }
     } catch {
-      // Fallback: make input editable for manual entry
       const input = document.getElementById('data-dir-input');
+      input.readOnly = false;
+      input.focus();
+      input.select();
+    }
+  });
+
+  document.getElementById('btn-browse-storage').addEventListener('click', async () => {
+    try {
+      const result = await api.openFolderDialog();
+      if (result) {
+        selectedStorageDir = result;
+        document.getElementById('storage-dir-input').value = result;
+        await checkDiskSpaceFor(result, 'storage-disk-info', 'storage-disk-free', true);
+        validateStorage();
+      }
+    } catch {
+      const input = document.getElementById('storage-dir-input');
       input.readOnly = false;
       input.focus();
       input.select();
@@ -167,16 +192,17 @@
   document.getElementById('data-dir-input').addEventListener('change', async () => {
     selectedDataDir = document.getElementById('data-dir-input').value.trim();
     if (selectedDataDir) {
-      await checkDiskSpace(selectedDataDir);
+      await checkDiskSpaceFor(selectedDataDir, 'disk-info', 'disk-free', false);
+      validateStorage();
     }
   });
 
-  // Also trigger on blur or Enter key
   document.getElementById('data-dir-input').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       selectedDataDir = document.getElementById('data-dir-input').value.trim();
       if (selectedDataDir) {
-        await checkDiskSpace(selectedDataDir);
+        await checkDiskSpaceFor(selectedDataDir, 'disk-info', 'disk-free', false);
+        validateStorage();
       }
     }
   });
@@ -190,7 +216,7 @@
     document.getElementById('btn-storage-next').innerHTML = '<span class="spinner"></span>Setting up...';
 
     try {
-      const result = await api.setupInitialize(selectedDataDir);
+      const result = await api.setupInitialize(selectedDataDir, selectedStorageDir || null);
       if (result.success) {
         goToStep(2);
       } else {
