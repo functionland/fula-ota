@@ -1,0 +1,414 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wizard-container {
+  width: 720px;
+  background: #16213e;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+}
+
+/* Step indicators */
+.step-indicators {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.step-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #2a2a4a;
+  transition: background 0.3s, transform 0.3s;
+}
+
+.step-dot.active {
+  background: #0f3460;
+  transform: scale(1.3);
+}
+
+.step-dot.complete {
+  background: #4ecca3;
+}
+
+/* Step content */
+.step {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+}
+
+.step.active {
+  display: flex;
+}
+
+.step h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+
+.step p.description {
+  font-size: 14px;
+  color: #8892b0;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+/* Status box */
+.status-box {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-icon.checking {
+  background: #f0c040;
+  animation: pulse 1.2s infinite;
+}
+
+.status-icon.success {
+  background: #4ecca3;
+}
+
+.status-icon.error {
+  background: #e94560;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-text {
+  font-size: 14px;
+  flex: 1;
+}
+
+.status-text a {
+  color: #64b5f6;
+  text-decoration: none;
+}
+
+.status-text a:hover {
+  text-decoration: underline;
+}
+
+/* Folder picker */
+.folder-picker {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.folder-picker input {
+  flex: 1;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+}
+
+.folder-picker input:focus {
+  border-color: #0f3460;
+}
+
+.folder-picker button {
+  background: #0f3460;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.folder-picker button:hover {
+  background: #1a4a80;
+}
+
+.disk-info {
+  font-size: 13px;
+  color: #8892b0;
+  margin-bottom: 8px;
+}
+
+.disk-info .value {
+  color: #4ecca3;
+  font-weight: 600;
+}
+
+.disk-info.warning .value {
+  color: #f0c040;
+}
+
+.disk-info.error .value {
+  color: #e94560;
+}
+
+/* Port list */
+.port-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.port-item {
+  background: #1a1a2e;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.port-label {
+  font-size: 14px;
+}
+
+.port-label .port-number {
+  color: #64b5f6;
+  font-family: 'Consolas', 'Courier New', monospace;
+  margin-right: 8px;
+}
+
+.port-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 10px;
+}
+
+.port-status.available {
+  background: rgba(78, 204, 163, 0.15);
+  color: #4ecca3;
+}
+
+.port-status.in-use {
+  background: rgba(233, 69, 96, 0.15);
+  color: #e94560;
+}
+
+.port-status.checking {
+  background: rgba(240, 192, 64, 0.15);
+  color: #f0c040;
+}
+
+/* Progress bar */
+.progress-container {
+  margin-bottom: 16px;
+}
+
+.progress-bar-track {
+  background: #1a1a2e;
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0f3460, #4ecca3);
+  border-radius: 6px;
+  width: 0%;
+  transition: width 0.5s ease;
+}
+
+.progress-bar-fill.indeterminate {
+  width: 100%;
+  background: linear-gradient(90deg, #0f3460 25%, #4ecca3 50%, #0f3460 75%);
+  background-size: 200% 100%;
+  animation: indeterminate 1.5s linear infinite;
+}
+
+@keyframes indeterminate {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #8892b0;
+  text-align: center;
+}
+
+/* Launch step */
+.launch-success {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.launch-success .checkmark {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #4ecca3;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #1a1a2e;
+}
+
+.launch-success h3 {
+  font-size: 20px;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.launch-success p {
+  font-size: 14px;
+  color: #8892b0;
+  margin-bottom: 4px;
+}
+
+.launch-success .lan-ip {
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #64b5f6;
+  font-size: 16px;
+  margin-top: 8px;
+}
+
+/* Navigation */
+.nav-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 24px;
+}
+
+.btn {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-back {
+  background: #2a2a4a;
+  color: #e0e0e0;
+}
+
+.btn-back:hover:not(:disabled) {
+  background: #3a3a5a;
+}
+
+.btn-next {
+  background: #0f3460;
+  color: #ffffff;
+}
+
+.btn-next:hover:not(:disabled) {
+  background: #1a4a80;
+}
+
+.btn-finish {
+  background: #4ecca3;
+  color: #1a1a2e;
+  font-weight: 600;
+}
+
+.btn-finish:hover:not(:disabled) {
+  background: #5fddb4;
+}
+
+/* Error message */
+.error-message {
+  background: rgba(233, 69, 96, 0.1);
+  border: 1px solid rgba(233, 69, 96, 0.3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #e94560;
+  margin-bottom: 12px;
+  display: none;
+}
+
+.error-message.visible {
+  display: block;
+}
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a4a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a5a;
+}

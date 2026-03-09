@@ -49,10 +49,11 @@ check_files_exist() {
 }
 
 wait_for_ipfs() {
-    log "Waiting for IPFS daemon to be ready..."
+    local kubo_url="${KUBO_API_URL:-http://127.0.0.1:5001}"
+    log "Waiting for IPFS daemon to be ready at ${kubo_url}..."
     while : ; do
         # Attempt to query the IPFS daemon
-        response=$(curl -X POST -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5001/api/v0/id)
+        response=$(curl -X POST -s -o /dev/null -w "%{http_code}" "${kubo_url}/api/v0/id")
 
         # Check if the response status is 200
         if [ "$response" -eq 200 ]; then

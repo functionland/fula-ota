@@ -1,0 +1,11 @@
+node_modules/
+out/
+.webpack/
+
+# Shared template files generated from docker/fxsupport/linux/ at build time.
+# Do NOT commit these — they are copies/transforms of the Armbian originals.
+# See scripts/sync-shared-templates.js
+templates/kubo/
+templates/kubo-local/
+templates/ipfs-cluster/
+templates/.env.cluster.pc

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <title>Fula Node Setup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="wizard-container">
+    <!-- Step Indicators -->
+    <div class="step-indicators">
+      <div class="step-dot active" data-step="0"></div>
+      <div class="step-dot" data-step="1"></div>
+      <div class="step-dot" data-step="2"></div>
+      <div class="step-dot" data-step="3"></div>
+      <div class="step-dot" data-step="4"></div>
+    </div>
+
+    <!-- Step 0: Docker Check -->
+    <div class="step active" id="step-docker">
+      <h2>Docker Check</h2>
+      <p class="description">Fula Node requires Docker to run its services. Let's verify Docker is installed and running on your system.</p>
+
+      <div class="status-box" id="docker-status">
+        <div class="status-icon checking" id="docker-status-icon"></div>
+        <div class="status-text" id="docker-status-text">Checking for Docker...</div>
+      </div>
+
+      <div class="error-message" id="docker-error"></div>
+
+      <div class="nav-buttons">
+        <div></div>
+        <button class="btn btn-next" id="btn-docker-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 1: Storage Selection -->
+    <div class="step" id="step-storage">
+      <h2>Data Directory</h2>
+      <p class="description">Choose where Fula Node stores its data, including IPFS blocks, configuration, and logs. Pick a drive with at least 20 GB of free space.</p>
+
+      <div class="folder-picker">
+        <input type="text" id="data-dir-input" placeholder="Select a directory..." readonly>
+        <button id="btn-browse">Browse</button>
+      </div>
+
+      <div class="disk-info" id="disk-info" style="display:none;">
+        Free space: <span class="value" id="disk-free"></span>
+      </div>
+
+      <div class="error-message" id="storage-error"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-back" id="btn-storage-back">Back</button>
+        <button class="btn btn-next" id="btn-storage-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Port Check -->
+    <div class="step" id="step-ports">
+      <h2>Port Availability</h2>
+      <p class="description">Fula Node uses several network ports. We'll check that they are available on your system.</p>
+
+      <div class="port-list" id="port-list">
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">4001</span>IPFS Swarm</span>
+          <span class="port-status checking" id="port-4001">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">5001</span>Kubo API</span>
+          <span class="port-status checking" id="port-5001">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">5002</span>Kubo Local API</span>
+          <span class="port-status checking" id="port-5002">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">8080</span>IPFS Gateway</span>
+          <span class="port-status checking" id="port-8080">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">8081</span>Kubo Debug</span>
+          <span class="port-status checking" id="port-8081">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">40001</span>libp2p</span>
+          <span class="port-status checking" id="port-40001">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">3500</span>WAP</span>
+          <span class="port-status checking" id="port-3500">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">3501</span>Pinning</span>
+          <span class="port-status checking" id="port-3501">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">4020</span>Blockchain Proxy</span>
+          <span class="port-status checking" id="port-4020">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">4021</span>Blockchain Proxy Alt</span>
+          <span class="port-status checking" id="port-4021">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">9000</span>S3 Gateway</span>
+          <span class="port-status checking" id="port-9000">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">9094</span>Cluster API</span>
+          <span class="port-status checking" id="port-9094">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">9095</span>Cluster Proxy</span>
+          <span class="port-status checking" id="port-9095">Checking...</span>
+        </div>
+        <div class="port-item">
+          <span class="port-label"><span class="port-number">9096</span>Cluster Swarm</span>
+          <span class="port-status checking" id="port-9096">Checking...</span>
+        </div>
+      </div>
+
+      <div class="error-message" id="ports-error"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-back" id="btn-ports-back">Back</button>
+        <button class="btn btn-next" id="btn-ports-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Image Pull -->
+    <div class="step" id="step-pull">
+      <h2>Download Images</h2>
+      <p class="description">Downloading Docker images for Fula Node services. This may take several minutes depending on your connection speed.</p>
+
+      <div class="progress-container">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="pull-progress-bar"></div>
+        </div>
+        <div class="progress-label" id="pull-progress-label">Preparing...</div>
+      </div>
+
+      <div class="status-box" id="pull-status" style="display:none;">
+        <div class="status-icon" id="pull-status-icon"></div>
+        <div class="status-text" id="pull-status-text"></div>
+      </div>
+
+      <div class="error-message" id="pull-error"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-back" id="btn-pull-back">Back</button>
+        <button class="btn btn-next" id="btn-pull-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Launch -->
+    <div class="step" id="step-launch">
+      <h2>Launch Fula Node</h2>
+      <p class="description">Everything is ready. Start your Fula Node now.</p>
+
+      <div id="launch-pending">
+        <div class="status-box">
+          <div class="status-icon checking" id="launch-status-icon"></div>
+          <div class="status-text" id="launch-status-text">Ready to launch</div>
+        </div>
+      </div>
+
+      <div id="launch-done" class="launch-success" style="display:none;">
+        <div class="checkmark">&#10003;</div>
+        <h3>Fula Node is Running</h3>
+        <p>Your node is now active and discoverable on the local network.</p>
+        <p id="lan-ip-info" style="display:none; font-weight:bold;"></p>
+        <p>Access the dashboard from the system tray icon at any time.</p>
+      </div>
+
+      <div class="error-message" id="launch-error"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-back" id="btn-launch-back">Back</button>
+        <button class="btn btn-next" id="btn-launch-start">Start Node</button>
+        <button class="btn btn-finish" id="btn-launch-finish" style="display:none;">Open Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="wizard.js"></script>
+</body>
+</html>

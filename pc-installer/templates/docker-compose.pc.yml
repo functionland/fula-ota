@@ -1,0 +1,252 @@
+networks:
+  fula-net:
+    driver: bridge
+
+services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: always
+    container_name: fula_updater
+    networks: [fula-net]
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_NO_PULL=false
+      - WATCHTOWER_MONITOR_ONLY=false
+      - WATCHTOWER_POLL_INTERVAL=3600
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  kubo:
+    image: ipfs/kubo:release
+    container_name: ipfs_host
+    restart: always
+    networks: [fula-net]
+    depends_on:
+      - fxsupport
+    volumes:
+      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+      - ${FULA_DATA_DIR}/config/kubo:/container-init.d:rw
+      - ${FULA_DATA_DIR}/storage/ipfs_staging:/export:rw
+    ports:
+      - "4001:4001"
+      - "4001:4001/udp"
+      - "127.0.0.1:5001:5001"
+      - "0.0.0.0:8080:8080"
+      - "127.0.0.1:8081:8081"
+    environment:
+      - IPFS_PROFILE=flatfs
+      - IPFS_PATH=/internal/ipfs_data
+      - IPFS_TELEMETRY=off
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  kubo-local:
+    image: ipfs/kubo:release
+    container_name: ipfs_local
+    restart: always
+    networks: [fula-net]
+    depends_on:
+      - fxsupport
+      - kubo
+    volumes:
+      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+      - ${FULA_DATA_DIR}/config/kubo-local:/container-init.d:rw
+    ports:
+      - "127.0.0.1:5002:5001"
+    environment:
+      - IPFS_PROFILE=flatfs
+      - IPFS_PATH=/internal/ipfs_data_local
+      - IPFS_TELEMETRY=off
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  ipfs-cluster:
+    image: ${IPFS_CLUSTER:-functionland/ipfs-cluster:release_amd64}
+    container_name: ipfs_cluster
+    restart: always
+    networks: [fula-net]
+    depends_on:
+      - kubo
+    volumes:
+      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+      - ${FULA_DATA_DIR}/config/ipfs-cluster:/container-init.d:rw
+      - ${FULA_DATA_DIR}/config/.env.cluster:/.env.cluster
+    entrypoint: /container-init.d/ipfs-cluster-container-init.d.sh
+    env_file:
+      - ${FULA_DATA_DIR}/config/.env.cluster
+    ports:
+      - "9094:9094"
+      - "9095:9095"
+      - "9096:9096"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  go-fula:
+    image: ${GO_FULA:-functionland/go-fula:release_amd64}
+    restart: always
+    container_name: fula_go
+    networks: [fula-net]
+    volumes:
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+      - ${FULA_DATA_DIR}/storage:/uniondrive:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${FULA_DATA_DIR}/home:/home:rw
+      - ${FULA_DATA_DIR}/config/.env.cluster:/.env.cluster
+      - ${FULA_DATA_DIR}/config/.env.gofula:/.env
+    environment:
+      - KUBO_API_URL=http://kubo:5001
+    ports:
+      - "40001:40001"
+      - "3500:3500"
+      - "4020:4020"
+      - "4021:4021"
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - fxsupport
+      - kubo
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  fxsupport:
+    image: ${FX_SUPPROT:-functionland/fxsupport:release_amd64}
+    restart: always
+    container_name: fula_fxsupport
+    networks: [fula-net]
+    command: tail -F /dev/null
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    depends_on:
+      - watchtower
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  fula-pinning:
+    image: ${FULA_PINNING:-functionland/fula-pinning:release_amd64}
+    container_name: fula_pinning
+    restart: unless-stopped
+    networks: [fula-net]
+    volumes:
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+    depends_on:
+      - kubo-local
+    ports:
+      - "3501:3501"
+    environment:
+      - KUBO_API=http://kubo-local:5001
+      - AUTO_PIN_PORT=3501
+      - SYNC_INTERVAL=3m
+      - REGISTRY_CID_PATH=/internal/fula-gateway/registry.cid
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  fula-gateway:
+    image: ${FULA_GATEWAY:-functionland/fula-gateway:release_amd64}
+    container_name: fula_gateway
+    restart: unless-stopped
+    networks: [fula-net]
+    volumes:
+      - ${FULA_DATA_DIR}/internal:/internal:rw
+    depends_on:
+      - kubo-local
+    ports:
+      - "9000:9000"
+    environment:
+      - FULA_HOST=0.0.0.0
+      - FULA_PORT=9000
+      - IPFS_API_URL=http://kubo-local:5001
+      - REGISTRY_CID_PATH=/internal/fula-gateway/registry.cid
+      - BOX_PROPS_FILE=/internal/box_props.json
+      - RUST_LOG=info
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
