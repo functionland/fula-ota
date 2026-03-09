@@ -155,7 +155,17 @@ class StorageManager {
       try {
         // Ensure the destination directory exists
         await fs.mkdir(path.dirname(destPath), { recursive: true });
-        await fs.copyFile(srcPath, destPath);
+
+        // Shell scripts must have LF line endings to run inside Linux containers.
+        // On Windows, git may check them out with CRLF which causes "not found"
+        // errors because the kernel sees #!/bin/sh\r as the interpreter path.
+        if (src.endsWith('.sh')) {
+          let content = await fs.readFile(srcPath, 'utf-8');
+          content = content.replace(/\r\n/g, '\n');
+          await fs.writeFile(destPath, content, { encoding: 'utf-8', mode: 0o755 });
+        } else {
+          await fs.copyFile(srcPath, destPath);
+        }
         this.logger.info(`storage-manager: copied ${src} -> ${destPath}`);
       } catch (err) {
         // If a source file does not exist in the resources bundle, warn but
