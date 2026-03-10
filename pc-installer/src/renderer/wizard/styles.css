@@ -76,6 +76,67 @@ body {
   line-height: 1.5;
 }
 
+/* Terms & Conditions */
+.terms-scroll {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 20px;
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #c0c8d8;
+  margin-bottom: 16px;
+}
+
+.terms-scroll h3 {
+  font-size: 15px;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.terms-scroll h4 {
+  font-size: 13px;
+  color: #ffffff;
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+
+.terms-scroll p {
+  margin-bottom: 8px;
+}
+
+.terms-scroll em {
+  color: #8892b0;
+}
+
+.terms-scroll ul {
+  margin: 6px 0 8px 20px;
+}
+
+.terms-scroll ul li {
+  margin-bottom: 4px;
+}
+
+.terms-accept-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #e0e0e0;
+  cursor: pointer;
+  padding: 10px 0;
+  margin-bottom: 8px;
+}
+
+.terms-accept-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #4ecca3;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* Status box */
 .status-box {
   background: #1a1a2e;

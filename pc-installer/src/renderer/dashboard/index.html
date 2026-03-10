@@ -57,6 +57,34 @@
     .status-dot.blue { background: #64b5f6; }
     .status-dot.grey { background: #666; }
 
+    /* Instruction box */
+    .instruction-box {
+      background: #0f3460;
+      border: 1px solid #1a5276;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .instruction-box .instruction-icon {
+      font-size: 22px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .instruction-box .instruction-text {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #ccd6f6;
+    }
+
+    .instruction-box .instruction-text strong {
+      color: #64ffda;
+    }
+
     /* Cards */
     .card {
       background: #16213e;
@@ -331,6 +359,17 @@
         <div class="status-dot green" id="overall-dot"></div>
         <span id="overall-label">Healthy</span>
         <button class="refresh-btn" id="btn-refresh">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Setup instruction -->
+    <div class="instruction-box">
+      <span class="instruction-icon">&#9989;</span>
+      <div class="instruction-text">
+        <strong>Your Fula node is ready!</strong> To set it up, download the
+        <strong>FxBlox</strong> application from the
+        <strong>App Store</strong> (iOS) or <strong>Google Play</strong> (Android)
+        and follow the in-app instructions.
       </div>
     </div>
 

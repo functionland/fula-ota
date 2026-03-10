@@ -3,7 +3,8 @@
 
   // State
   let currentStep = 0;
-  const totalSteps = 5;
+  const totalSteps = 6;
+  let termsAccepted = false;
   let dockerOk = false;
   let storageOk = false;
   let portsOk = false;
@@ -16,6 +17,7 @@
 
   // DOM references
   const steps = [
+    document.getElementById('step-terms'),
     document.getElementById('step-docker'),
     document.getElementById('step-storage'),
     document.getElementById('step-ports'),
@@ -42,15 +44,29 @@
 
   function onStepEnter(n) {
     switch (n) {
-      case 0: checkDocker(); break;
-      case 1: loadDefaultDir(); break;
-      case 2: checkPorts(); break;
-      case 3: pullImages(); break;
-      case 4: break; // manual launch
+      case 0: break; // terms - no auto action
+      case 1: checkDocker(); break;
+      case 2: loadDefaultDir(); break;
+      case 3: checkPorts(); break;
+      case 4: pullImages(); break;
+      case 5: break; // manual launch
     }
   }
 
-  // ---- Step 0: Docker Check ----
+  // ---- Step 0: Terms & Conditions ----
+
+  document.getElementById('terms-checkbox').addEventListener('change', (e) => {
+    termsAccepted = e.target.checked;
+    document.getElementById('btn-terms-next').disabled = !termsAccepted;
+  });
+
+  document.getElementById('btn-terms-next').addEventListener('click', () => {
+    if (termsAccepted) {
+      goToStep(1);
+    }
+  });
+
+  // ---- Step 1: Docker Check ----
 
   async function checkDocker() {
     setStatusIcon('docker-status-icon', 'checking');
@@ -95,14 +111,14 @@
 
   document.getElementById('btn-docker-next').addEventListener('click', () => {
     if (dockerOk) {
-      goToStep(1);
+      goToStep(2);
     } else {
       document.getElementById('btn-docker-next').textContent = 'Next';
       checkDocker();
     }
   });
 
-  // ---- Step 1: Storage Selection ----
+  // ---- Step 2: Storage Selection ----
 
   async function loadDefaultDir() {
     if (selectedDataDir) return; // already picked
@@ -207,7 +223,7 @@
     }
   });
 
-  document.getElementById('btn-storage-back').addEventListener('click', () => goToStep(0));
+  document.getElementById('btn-storage-back').addEventListener('click', () => goToStep(1));
   document.getElementById('btn-storage-next').addEventListener('click', async () => {
     if (!storageOk) return;
     // Initialize data directory
@@ -218,7 +234,7 @@
     try {
       const result = await api.setupInitialize(selectedDataDir, selectedStorageDir || null);
       if (result.success) {
-        goToStep(2);
+        goToStep(3);
       } else {
         showError('storage-error', result.error || 'Failed to initialize data directory');
       }
@@ -230,7 +246,7 @@
     }
   });
 
-  // ---- Step 2: Port Check ----
+  // ---- Step 3: Port Check ----
 
   async function checkPorts() {
     hideError('ports-error');
@@ -281,17 +297,17 @@
     }
   }
 
-  document.getElementById('btn-ports-back').addEventListener('click', () => goToStep(1));
+  document.getElementById('btn-ports-back').addEventListener('click', () => goToStep(2));
   document.getElementById('btn-ports-next').addEventListener('click', () => {
     if (portsOk) {
-      goToStep(3);
+      goToStep(4);
     } else {
       document.getElementById('btn-ports-next').textContent = 'Next';
       checkPorts();
     }
   });
 
-  // ---- Step 3: Image Pull ----
+  // ---- Step 4: Image Pull ----
 
   async function pullImages() {
     hideError('pull-error');
@@ -345,19 +361,19 @@
     }
   }
 
-  document.getElementById('btn-pull-back').addEventListener('click', () => goToStep(2));
+  document.getElementById('btn-pull-back').addEventListener('click', () => goToStep(3));
   document.getElementById('btn-pull-next').addEventListener('click', () => {
     if (pullOk) {
-      goToStep(4);
+      goToStep(5);
     } else {
       document.getElementById('btn-pull-next').textContent = 'Next';
       pullImages();
     }
   });
 
-  // ---- Step 4: Launch ----
+  // ---- Step 5: Launch ----
 
-  document.getElementById('btn-launch-back').addEventListener('click', () => goToStep(3));
+  document.getElementById('btn-launch-back').addEventListener('click', () => goToStep(4));
 
   document.getElementById('btn-launch-start').addEventListener('click', async () => {
     hideError('launch-error');

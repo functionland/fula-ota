@@ -228,6 +228,13 @@ class DockerManager extends EventEmitter {
   async start() {
     try {
       await this.purgeGhostContainers();
+      // Pull latest images before starting (non-fatal — offline startup still works)
+      try {
+        await this._runCompose(['pull']);
+        this.logger.info('docker-manager: pull complete before start');
+      } catch (pullErr) {
+        this.logger.warn(`docker-manager: pull before start failed (continuing): ${pullErr.message}`);
+      }
       const { stdout, stderr } = await this._runCompose(['up', '-d']);
       this.logger.info(`docker-manager: started\n${stdout}${stderr}`);
       this.emit('status-change', 'started');

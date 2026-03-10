@@ -305,6 +305,24 @@ async function startServices() {
   // reachable addresses to the DHT (Docker containers can't see the host IP).
   await injectKuboAnnounceAddrs(dataDir);
 
+  // Write stable hardware ID into go-fula's env file so all code paths
+  // (mDNS, /properties, pairing) return the same ID.
+  try {
+    const hwid = configStore.getHardwareID();
+    const envGofulaPath = path.join(dataDir, 'config', '.env.gofula');
+    let envContent = '';
+    try { envContent = await fs.readFile(envGofulaPath, 'utf-8'); } catch {}
+    if (!envContent.includes('HARDWARE_ID=')) {
+      envContent = envContent.trimEnd() + `\nHARDWARE_ID=${hwid}\n`;
+    } else {
+      envContent = envContent.replace(/^HARDWARE_ID=.*$/m, `HARDWARE_ID=${hwid}`);
+    }
+    await fs.writeFile(envGofulaPath, envContent, 'utf-8');
+    logger.info(`Wrote HARDWARE_ID=${hwid.slice(0, 8)}... to .env.gofula`);
+  } catch (e) {
+    logger.warn(`Failed to write HARDWARE_ID to .env.gofula: ${e.message}`);
+  }
+
   // Start docker containers — failure is non-fatal because the health
   // monitor (below) will track the real state continuously.
   try {
@@ -425,10 +443,12 @@ async function startMdnsWithContainerProps(attempt = 0) {
       }
     }
 
-    // Fetch go-fula properties (GET /properties) — includes hardwareID, authorizer
+    // Fetch go-fula properties (GET /properties) — includes authorizer
     logger.info('mDNS: fetching go-fula properties...');
     const goFulaProps = await fetchLocalJson(PORTS.goFulaWap, '/properties');
-    const hardwareID = goFulaProps?.hardwareID || '';
+    // Use PC installer's stable hardware ID (MAC-based SHA-256), falling back
+    // to go-fula's value only if configStore has nothing yet.
+    const hardwareID = configStore.getHardwareID() || goFulaProps?.hardwareID || '';
     const authorizer = goFulaProps?.authorizer || '';
     logger.info(`mDNS: hardwareID=${hardwareID || '(empty)'}, authorizer=${authorizer || '(empty)'}`);
 
