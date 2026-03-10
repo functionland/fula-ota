@@ -1,7 +1,7 @@
 {
   "name": "fula-node",
   "productName": "Fula Node",
-  "version": "1.9.9",
+  "version": "1.10.0",
   "author": "Functionland",
   "description": "Fula Node for PC — run a Fula decentralized storage node on your computer",
   "main": "src/main/index.js",
