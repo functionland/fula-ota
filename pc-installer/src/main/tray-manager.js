@@ -52,11 +52,13 @@ class TrayManager extends EventEmitter {
 
   setStatus(color) {
     if (!this.tray || this.currentColor === color) return;
-    this.currentColor = color;
     const iconPath = path.join(__dirname, '..', 'assets', 'icons', `tray-${color}.png`);
     try {
       this.tray.setImage(iconPath);
       this.tray.setToolTip(TOOLTIPS[color] || 'Fula Node');
+      // Only update currentColor after the image was successfully set,
+      // so a failed setImage doesn't prevent future retries.
+      this.currentColor = color;
     } catch (e) {
       // Icon file may not exist yet during development
     }

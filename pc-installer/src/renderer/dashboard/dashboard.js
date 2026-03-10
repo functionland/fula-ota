@@ -27,8 +27,12 @@
   }
 
   // Listen for real-time health status from main process
+  const colorLabels = {
+    green: 'Healthy', blue: 'Connecting...', yellow: 'Degraded',
+    red: 'Error', cyan: 'Setup Required', grey: 'Stopped',
+  };
   api.onHealthStatus((status) => {
-    updateOverallStatus(status.color, status.label || '');
+    updateOverallStatus(status.color, status.label || colorLabels[status.color] || '');
   });
 
   // ---- Containers ----
@@ -93,17 +97,6 @@
       });
 
       updateLogSelect(containerNames);
-
-      // Derive overall status from container states
-      const allRunning = containers.every(c => c.state === 'running');
-      const someRunning = containers.some(c => c.state === 'running');
-      if (allRunning) {
-        updateOverallStatus('green', 'Healthy');
-      } else if (someRunning) {
-        updateOverallStatus('yellow', 'Degraded');
-      } else {
-        updateOverallStatus('red', 'Stopped');
-      }
     } catch (e) {
       listEl.innerHTML = `<span class="loading-text">Error loading containers: ${escapeHtml(e.message)}</span>`;
     }
@@ -185,7 +178,11 @@
 
       // Update overall from health if provided
       if (health.color) {
-        updateOverallStatus(health.color, health.label || '');
+        const colorLabels = {
+          green: 'Healthy', blue: 'Connecting...', yellow: 'Degraded',
+          red: 'Error', cyan: 'Setup Required', grey: 'Stopped',
+        };
+        updateOverallStatus(health.color, health.label || colorLabels[health.color] || '');
       }
     } catch (e) {
       listEl.innerHTML = `<span class="loading-text">Error: ${escapeHtml(e.message)}</span>`;
@@ -273,6 +270,14 @@
 
       const isSetup = await api.isSetupComplete();
       document.getElementById('info-status').textContent = isSetup ? 'Setup Complete' : 'Needs Setup';
+
+      // Show LAN IP in header
+      try {
+        const lanIp = await api.getLanIp();
+        if (lanIp) {
+          document.getElementById('lan-ip').textContent = `(${lanIp})`;
+        }
+      } catch {}
     } catch (e) {
       console.error('System info error:', e);
     }

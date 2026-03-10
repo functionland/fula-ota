@@ -51,8 +51,8 @@ services:
       - "4001:4001"
       - "4001:4001/udp"
       - "127.0.0.1:5001:5001"
-      - "0.0.0.0:8080:8080"
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:8880:8080"
+      - "127.0.0.1:8881:8081"
     environment:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data
@@ -145,6 +145,7 @@ services:
       - ${FULA_DATA_DIR}/config/.env.gofula:/.env
     environment:
       - KUBO_API_URL=http://kubo:5001
+      - IPADDRESS=0.0.0.0
     ports:
       - "40001:40001"
       - "3500:3500"

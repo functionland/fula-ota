@@ -159,9 +159,13 @@ class HealthMonitor extends EventEmitter {
 
   /**
    * Run every individual check, compute overall color, and emit the 'status' event.
+   * @param {object} [options]
+   * @param {boolean} [options.skipAutoRecovery=false] - When true, skip auto-recovery
+   *   counter logic.  Use this for on-demand queries (e.g. dashboard refresh) that
+   *   should not inflate the consecutive-failure counters.
    * @returns {{ color: string, checks: object, issues: string[] }}
    */
-  async runAllChecks() {
+  async runAllChecks({ skipAutoRecovery = false } = {}) {
     const checks = {};
     const issues = [];
 
@@ -221,8 +225,10 @@ class HealthMonitor extends EventEmitter {
     settle(proxyPorts, 'proxyPorts');
     settle(peerIdCollision, 'peerIdCollision');
 
-    // --- Auto-recovery logic ---
-    this._evaluateAutoRecovery(checks);
+    // --- Auto-recovery logic (only from periodic checks, not dashboard queries) ---
+    if (!skipAutoRecovery) {
+      this._evaluateAutoRecovery(checks);
+    }
 
     const color = this.determineColor(checks);
 

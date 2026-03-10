@@ -46,6 +46,45 @@ if [ -f "/internal/.ipfs_setup" ] && \
     fi
 fi
 
+# === Fix kubo 0.40+ flat datastore format ===
+# kubo 0.40+ `ipfs init --profile=flatfs` generates a FLAT datastore spec
+# (path/type at mount level, no "child" wrapper). go-fula's initipfs expects
+# nested "child" objects. Detect the flat format and replace the config with
+# the template (which has the correct nested format), preserving Identity.
+KUBO_CFG="/internal/ipfs_data/config"
+TEMPLATE_CFG="/container-init.d/config"
+if [ -f "$KUBO_CFG" ] && [ -f "$TEMPLATE_CFG" ]; then
+    # Flat format has "path" at mount level → appears as top-level key next to "mountpoint".
+    # Nested format has "child" key inside each mount. Check for flat format:
+    if grep -q '"child"' "$KUBO_CFG" && grep -q '"path": ""' "$KUBO_CFG"; then
+        # initipfs already ran but produced empty paths (broken). Replace with template.
+        log "Detected broken datastore config (empty paths). Replacing with template."
+        PEER_ID=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' "$KUBO_CFG" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        PRIV_KEY=$(grep -o '"PrivKey"[[:space:]]*:[[:space:]]*"[^"]*"' "$KUBO_CFG" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        cp "$TEMPLATE_CFG" "$KUBO_CFG"
+        if [ -n "$PEER_ID" ]; then
+            sed -i "s/\"PeerID\": \"\"/\"PeerID\": \"$PEER_ID\"/" "$KUBO_CFG"
+        fi
+        if [ -n "$PRIV_KEY" ]; then
+            sed -i "s|\"PrivKey\": \"\"|\"PrivKey\": \"$PRIV_KEY\"|" "$KUBO_CFG"
+        fi
+        log "Config restored from template with Identity preserved (PeerID=$PEER_ID)"
+    elif ! grep -q '"child"' "$KUBO_CFG"; then
+        # Fresh kubo init (flat format, no child key at all). Replace with template.
+        log "Detected flat datastore format (kubo 0.40+). Replacing with template."
+        PEER_ID=$(grep -o '"PeerID"[[:space:]]*:[[:space:]]*"[^"]*"' "$KUBO_CFG" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        PRIV_KEY=$(grep -o '"PrivKey"[[:space:]]*:[[:space:]]*"[^"]*"' "$KUBO_CFG" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        cp "$TEMPLATE_CFG" "$KUBO_CFG"
+        if [ -n "$PEER_ID" ]; then
+            sed -i "s/\"PeerID\": \"\"/\"PeerID\": \"$PEER_ID\"/" "$KUBO_CFG"
+        fi
+        if [ -n "$PRIV_KEY" ]; then
+            sed -i "s|\"PrivKey\": \"\"|\"PrivKey\": \"$PRIV_KEY\"|" "$KUBO_CFG"
+        fi
+        log "Config restored from template with Identity preserved (PeerID=$PEER_ID)"
+    fi
+fi
+
 # === OTA migration: kubo config field updates ===
 # Idempotent sed — safe to run on already-updated configs (exact-match, no-op).
 for cfg_file in "/internal/ipfs_data/config" "/internal/ipfs_config"; do
