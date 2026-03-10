@@ -389,7 +389,7 @@ async function ensureKuboNetworkConfig() {
   logger.info('ensureKuboNetworkConfig: setting Internal.Libp2pForceReachability=private via API (migration wiped it)');
   await fetchLocalJson(
     PORTS.kuboApi,
-    '/api/v0/config?arg=Internal.Libp2pForceReachability&arg=%22private%22',
+    '/api/v0/config?arg=Internal.Libp2pForceReachability&arg=private',
     'POST'
   );
 
