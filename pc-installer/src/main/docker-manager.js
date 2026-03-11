@@ -10,12 +10,21 @@
  */
 
 const { EventEmitter } = require('events');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const path = require('path');
 const fs = require('fs/promises');
 
 const execFileAsync = promisify(execFile);
+
+/** Default timeout for docker commands (2 minutes). */
+const CMD_TIMEOUT = 120_000;
+/** Timeout for lightweight docker commands like ps, info (30 seconds). */
+const SHORT_TIMEOUT = 30_000;
+/** Timeout for docker compose pull (5 minutes — image downloads can be slow). */
+const PULL_TIMEOUT = 300_000;
+/** Timeout for docker info probes during waitForDocker (15 seconds — fast iteration). */
+const PROBE_TIMEOUT = 15_000;
 
 class DockerManager extends EventEmitter {
   /**
@@ -63,7 +72,7 @@ class DockerManager extends EventEmitter {
    * @param {string[]} args  - Arguments appended after the common prefix.
    * @returns {Promise<{stdout: string, stderr: string}>}
    */
-  async _runCompose(args) {
+  async _runCompose(args, timeout = CMD_TIMEOUT) {
     const cmd = await this.getDockerComposePath();
     const prefixArgs = await this._composeArgs();
 
@@ -74,7 +83,7 @@ class DockerManager extends EventEmitter {
     const fullArgs = [...extraTokens, ...prefixArgs, ...args];
 
     this.logger.info(`docker-manager: ${binary} ${fullArgs.join(' ')}`);
-    return execFileAsync(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024 });
+    return execFileAsync(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024, timeout });
   }
 
   // ---------------------------------------------------------------------------
@@ -196,7 +205,7 @@ class DockerManager extends EventEmitter {
     this.logger.info(`docker-manager: pulling images...`);
 
     return new Promise((resolve, reject) => {
-      const child = execFile(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const child = execFile(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024, timeout: PULL_TIMEOUT }, (err, stdout, stderr) => {
         if (err) {
           this.logger.error(`docker-manager: pull failed: ${err.message}`);
           return reject(err);
@@ -221,16 +230,135 @@ class DockerManager extends EventEmitter {
   }
 
   /**
+   * Wait for the Docker daemon to become responsive.
+   * If Docker Desktop is unresponsive on Windows, kills and relaunches it,
+   * then waits up to ~3 minutes for it to initialize.
+   * @returns {Promise<boolean>} true if daemon is ready
+   */
+  async waitForDocker(maxAttempts = 15) {
+    let restartAttempted = false;
+
+    for (let i = 1; i <= maxAttempts; i++) {
+      try {
+        await execFileAsync('docker', ['info'], { timeout: PROBE_TIMEOUT });
+        if (i > 1) this.logger.info('docker-manager: Docker daemon is now responsive');
+        return true;
+      } catch (err) {
+        this.logger.warn(`docker-manager: Docker not ready (attempt ${i}/${maxAttempts}): ${err.message}`);
+
+        // On Windows, try restarting Docker Desktop (once)
+        if (!restartAttempted && process.platform === 'win32') {
+          restartAttempted = true;
+          await this._restartDockerDesktop();
+          // Give Docker Desktop extra time to initialize after relaunch
+          this.logger.info('docker-manager: waiting 30s for Docker Desktop to initialize...');
+          await new Promise(r => setTimeout(r, 30_000));
+        } else if (i < maxAttempts) {
+          // Wait 15s between probes (Docker Desktop startup can take 60-120s)
+          await new Promise(r => setTimeout(r, 15_000));
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Kill Docker Desktop and relaunch it.
+   * Tries multiple launch methods since execFile can fail silently on Windows.
+   * @private
+   */
+  async _restartDockerDesktop() {
+    this.logger.info('docker-manager: attempting to restart Docker Desktop...');
+
+    // Kill all Docker Desktop processes
+    try {
+      await execFileAsync('taskkill', ['/IM', 'Docker Desktop.exe', '/F'], { timeout: 15_000 });
+      this.logger.info('docker-manager: killed Docker Desktop.exe');
+    } catch {
+      this.logger.info('docker-manager: Docker Desktop.exe was not running (or taskkill failed)');
+    }
+
+    // Also kill the backend service which can hang independently
+    try {
+      await execFileAsync('taskkill', ['/IM', 'com.docker.backend.exe', '/F'], { timeout: 10_000 });
+    } catch {
+      // not critical
+    }
+
+    // Wait for processes to fully exit
+    await new Promise(r => setTimeout(r, 5_000));
+
+    // Try to find Docker Desktop executable
+    const candidates = [
+      `${process.env.ProgramFiles || 'C:\\Program Files'}\\Docker\\Docker\\Docker Desktop.exe`,
+      `${process.env.LOCALAPPDATA || ''}\\Docker\\Docker Desktop.exe`,
+      `${process.env.ProgramFiles || 'C:\\Program Files'}\\Docker\\Docker Desktop\\Docker Desktop.exe`,
+    ].filter(p => p && !p.startsWith('\\'));
+
+    let launched = false;
+
+    for (const ddPath of candidates) {
+      try {
+        await fs.access(ddPath);
+        this.logger.info(`docker-manager: launching Docker Desktop from ${ddPath}`);
+
+        // Use spawn with shell:true for reliable Windows process launch
+        const child = spawn(`"${ddPath}"`, [], {
+          shell: true,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+        });
+        child.unref();
+        child.on('error', (e) => {
+          this.logger.warn(`docker-manager: Docker Desktop spawn error: ${e.message}`);
+        });
+
+        launched = true;
+        this.logger.info('docker-manager: Docker Desktop launch initiated');
+        break;
+      } catch {
+        this.logger.info(`docker-manager: Docker Desktop not found at ${ddPath}`);
+      }
+    }
+
+    if (!launched) {
+      // Fallback: try via Windows start command (finds it via PATH/registry)
+      this.logger.info('docker-manager: trying "start" command as fallback...');
+      try {
+        const child = spawn('cmd', ['/c', 'start', '', 'Docker Desktop'], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        child.unref();
+        child.on('error', () => {});
+        this.logger.info('docker-manager: Docker Desktop fallback launch attempted');
+      } catch (e) {
+        this.logger.warn(`docker-manager: all Docker Desktop launch methods failed: ${e.message}`);
+      }
+    }
+  }
+
+  /**
    * Start all Fula services.
-   * Purges ghost containers first to avoid the --no-recreate dead-container
-   * problem documented in MEMORY.md.
+   * Waits for Docker daemon, purges ghost containers, pulls images, then starts.
    */
   async start() {
+    // Ensure Docker daemon is responsive before proceeding
+    const dockerReady = await this.waitForDocker();
+    if (!dockerReady) {
+      const err = new Error('Docker daemon is not responsive after multiple retries');
+      this.logger.error(`docker-manager: ${err.message}`);
+      this.emit('error', err);
+      throw err;
+    }
+
     try {
       await this.purgeGhostContainers();
       // Pull latest images before starting (non-fatal — offline startup still works)
       try {
-        await this._runCompose(['pull']);
+        await this._runCompose(['pull'], PULL_TIMEOUT);
         this.logger.info('docker-manager: pull complete before start');
       } catch (pullErr) {
         this.logger.warn(`docker-manager: pull before start failed (continuing): ${pullErr.message}`);
@@ -287,7 +415,7 @@ class DockerManager extends EventEmitter {
         'ps', '-a',
         '--filter', 'label=com.docker.compose.project=fula',
         '-q',
-      ]);
+      ], { timeout: SHORT_TIMEOUT });
 
       const ids = stdout.trim();
       if (!ids) {
@@ -297,7 +425,7 @@ class DockerManager extends EventEmitter {
 
       const idList = ids.split(/\s+/);
       this.logger.info(`docker-manager: purging ${idList.length} ghost container(s): ${idList.join(', ')}`);
-      await execFileAsync('docker', ['rm', '-f', ...idList]);
+      await execFileAsync('docker', ['rm', '-f', ...idList], { timeout: SHORT_TIMEOUT });
       this.logger.info('docker-manager: ghost containers removed');
     } catch (err) {
       // Non-fatal; log and continue.
@@ -315,7 +443,7 @@ class DockerManager extends EventEmitter {
         'ps', '-a',
         '--format', '{{json .}}',
         '--filter', 'label=com.docker.compose.project=fula',
-      ]);
+      ], { timeout: SHORT_TIMEOUT });
 
       if (!stdout.trim()) return [];
 
@@ -349,7 +477,7 @@ class DockerManager extends EventEmitter {
       const { stdout, stderr } = await execFileAsync('docker', [
         'logs', containerName,
         '--tail', String(tail),
-      ], { maxBuffer: 5 * 1024 * 1024 });
+      ], { maxBuffer: 5 * 1024 * 1024, timeout: SHORT_TIMEOUT });
       // Docker writes most log output to stderr; combine both streams.
       return `${stdout}${stderr}`;
     } catch (err) {

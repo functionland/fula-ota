@@ -113,6 +113,8 @@ class HealthMonitor extends EventEmitter {
     // Auto-recovery state
     this.consecutiveRelayFailures = 0;
     this.consecutiveSwarmFailures = 0;
+    this.consecutiveDockerFailures = 0;
+    this._dockerRecoveryInProgress = false;
 
     // Expected container names (values from CONTAINERS constant)
     this.expectedContainers = Object.values(CONTAINERS);
@@ -667,6 +669,30 @@ class HealthMonitor extends EventEmitter {
   _evaluateAutoRecovery(checks) {
     const c = (name) => checks[name] || { ok: true };
 
+    // Track consecutive Docker/container failures
+    // If containers check failed with an error (not just "some down" but Docker itself broken)
+    const containerCheck = c('containers');
+    const dockerBroken = !containerCheck.ok &&
+      containerCheck.detail &&
+      /command failed|ENOENT|cannot connect|timed out/i.test(containerCheck.detail);
+
+    if (dockerBroken) {
+      this.consecutiveDockerFailures++;
+      this.logger.warn(
+        `HealthMonitor: Docker appears down (${this.consecutiveDockerFailures} consecutive failures)`
+      );
+    } else {
+      this.consecutiveDockerFailures = 0;
+    }
+
+    // After 3 consecutive Docker failures (~3 minutes), attempt recovery
+    if (this.consecutiveDockerFailures >= 3 && !this._dockerRecoveryInProgress) {
+      this._dockerRecoveryInProgress = true;
+      this.consecutiveDockerFailures = 0;
+      this.logger.warn('HealthMonitor: Docker unresponsive for 3+ cycles, emitting docker-recovery');
+      this.emit('docker-recovery');
+    }
+
     // Track consecutive relay failures
     if (!c('relay').ok) {
       this.consecutiveRelayFailures++;
@@ -694,6 +720,11 @@ class HealthMonitor extends EventEmitter {
       this.consecutiveRelayFailures = 0;
       this.consecutiveSwarmFailures = 0;
     }
+  }
+
+  /** Called by index.js after docker-recovery completes (success or failure). */
+  dockerRecoveryComplete() {
+    this._dockerRecoveryInProgress = false;
   }
 }
 

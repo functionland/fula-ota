@@ -329,6 +329,7 @@ async function startServices() {
     await dockerManager.start();
   } catch (e) {
     logger.warn(`Docker start failed (health monitor will track): ${e.message}`);
+    if (trayManager) trayManager.setStatus('red');
   }
 
   // ALWAYS start the health monitor — it is the single source of truth
@@ -355,6 +356,25 @@ async function startServices() {
     logger.warn('Health monitor triggered restart');
     trayManager.setStatus('yellow');
     try { await dockerManager.restart(); } catch (e) { logger.error(e.message); }
+  });
+  healthMonitor.on('docker-recovery', async () => {
+    logger.warn('Health monitor triggered Docker recovery');
+    trayManager.setStatus('yellow');
+    try {
+      const ready = await dockerManager.waitForDocker();
+      if (ready) {
+        logger.info('Docker recovered, starting services...');
+        await dockerManager.start();
+      } else {
+        logger.error('Docker recovery failed — daemon still not responsive');
+        trayManager.setStatus('red');
+      }
+    } catch (e) {
+      logger.error(`Docker recovery error: ${e.message}`);
+      trayManager.setStatus('red');
+    } finally {
+      healthMonitor.dockerRecoveryComplete();
+    }
   });
   healthMonitor.start(HEALTH_CHECK_INTERVAL);
 
