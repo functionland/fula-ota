@@ -552,7 +552,36 @@ Download the installer from [GitHub Releases](https://github.com/functionland/fu
 - Windows: `.exe` (Squirrel installer)
 - Linux: `.deb` package
 
-The setup wizard guides through Docker Desktop verification, storage selection, port checks, image pulling, and service launch.
+**GUI mode** (default): The setup wizard guides through Docker Desktop verification, storage selection, port checks, image pulling, and service launch.
+
+**CLI mode** (headless): Pass `--wallet` to skip the GUI entirely. Useful for Linux servers, scripted deployments, and headless machines.
+
+```bash
+# Basic setup (identity + services, no pool):
+fula-node --wallet 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+          --password "mypassword" \
+          --authorizer 12D3KooWAazUofWiZPiTovPDTqk8pucGw5k9ruSfbwncaktWi7DN
+
+# Full setup with pool joining:
+fula-node --wallet 0xac09...f80 --password "mypass" --authorizer 12D3KooWAaz... \
+          --chain skale --poolId 1
+
+# Custom data directory:
+fula-node --wallet 0xac09...f80 --password "mypass" --authorizer 12D3KooWAaz... \
+          --data-dir /opt/fula-data
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--wallet <hex>` | Yes | Ethereum private key (64 hex chars, with or without `0x` prefix) |
+| `--password <string>` | Yes | Password for identity derivation (same as in mobile app) |
+| `--authorizer <peerID>` | Yes | Peer ID of the authorizing mobile device (starts with `12D3KooW`) |
+| `--chain <skale\|base>` | No | Blockchain for pool joining (default: `skale`) |
+| `--poolId <number>` | No | Pool ID to join (requires `--chain`) |
+| `--data-dir <path>` | No | Data directory (default: `%LOCALAPPDATA%\FulaData` on Windows, `~/.fula` on Linux) |
+| `--help`, `-h` | No | Show help message and exit |
+
+The CLI mode performs the full setup sequence: input validation, identity derivation from wallet+password, config.yaml and box_props.json generation, Docker image pull (with per-image progress output), service startup, and optional pool joining. On success it prints a summary and exits with code 0.
 
 ## Building and Pushing Docker Images
 
