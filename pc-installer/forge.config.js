@@ -2,6 +2,7 @@ module.exports = {
   packagerConfig: {
     asar: true,
     name: 'Fula Node',
+    executableName: 'fula-node',
     icon: 'src/assets/icons/fula',
     extraResource: ['templates'],
   },

@@ -1,10 +1,10 @@
 # Fula OTA
 
-Over-the-air update system for FxBlox devices. Manages Docker-based services for IPFS storage, cluster pinning, auto-pinning, and the Fula protocol on ARM64 hardware (RK3588/RK1).
+Over-the-air update system for FxBlox devices and PCs. Manages Docker-based services for IPFS storage, cluster pinning, auto-pinning, and the Fula protocol on ARM64 hardware (RK3588/RK1) and x86_64 desktops (Windows/Linux/macOS).
 
 ## Architecture Overview
 
-Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
+Each Fula node runs nine Docker containers orchestrated by `docker-compose`:
 
 ```
 +---------------------+     +-------------------+     +---------------------+
@@ -13,7 +13,7 @@ Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
 |                     |     |  bridge network)  |     |  ipfs-cluster)      |
 | Carries all config  |     |                   |     |  host network       |
 | and scripts in      |     | Ports: 4001, 5001 |     |  Ports: 9094-9096   |
-| /linux/ directory   |     |  8081             |     |                     |
+| /linux/ directory   |     |  8080, 8081       |     |                     |
 +---------------------+     +---+---------------+     +---------------------+
          |                       |           ^
          | docker cp to         | IPFS       | pin/add, pin/ls
@@ -25,12 +25,18 @@ Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
 +----------------------------+  |          | Port: 3501        |   | host network       |
          |                      |          +---+---+-----------+   | Port: 9000         |
 +--------+--------+     +------+------+        |   |               +--------+-----------+
-|    go-fula       |     |  watchtower |   Syncs |   | registry.cid        |
-| (functionland/   |     | auto-update |   pins  |   +----> shared file --+
-|  go-fula)        |     | every 3600s |   from  |         /internal/fula-gateway/
-|  host network    |     +-------------+  remote |
-|  Port: 40001     |                      pinning|
-+------------------+     +---------------------+ |
+|    go-fula       |     |  kubo-local |   Syncs |   | registry.cid        |
+| (functionland/   |     | (ipfs/kubo  |   pins  |   +----> shared file --+
+|  go-fula)        |     |  :release)  |   from  |         /internal/fula-gateway/
+|  host network    |     |  bridge     |  remote |
+|  Port: 40001     |     | Port: 5002  | pinning |
++------------------+     +-------------+         |
+                         +---------------------+ |
+                         |  watchtower          | |
+                         |  auto-update         | |
+                         |  every 3600s         | |
+                         +---------------------+ |
+                         +---------------------+ |
                          |  fula.service        | |
                          |  (systemd)           | |
                          |  runs fula.sh        | |
@@ -42,19 +48,22 @@ Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
 | Container | Image | Network | Purpose |
 |-----------|-------|---------|---------|
 | `fula_fxsupport` | `functionland/fxsupport:release` | default | Carries scripts and config files. Acts as a delivery mechanism — `fula.sh` copies `/linux/` from this container to `/usr/bin/fula/` on the host. |
-| `ipfs_host` | `ipfs/kubo:release` | bridge | IPFS node. Stores blocks on `/uniondrive`. Config template at `kubo/config`, runtime config at `/home/pi/.internal/ipfs_data/config`. |
+| `ipfs_host` | `ipfs/kubo:release` | bridge | Main IPFS node. Stores blocks on `/uniondrive`. Config template at `kubo/config`, runtime config at `/home/pi/.internal/ipfs_data/config`. |
+| `ipfs_local` | `ipfs/kubo:release` | bridge | Local-only IPFS node for fula-gateway and fula-pinning. Separate IPFS repo at `/internal/ipfs_data_local`. Port 5002 (localhost only). |
 | `ipfs_cluster` | `functionland/ipfs-cluster:release` | host | IPFS Cluster follower node. Manages pin replication across the network. Config at `/uniondrive/ipfs-cluster/service.json`. |
-| `fula_go` | `functionland/go-fula:release` | host | Fula protocol: blockchain proxy, libp2p blox, WAP server. |
-| `fula_pinning` | `functionland/fula-pinning:release` | host | Auto-pinning daemon. Syncs pins from a remote IPFS Pinning Service to local Kubo. Writes `registry.cid` for fula-gateway. See [docker/fula-pinning/README.md](docker/fula-pinning/README.md). |
-| `fula_gateway` | `functionland/fula-gateway:release` | host | Local S3-compatible gateway. Serves the paired user's files from local Kubo on port 9000 (LAN only). FxFiles switches between this and the remote gateway. Auth via pairing secret from `box_props.json`. |
+| `fula_go` | `functionland/go-fula:release` | host | Fula protocol: blockchain proxy (ports 4020/4021), libp2p blox (port 40001), WAP server (port 3500). |
+| `fula_pinning` | `functionland/fula-pinning:release` | host | Auto-pinning daemon. Syncs pins from a remote IPFS Pinning Service to local kubo. Writes `registry.cid` for fula-gateway. See [docker/fula-pinning/README.md](docker/fula-pinning/README.md). |
+| `fula_gateway` | `functionland/fula-gateway:release` | host | Local S3-compatible gateway. Serves the paired user's files from local kubo on port 9000 (LAN only). Auth via pairing secret from `box_props.json`. |
 | `fula_updater` | `containrrr/watchtower:latest` | default | Polls Docker Hub hourly for updated images, auto-restarts containers. |
 
 ### Networking
 
-- **kubo** runs in Docker bridge networking (ports mapped: `4001:4001`, `5001:5001`)
+- **kubo** and **kubo-local** run in Docker bridge networking (ports mapped: `4001:4001`, `5001:5001`, `5002:5002`)
 - **go-fula**, **ipfs-cluster**, **fula-pinning**, and **fula-gateway** run with `network_mode: "host"` (direct host networking)
 - go-fula cannot reach kubo at `127.0.0.1` from host network — it uses the `docker0` bridge IP (typically `172.17.0.1`), auto-detected in `go-fula/blox/kubo_proxy.go`
+- **Docker Compose bridge caveat**: Compose creates its own bridge interfaces (`br-<hash>`), not `docker0`. Firewall rules must match `-i br-+` (iptables wildcard) in addition to `-i docker0`.
 - **fula-gateway** reaches kubo at `127.0.0.1:5001` via host network (kubo's port mapping), serves S3 API on `0.0.0.0:9000` (LAN-only via firewall)
+- **PC installer networking**: All services run in bridge mode (`fula-net`) since Docker Desktop doesn't support host networking on Windows/macOS. kubo's LAN and public IP are injected into `Addresses.AppendAnnounce` so it advertises reachable addresses to the DHT.
 
 ### Storage Layout
 
@@ -65,8 +74,9 @@ Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
   ipfs-cluster/                 # Cluster state, service.json, identity.json
   ipfs_staging/                 # IPFS staging directory
 
-/home/pi/.internal/             # Device-internal state
+/home/pi/.internal/             # Device-internal state (Armbian)
   ipfs_data/config              # Deployed kubo config (runtime)
+  ipfs_data_local/config        # Local kubo config (runtime)
   ipfs_config                   # Template copy (used by initipfs)
   config.yaml                   # Fula device config (pool, authorizer, etc.)
   box_props.json                # Pairing credentials (JWT, secret, endpoint)
@@ -79,28 +89,43 @@ Each FxBlox device runs six Docker containers orchestrated by `docker-compose`:
   .env.cluster                  # Cluster env var overrides
   kubo/config                   # Kubo config template
   kubo/kubo-container-init.d.sh # Kubo init script
+  kubo-local/config-local       # Local kubo config template
+  kubo-local/kubo-local-container-init.d.sh  # Local kubo init script
   ipfs-cluster/ipfs-cluster-container-init.d.sh  # Cluster init script
   update_kubo_config.py         # Selective kubo config merger
   union-drive.sh                # UnionDrive mount management
   bluetooth.py                  # BLE command handler
   local_command_server.py       # Local TCP command server
   control_led.py                # LED control
+  readiness-check.py            # Health monitoring and auto-recovery
+  commands.sh                   # File-based command handler (reboot, LED, partition)
+  firewall.sh                   # iptables firewall rules
+  plugins/                      # Plugin system
   ...
 ```
+
+### Identity System
+
+Each Fula node has two peer IDs derived from a single private key:
+
+- **Cluster Peer ID**: The original `peer.IDFromPrivateKey(identity)` — used for on-chain pool membership and IPFS Cluster identity
+- **Kubo Peer ID**: HMAC-SHA256 derived with domain `"fula-kubo-identity-v1"` — used for IPFS kubo identity (prevents collision with cluster)
+
+go-fula uses the cluster peer ID for `discoverPoolAndChain()` membership checks, while kubo uses the derived peer ID.
 
 ### Auto-Pinning (fula-pinning)
 
 The `fula-pinning` daemon replicates data from the remote Fula Storage API to this device's local IPFS node. The local blox is a **sync consumer only** — uploads go to the remote Fula Gateway S3 server, not to this device:
 
 ```
-User uploads via S3 API → remote Fula Gateway → stores in Gateway's Kubo + pins on Remote Pinning Service
-                                                                                       │
-fula-pinning daemon (this device) ◄── fetches pin list every 3 min (user's JWT) ───────┘
-        │
-        └──► pins missing CIDs on local Kubo (fetches data via IPFS P2P network)
+User uploads via S3 API -> remote Fula Gateway -> stores in Gateway's Kubo + pins on Remote Pinning Service
+                                                                                       |
+fula-pinning daemon (this device) <-- fetches pin list every 3 min (user's JWT) -------+
+        |
+        +---> pins missing CIDs on local Kubo (fetches data via IPFS P2P network)
 ```
 
-**User isolation**: The daemon uses the paired user's JWT (`auto_pin_token`) to query the pinning service. The service only returns pins belonging to that token, so the local Kubo only pins the paired user's data.
+**User isolation**: The daemon uses the paired user's JWT (`auto_pin_token`) to query the pinning service. The service only returns pins belonging to that token, so the local kubo only pins the paired user's data.
 
 **Configuration**: Pairing credentials are stored in `/home/pi/.internal/box_props.json`:
 ```json
@@ -121,28 +146,137 @@ See [docker/fula-pinning/README.md](docker/fula-pinning/README.md) for full docu
 
 ### Local S3 Gateway (fula-gateway)
 
-The `fula-gateway` container runs the same fula-cli S3 gateway that powers the remote cloud service (`s3.cloud.fx.land`), but locally on the blox. This lets FxFiles access files over LAN with the same S3 protocol — no special local decryption logic needed:
+The `fula-gateway` container is a standalone Rust binary (`fula-local-gateway`) that provides an S3-compatible API for local file access. It uses `fula-core` and `fula-blockstore` crates from [fula-api](https://github.com/functionland/fula-api) as shared libraries, but contains no cloud code.
 
 ```
 FxFiles (client-side encryption/decryption)
-    │
-    ├── Remote: S3 API → s3.cloud.fx.land:443 ─→ remote fula-cli ─→ remote kubo
-    │
-    └── Local (LAN): S3 API → blox-ip:9000 ─→ local fula-cli ─→ local kubo
-                                                     ↑
+    |
+    +-- Remote: S3 API -> s3.cloud.fx.land:443 -> remote fula-cli -> remote kubo
+    |
+    +-- Local (LAN): S3 API -> blox-ip:9000 -> local fula-gateway -> local kubo
+                                                     ^
                                               registry.cid written by
                                               fula-pinning daemon
 ```
 
-**Registry sync**: fula-pinning writes the bucket registry CID to `/internal/fula-gateway/registry.cid` (atomic write). fula-gateway polls this file every 30 seconds and reloads the registry when the CID changes.
-
-**User scoping**: The remote registry contains all users' buckets. On the blox, fula-gateway filters to only the paired user's buckets by deriving the owner ID (BLAKE3 hash of JWT `sub` claim) from `box_props.json`.
-
-**Authentication**: Uses the `auto_pin_pairing_secret` from `box_props.json` as a static Bearer token. FxFiles sends `Authorization: Bearer {pairing_secret}` to authenticate. When unpaired (no secret), auth is disabled (safe — port 9000 is LAN-only via firewall).
+**Key features**:
+- **Bearer-only auth**: Uses `auto_pin_pairing_secret` from `box_props.json`. When unpaired, auth is disabled (safe — port 9000 is LAN-only via firewall).
+- **User scoping**: Derives owner ID from BLAKE3 hash of JWT `sub` claim. All bucket operations are scoped to the paired user.
+- **Multipart uploads**: Full lifecycle support (`create_multipart_upload`, `upload_part`, `complete_multipart_upload`). Creates unified DAG via `put_ipld()` for multi-part files.
+- **CID watcher**: Polls `/internal/fula-gateway/registry.cid` every 30 seconds, reloads bucket registry when CID changes.
+- **Content CID header**: Always returns `X-Fula-Content-Cid` header on object responses.
+- **Registry persistence**: Uses `persist_registry()` (no token) for local operation.
+- **mDNS**: go-fula advertises `s3Port=9000` in mDNS TXT records so FxFiles discovers the local gateway automatically.
 
 **Firewall**: Port 9000 is restricted to RFC1918 private addresses only (192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12).
 
-**mDNS**: go-fula advertises `s3Port=9000` in mDNS TXT records so FxFiles can discover the local gateway automatically.
+### Health Monitoring (Armbian)
+
+The `readiness-check.py` script runs as a systemd service and provides comprehensive health monitoring:
+
+- **Container health**: Monitors all 8 containers, detects crashes and error logs
+- **Config validation**: Detects YAML invalid control characters, auto-restores from backup if corrupted
+- **PeerID collision detection**: Detects and fixes kubo/cluster PeerID collisions by regenerating cluster identity
+- **Proxy health**: Checks go-fula proxy ports (4020, 40001) reachability
+- **Disk space**: Triggers `docker system prune` if <1GB free
+- **Kubo config**: Strips deprecated Provider/Reprovider fields (kubo 0.40+)
+- **LED status**: Green=healthy, Yellow=restarting, Blue=restarted, Red=critical failure
+- **Auto-recovery**: Up to 4 restart attempts, then activates WireGuard fallback and triggers re-partition after 12+ hours of failure
+
+### Plugin System
+
+Optional plugins extend device functionality. Each plugin includes `install.sh`, `start.sh`, `stop.sh`, `uninstall.sh`, a `docker-compose.yml`, and an `info.json` manifest.
+
+| Plugin | Purpose | Requirements |
+|--------|---------|-------------|
+| **streamr-node** | Runs a Streamr node to earn $DATA token rewards | Port 32200 forwarding |
+| **loyal-agent** | Local AI agent using NPU (deepseek-llm-7b-chat model) | 32GB RAM, 10GB storage, ARM64 only |
+
+Active plugins are tracked in `/home/pi/active-plugins.txt`. The PC installer excludes hardware-specific plugins (e.g. `loyal-agent`).
+
+### Command Handler
+
+The `commands.sh` script watches `/home/pi/commands/` via `inotifywait` for file-based commands:
+
+| Command File | Action |
+|-------------|--------|
+| `.command_partition` | Runs `resize.sh` for disk repartitioning |
+| `.command_repairfs` | Runs `repairfs.sh` for external storage filesystem repair |
+| `.command_led` | Sets LED color/duration (file content: `color duration`) |
+| `.command_reboot` | Triggers system reboot |
+
+## PC Installer
+
+The `pc-installer/` directory contains an Electron desktop application that brings the full Fula node stack to Windows, Linux, and macOS PCs via Docker Desktop.
+
+### Key Differences from Armbian
+
+| Aspect | Armbian (fula.sh) | PC Installer (Electron) |
+|--------|-------------------|------------------------|
+| Runtime | Bash scripts on bare metal | Electron GUI + Node.js managers |
+| Docker networking | Mixed (host for go-fula, bridge for kubo) | All bridge (`fula-net`) |
+| Firewall | `iptables` rules | Windows Firewall rules via Squirrel hooks |
+| Storage paths | Fixed: `/home/pi`, `/media/pi` | User-chosen `dataDir` + `storageDir` |
+| Health monitoring | `readiness-check.py` (systemd) | Real-time `HealthMonitor` + tray icon colors |
+| mDNS | Python `advertisement.py` | Node.js `bonjour-service` with interface detection |
+| Hardware ID | ARM cpuinfo hash | SHA-256 of first non-internal MAC address |
+| UI | CLI only | Setup wizard (6 steps) + dashboard |
+
+### Architecture
+
+```
+src/main/
+  index.js              # Main entry, IPC handlers, lifecycle orchestration
+  constants.js          # Ports, container names, bootstrap peers
+  config-store.js       # Electron-store config persistence
+  docker-manager.js     # Docker Compose lifecycle, waitForDocker(), ghost container cleanup
+  health-monitor.js     # Continuous health checks, auto-recovery, Docker recovery
+  tray-manager.js       # System tray icon + context menu (color = health status)
+  storage-manager.js    # Directory tree init, template copying
+  mdns-advertiser.js    # mDNS advertisement via bonjour-service
+  update-manager.js     # Stale image detection
+  plugin-manager.js     # Plugin extraction from fxsupport container
+  logger.js             # Winston-based logging (file + console)
+
+src/renderer/
+  wizard/               # Setup wizard UI (terms, Docker check, storage, ports, pull, launch)
+  dashboard/            # Dashboard UI (containers, logs, health, plugins)
+```
+
+### Features
+
+- **Setup wizard**: 6-step guided setup (terms, Docker check, storage selection, port availability, image pull, launch)
+- **System tray**: Color-coded health status (green/yellow/red/blue/cyan/grey)
+- **Health monitor**: Continuous checks for container health, kubo API, relay connection, bootstrap peers, proxy ports, cluster errors, config validity, disk space, PeerID collision
+- **Docker Desktop recovery**: Detects unresponsive Docker daemon, kills and relaunches Docker Desktop, waits for recovery. Health monitor triggers recovery after 3 consecutive failures.
+- **mDNS**: Advertises `_fulatower._tcp` with device properties (bloxPeerIdString, authorizer, hardwareID, ipfsClusterID, s3Port). Polls go-fula `/properties` every 60s to update.
+- **kubo network hardening**: Injects LAN + public IP into `AppendAnnounce`, forces `Libp2pForceReachability=private` for relay-v2 (AutoNAT can't work in Docker bridge)
+- **Template sync**: `scripts/sync-shared-templates.js` copies kubo/cluster configs from Armbian sources, transforming bridge DNS names where needed (`127.0.0.1:5001` -> `kubo:5001`)
+- **Windows install hooks**: Squirrel installer creates Start Menu shortcuts, adds Windows Firewall rules (mDNS UDP 5353, services TCP 3500/4001/9000/9094) via UAC-elevated PowerShell
+
+### Data Directory Layout (PC)
+
+```
+{dataDir}/                       # e.g. E:\.fula or %LOCALAPPDATA%\FulaData
+  config/
+    docker-compose.pc.yml        # Container orchestration
+    .env.pc                      # Image tags and paths
+    .env.cluster                 # Cluster identity and bootstrap
+    .env.gofula                  # go-fula env (HARDWARE_ID injected at runtime)
+    kubo/config                  # Kubo config template
+    kubo-local/config-local      # Local kubo config template
+    ipfs-cluster/                # Cluster init script
+  internal/
+    config.yaml                  # Fula device config
+    box_props.json               # Pairing credentials
+    ipfs_data/config             # Kubo runtime config
+    ipfs_data_local/config       # Local kubo runtime config
+    fula-gateway/registry.cid    # Bucket registry CID
+    plugins/                     # Extracted plugins
+  storage/                       # IPFS block storage (or separate storageDir)
+  logs/
+    fula-node.log                # Application logs
+```
 
 ## Update Propagation Flow
 
@@ -185,39 +319,57 @@ On every `fula.sh start` (before `docker-compose up`):
 ```
 fula-ota/
   docker/
-    build_and_push_images.sh    # Builds all 3 images and pushes to Docker Hub
-    env_release.sh              # Release env vars (image names, tags, branches)
-    env_test.sh                 # Test env vars (test tags)
+    build_and_push_images.sh    # Builds all images and pushes to Docker Hub
+    env_release.sh              # ARM64 release env vars (image names, tags)
     env_release_amd64.sh        # AMD64 release env vars
+    env_test.sh                 # ARM64 test env vars
+    env_test_amd64.sh           # AMD64 test env vars
     run.sh                      # Local dev docker-compose runner
     fxsupport/
       Dockerfile                # alpine + COPY ./linux -> /linux
       build.sh                  # buildx build + push
       linux/                    # All on-device scripts and configs
-        docker-compose.yml      # Container orchestration
+        docker-compose.yml      # Container orchestration (9 services)
         .env                    # Docker image tags
         .env.cluster            # Cluster env var overrides
         fula.sh                 # Main orchestrator (start/stop/restart/rebuild)
         union-drive.sh          # mergerfs mount management
         update_kubo_config.py   # Selective kubo config merger
+        readiness-check.py      # Health monitoring and auto-recovery (1500+ lines)
+        commands.sh             # File-based command handler (reboot, LED, partition)
+        firewall.sh             # iptables firewall rules
         kubo/
           config                # Kubo config template
           kubo-container-init.d.sh
+        kubo-local/
+          config-local          # Local kubo config template
+          kubo-local-container-init.d.sh
         ipfs-cluster/
           ipfs-cluster-container-init.d.sh
         bluetooth.py            # BLE setup and command handling
         local_command_server.py # TCP command server
         control_led.py          # LED control for device status
-        plugins/                # Optional plugin system (loyal-agent, streamr-node)
+        plugins/                # Plugin system (loyal-agent, streamr-node)
         ...
     fula-pinning/
-      Dockerfile                # Go build stage + alpine runtime (auto-pin daemon)
+      Dockerfile                # Go build stage + alpine runtime
       build.sh                  # buildx build + push
       *.go                      # Daemon source: config, sync loop, HTTP server, kubo/pinning clients
       README.md                 # Full service documentation
     fula-gateway/
-      build.sh                  # buildx build using fula-api/Dockerfile
+      build.sh                  # buildx build from fula-local-gateway/
       download_image.sh         # Pull pre-built image from Docker Hub
+      fula-local-gateway/       # Standalone Rust binary
+        Cargo.toml              # Uses fula-core + fula-blockstore as git deps
+        Dockerfile              # Rust build stage + debian runtime
+        src/
+          main.rs               # CLI, config loading, kubo wait loop
+          server.rs             # Axum router, CID watcher spawn
+          auth.rs               # Bearer-token middleware
+          box_props.rs          # JWT sub extraction, BLAKE3 owner ID
+          state.rs              # AppState, IPFS connection, CID watcher
+          handlers/             # S3 API handlers (bucket, object, multipart, service)
+          ...
     go-fula/
       Dockerfile                # Go build stage + alpine runtime
       build.sh                  # Clones go-fula repo, buildx build + push
@@ -225,16 +377,39 @@ fula-ota/
     ipfs-cluster/
       Dockerfile                # Go build stage + alpine runtime
       build.sh                  # Clones ipfs-cluster repo, buildx build + push
+  pc-installer/                 # Electron desktop app for Windows/Linux/macOS
+    package.json                # Electron 40, electron-forge
+    forge.config.js             # Build config (Squirrel/DEB/ZIP)
+    scripts/
+      sync-shared-templates.js  # Copies Armbian configs with bridge transforms
+    templates/                  # PC-specific Docker compose, env files
+    src/
+      main/                     # Electron main process (10 manager modules)
+      renderer/                 # Wizard + Dashboard UI
+      preload.js                # IPC bridge
   .github/workflows/
-    docker-image.yml            # Release CI: builds all images + uploads .tar to GitHub release
-    docker-image-test.yml       # Test CI
+    docker-image.yml            # Release CI: ARM64 images + tar upload
+    docker-image-test.yml       # ARM64 test build (all services)
+    docker-image-selective-test.yml  # Selective service test build
+    docker-image-amd64-test.yml     # AMD64 test build
+    docker-image-amd64-release.yml  # AMD64 release build
+    pc-installer-release.yml    # PC installer build (Windows .exe + Linux .deb)
   tests/                        # Shell-based test scripts
-  install-ubuntu.sh             # Ubuntu installation script
+    README.md                   # Test documentation
+    test-config-validation.sh   # Scan for stale config references
+    test-docker-setup.sh        # Validate Docker Compose syntax and env vars
+    test-container-dependencies.sh  # Analyze service dependencies and startup order
+    test-fula-sh-functions.sh   # Test fula.sh install/update/run operations
+    test-docker-services.sh     # Test container runtime behavior
+    test-uniondrive-readiness.sh    # Test uniondrive and readiness-check
+    test-go-fula-system-integration.sh  # WiFi, hotspot, storage, network tests
+    test-device-hardening.sh    # Full production update flow on real RK3588
+  install-ubuntu.sh             # Ubuntu/Debian automated installer
 ```
 
 ## Prerequisites
 
-### Docker Engine
+### Docker Engine (Armbian/Linux)
 
 ```bash
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -248,6 +423,10 @@ sudo groupadd docker
 sudo usermod -aG docker $USER
 newgrp docker
 ```
+
+### Docker Desktop (PC Installer)
+
+The PC installer requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) on Windows and macOS. The setup wizard checks for Docker Desktop and provides install instructions if missing.
 
 ### Docker Compose
 
@@ -350,6 +529,8 @@ sudo systemctl daemon-reload
 
 ## Device Installation
 
+### Armbian (ARM64)
+
 ```bash
 git clone https://github.com/functionland/fula-ota
 cd fula-ota/docker/fxsupport/linux
@@ -357,13 +538,30 @@ sudo bash ./fula.sh rebuild
 sudo bash ./fula.sh start
 ```
 
+### Ubuntu/Debian (automated)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/functionland/fula-ota/main/install-ubuntu.sh | sudo bash
+```
+
+The `install-ubuntu.sh` script handles: OS detection, dependency installation, Docker setup, repo cloning, automount configuration, and systemd service enablement. Supports Ubuntu 22.04+ (Jammy, Lunar, Mantic, Noble).
+
+### Windows/macOS/Linux PC
+
+Download the installer from [GitHub Releases](https://github.com/functionland/fula-ota/releases):
+- Windows: `.exe` (Squirrel installer)
+- Linux: `.deb` package
+
+The setup wizard guides through Docker Desktop verification, storage selection, port checks, image pulling, and service launch.
+
 ## Building and Pushing Docker Images
 
 ### Production Release (pushes to Docker Hub)
 
 ```bash
 cd docker
-source env_release.sh
+source env_release.sh        # ARM64
+# or: source env_release_amd64.sh   # AMD64
 bash ./build_and_push_images.sh
 ```
 
@@ -392,13 +590,16 @@ source env_test.sh
 TEST_TAG=test148 source env_test.sh
 ```
 
-This exports all three image tags (`fxsupport`, `go-fula`, `ipfs-cluster`) with your tag and writes a matching `.env` file.
+This exports all image tags with your tag and writes a matching `.env` file.
 
 #### Step 2: Build test images
 
 **Option A: GitHub Actions (recommended)**
 
-Trigger the `docker-image-test.yml` workflow manually from the Actions tab. This builds all three images (`fxsupport`, `go-fula`, `ipfs-cluster`) with the test tag configured in `env_test.sh` and pushes to Docker Hub.
+Trigger one of these workflows manually from the Actions tab:
+- `docker-image-test.yml` — builds all ARM64 images with the test tag
+- `docker-image-amd64-test.yml` — builds all AMD64 images
+- `docker-image-selective-test.yml` — selectively build individual services (checkbox per service, custom tag override)
 
 **Option B: Local build + push to Docker Hub**
 
@@ -407,11 +608,6 @@ cd docker
 source env_test.sh          # or: TEST_TAG=test148 source env_test.sh
 bash ./build_and_push_images.sh
 ```
-
-This builds and pushes all three images:
-- `functionland/fxsupport:<tag>`
-- `functionland/go-fula:<tag>`
-- `functionland/ipfs-cluster:<tag>`
 
 **Option C: On-device build (no Docker Hub push)**
 
@@ -505,37 +701,25 @@ sudo systemctl restart fula
 - **Watchtower tag matching**: Watchtower checks for updates to the exact tag the container is running. Containers running `:test147` won't be replaced with `:release`.
 - **`docker cp` and `.env`**: On every restart, `fula.sh` copies files from `fula_fxsupport` container to `/usr/bin/fula/`, including `.env`. This is safe when using test images built through `env_test.sh` (the `.env` inside the image matches your test tags). Use `stop_docker_copy.txt` only if you manually edited `.env` on-device without rebuilding fxsupport.
 - **`stop_docker_copy.txt` expires after 24 hours**: If needed, this file in `/home/pi/` blocks the `docker cp` step. Expires after 24h — touch it again to extend.
+- **Docker Compose bridge != docker0**: Docker Compose creates its own bridge interfaces (`br-<hash>`), not `docker0`. Firewall rules matching `-i docker0` don't cover Compose bridges. Must also match `-i br-+` (iptables wildcard). This can cause kubo->go-fula proxy traffic to be silently dropped.
+- **`((var++))` with `set -e`**: In bash, post-increment `((0++))` evaluates to 0 (falsy), returning exit code 1, which kills the script under `set -e`. Use pre-increment `((++var))` instead.
 
 ## Testing Changes on a Live Device
 
-To test code changes from this repo on a device that is already running the production Docker images, **without** pushing to Docker Hub:
-
 ### Method 1: Build fxsupport locally on device (recommended for script/config changes)
 
-If you only changed files under `docker/fxsupport/linux/` (scripts, configs, env files), this is the fastest approach since fxsupport is just an alpine image with file copies:
+If you only changed files under `docker/fxsupport/linux/` (scripts, configs, env files):
 
 ```bash
 # On the device:
-
-# 1. Get the latest code
 cd /tmp && git clone --depth 1 https://github.com/functionland/fula-ota.git
-# Or if already cloned:
-cd /tmp/fula-ota && git pull
-
-# 2. Build fxsupport image locally (takes seconds)
 cd /tmp/fula-ota/docker/fxsupport
 sudo docker build --load -t functionland/fxsupport:release .
-
-# 3. Stop watchtower so it doesn't pull the old image from Docker Hub
 sudo docker stop fula_updater
-
-# 4. Restart fula — docker cp will now copy YOUR files from the local image
 sudo systemctl restart fula
 ```
 
 ### Method 2: Build all images locally on device
-
-If you also changed `go-fula` or `ipfs-cluster` code (Go compilation, takes longer):
 
 ```bash
 # Build fxsupport (seconds)
@@ -579,6 +763,45 @@ sudo /usr/bin/fula/fula.sh restart
 rm /home/pi/stop_docker_copy.txt
 ```
 
+## Testing
+
+The `tests/` directory contains shell-based test scripts organized into three categories:
+
+### Validation Tests
+- `test-config-validation.sh` — Scans scripts and configs for stale references
+- `test-docker-setup.sh` — Validates Docker Compose syntax and environment variables
+- `test-container-dependencies.sh` — Analyzes service dependencies and startup order
+
+### Core Component Tests
+- `test-fula-sh-functions.sh` — Tests fula.sh install/update/run operations
+- `test-docker-services.sh` — Tests container runtime behavior
+- `test-uniondrive-readiness.sh` — Tests uniondrive service and readiness-check.py
+
+### System Integration Tests
+- `test-go-fula-system-integration.sh` — WiFi, hotspot, storage, network tests
+- `test-device-hardening.sh` — Full production update flow on real RK3588 hardware
+
+Run tests from the project root:
+```bash
+./tests/test-config-validation.sh
+./tests/test-docker-setup.sh
+# Device tests (require hardware):
+sudo bash ./tests/test-device-hardening.sh --build --deploy --verify --finish
+```
+
+See [tests/README.md](tests/README.md) for full documentation.
+
+## CI/CD Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `docker-image.yml` | GitHub release | ARM64 release build, uploads watchtower tar |
+| `docker-image-test.yml` | Manual | ARM64 test build (all services) |
+| `docker-image-selective-test.yml` | Manual | Selective service build (checkbox per service) |
+| `docker-image-amd64-test.yml` | Manual | AMD64 test build |
+| `docker-image-amd64-release.yml` | GitHub release | AMD64 release build |
+| `pc-installer-release.yml` | GitHub release | Windows .exe + Linux .deb installer build |
+
 ### Verification Commands
 
 ```bash
@@ -608,13 +831,13 @@ curl -s -H "Authorization: Bearer YOUR_PAIRING_SECRET" http://127.0.0.1:3501/api
 # Fula-pinning logs
 docker logs fula_pinning --tail 20
 
-# Fula-gateway status (requires pairing secret)
-curl -s -H "Authorization: Bearer YOUR_PAIRING_SECRET" http://127.0.0.1:9000/ | head -20
-# Expected: XML bucket listing
-
 # Fula-gateway health (no auth)
 curl -s http://127.0.0.1:9000/healthz
 # Expected: 200 OK
+
+# Fula-gateway bucket listing (requires pairing secret)
+curl -s -H "Authorization: Bearer YOUR_PAIRING_SECRET" http://127.0.0.1:9000/ | head -20
+# Expected: XML bucket listing
 
 # Fula-gateway logs
 docker logs fula_gateway --tail 20
@@ -678,6 +901,7 @@ Selectively merges managed fields from template into deployed config while prese
 - **`stop_docker_copy.txt`** — when this file exists in `/home/pi/` and was modified within the last 24 hours, `fula.sh` skips the `docker cp` step. Useful for testing local file changes without them being overwritten.
 - **Kubo** uses the upstream `ipfs/kubo:release` image (not custom-built). Only the config template and init script are customized.
 - **go-fula**, **ipfs-cluster**, and **fula-pinning** are custom-built from source in their respective Dockerfiles using Go 1.25.
-- **fula-gateway** is built from the [fula-api](https://github.com/functionland/fula-api) Rust codebase (same binary as the remote cloud gateway).
+- **fula-gateway** is a standalone Rust binary built from `docker/fula-gateway/fula-local-gateway/`. It uses `fula-core` and `fula-blockstore` crates from [fula-api](https://github.com/functionland/fula-api) as shared libraries but contains no cloud code.
 - **fula-pinning** and **fula-gateway** run with `no-new-privileges:true` (no elevated privileges needed).
 - All other containers except kubo run with `privileged: true` and `CAP_ADD: ALL`.
+- **Dead containers**: Docker Compose can leave Dead containers with project labels. These prevent `--no-recreate` from creating new containers. `fula.sh` and the PC installer purge ghost containers via `docker ps -a --filter "label=com.docker.compose.project=fula" -q | xargs -r docker rm -f` before starting.
