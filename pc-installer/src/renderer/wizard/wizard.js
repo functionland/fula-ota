@@ -82,6 +82,16 @@
           `Docker ${result.version || ''} is installed and running.`);
         dockerOk = true;
         document.getElementById('btn-docker-next').disabled = false;
+
+        // Check mDNS availability (non-blocking warning)
+        try {
+          const mdns = await api.checkMdns();
+          if (mdns && !mdns.available) {
+            showError('docker-error',
+              'mDNS discovery may not work. For local device discovery, ' +
+              'install Apple Bonjour Print Services for Windows.');
+          }
+        } catch {}
       } else if (result && result.installed && !result.running) {
         setStatusIcon('docker-status-icon', 'error');
         setStatusText('docker-status-text',
@@ -274,7 +284,10 @@
           el.textContent = 'Available';
         } else {
           el.className = 'port-status in-use';
-          el.textContent = 'In Use';
+          const processName = portResult && portResult.process;
+          el.textContent = processName
+            ? `In use by ${processName}`
+            : `In use${portResult && portResult.pid ? ` (PID ${portResult.pid})` : ''}`;
           allAvailable = false;
         }
       });
@@ -318,13 +331,28 @@
     const progressLabel = document.getElementById('pull-progress-label');
     const pullStatus = document.getElementById('pull-status');
 
-    progressBar.style.width = '100%';
+    progressBar.style.width = '0%';
     progressBar.classList.add('indeterminate');
-    progressLabel.textContent = 'Pulling Docker images...';
+    progressLabel.textContent = 'Preparing to download images...';
     pullStatus.style.display = 'none';
 
+    // Listen for per-image progress from main process
+    api.onPullProgress((data) => {
+      progressBar.classList.remove('indeterminate');
+      const pct = Math.round((data.current / data.total) * 100);
+      progressBar.style.width = `${pct}%`;
+      if (data.status === 'pulling') {
+        progressLabel.textContent = `Pulling ${data.image} (${data.current}/${data.total})...`;
+      } else if (data.status === 'done') {
+        progressLabel.textContent = `Downloaded ${data.image} (${data.current}/${data.total})`;
+      } else if (data.status === 'cached') {
+        progressLabel.textContent = `Using cached ${data.image} (${data.current}/${data.total})`;
+      } else if (data.status === 'error') {
+        progressLabel.textContent = `Failed to pull ${data.image}`;
+      }
+    });
+
     try {
-      progressLabel.textContent = 'Downloading images — this may take 10-15 minutes on first install...';
       const result = await api.setupPullImages();
 
       progressBar.classList.remove('indeterminate');
@@ -383,6 +411,19 @@
 
     setStatusIcon('launch-status-icon', 'checking');
     document.getElementById('launch-status-text').textContent = 'Starting Fula Node services...';
+
+    // Listen for launch phase updates from main process
+    const LAUNCH_PHASES = {
+      'waiting-docker': 'Waiting for Docker daemon...',
+      'purging-ghosts': 'Cleaning up old containers...',
+      'pulling-updates': 'Checking for image updates...',
+      'starting-containers': 'Starting Docker services...',
+      'waiting-healthy': 'Waiting for health check...',
+    };
+    api.onLaunchProgress((data) => {
+      const text = LAUNCH_PHASES[data.phase] || 'Starting...';
+      document.getElementById('launch-status-text').textContent = text;
+    });
 
     try {
       const result = await api.setupStart();

@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('fulaNode', {
   installPlugin: (name) => ipcRenderer.invoke('install-plugin', name),
   uninstallPlugin: (name) => ipcRenderer.invoke('uninstall-plugin', name),
 
+  // System checks
+  checkMdns: () => ipcRenderer.invoke('check-mdns'),
+
   // Config
   getDataDir: () => ipcRenderer.invoke('get-data-dir'),
   isSetupComplete: () => ipcRenderer.invoke('is-setup-complete'),
@@ -31,5 +34,11 @@ contextBridge.exposeInMainWorld('fulaNode', {
   // Events from main
   onHealthStatus: (callback) => {
     ipcRenderer.on('health-status', (_, status) => callback(status));
+  },
+  onPullProgress: (callback) => {
+    ipcRenderer.on('pull-progress', (_, data) => callback(data));
+  },
+  onLaunchProgress: (callback) => {
+    ipcRenderer.on('launch-progress', (_, data) => callback(data));
   },
 });

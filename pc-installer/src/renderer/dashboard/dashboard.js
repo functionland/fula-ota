@@ -6,6 +6,22 @@
   let refreshTimer = null;
   let containerNames = [];
 
+  // Human-readable health check name mapping
+  const HEALTH_CHECK_LABELS = {
+    kuboApi: 'Kubo API',
+    kuboSwarm: 'Kubo Swarm',
+    clusterApi: 'Cluster API',
+    clusterPeers: 'Cluster Peers',
+    goFulaProcess: 'Go-Fula Process',
+    goFulaApi: 'Go-Fula API',
+    bootstrap: 'Bootstrap Connection',
+    diskSpace: 'Disk Space',
+    dockerHealth: 'Docker Health',
+    portAvailability: 'Port Availability',
+    dnsResolution: 'DNS Resolution',
+    timeSync: 'Time Sync',
+  };
+
   // ---- Initialization ----
 
   async function init() {
@@ -33,6 +49,12 @@
   };
   api.onHealthStatus((status) => {
     updateOverallStatus(status.color, status.label || colorLabels[status.color] || '');
+    // Hide instruction box when node is fully healthy
+    const instructionBox = document.getElementById('instruction-box');
+    if (instructionBox && status.checks) {
+      const allHealthy = status.checks.every(c => c.status === 'ok');
+      instructionBox.style.display = allHealthy ? 'none' : '';
+    }
   });
 
   // ---- Containers ----
@@ -84,15 +106,23 @@
         btn.addEventListener('click', async () => {
           const name = btn.getAttribute('data-name');
           btn.disabled = true;
-          btn.textContent = '...';
+          btn.textContent = 'Restarting...';
+          const origBg = btn.style.background;
           try {
             await api.restartService(name);
+            btn.textContent = 'Restarted';
+            btn.style.background = '#2ecc71';
           } catch (e) {
             console.error('Restart failed:', e);
+            btn.textContent = 'Failed';
+            btn.style.background = '#e94560';
           }
-          btn.textContent = 'Restart';
-          btn.disabled = false;
-          await refreshContainers();
+          setTimeout(() => {
+            btn.textContent = 'Restart';
+            btn.style.background = origBg;
+            btn.disabled = false;
+            refreshContainers();
+          }, 3000);
         });
       });
 
@@ -121,6 +151,11 @@
 
   // ---- Logs ----
 
+  let logRefreshInterval = null;
+  let logUserScrolled = false;
+  let lastLogContent = '';
+  let logFilterText = '';
+
   async function fetchLogs(name) {
     const outputEl = document.getElementById('log-output');
     if (!name) {
@@ -128,24 +163,84 @@
       return;
     }
 
-    outputEl.textContent = 'Loading logs...';
     try {
-      const logs = await api.getContainerLogs(name, 100);
+      const logs = await api.getContainerLogs(name, 200);
       if (logs && logs.trim()) {
-        outputEl.textContent = logs;
-        // Scroll to bottom
-        outputEl.scrollTop = outputEl.scrollHeight;
+        lastLogContent = logs;
+        applyLogFilter();
+        // Auto-scroll to bottom unless user has scrolled up
+        if (!logUserScrolled) {
+          outputEl.scrollTop = outputEl.scrollHeight;
+        }
       } else {
         outputEl.textContent = '(no log output)';
+        lastLogContent = '';
       }
     } catch (e) {
       outputEl.textContent = `Error: ${e.message}`;
+      lastLogContent = '';
     }
   }
+
+  function applyLogFilter() {
+    const outputEl = document.getElementById('log-output');
+    if (!lastLogContent) return;
+    if (logFilterText) {
+      const lines = lastLogContent.split('\n');
+      const filtered = lines.filter(l => l.toLowerCase().includes(logFilterText.toLowerCase()));
+      outputEl.textContent = filtered.join('\n') || '(no matching lines)';
+    } else {
+      outputEl.textContent = lastLogContent;
+    }
+  }
+
+  function startLogRefresh() {
+    stopLogRefresh();
+    const name = document.getElementById('log-select').value;
+    if (name) {
+      fetchLogs(name);
+      logRefreshInterval = setInterval(() => {
+        const currentName = document.getElementById('log-select').value;
+        if (currentName) fetchLogs(currentName);
+      }, 5000);
+    }
+  }
+
+  function stopLogRefresh() {
+    if (logRefreshInterval) {
+      clearInterval(logRefreshInterval);
+      logRefreshInterval = null;
+    }
+  }
+
+  // Detect user scroll to prevent auto-scroll interference
+  document.getElementById('log-output').addEventListener('scroll', () => {
+    const el = document.getElementById('log-output');
+    // If scrolled near bottom (within 30px), re-enable auto-scroll
+    logUserScrolled = (el.scrollHeight - el.scrollTop - el.clientHeight) > 30;
+  });
 
   document.getElementById('btn-fetch-logs').addEventListener('click', () => {
     const name = document.getElementById('log-select').value;
     fetchLogs(name);
+    startLogRefresh();
+  });
+
+  // Start auto-refresh when a service is selected from the dropdown
+  document.getElementById('log-select').addEventListener('change', () => {
+    const name = document.getElementById('log-select').value;
+    if (name) {
+      fetchLogs(name);
+      startLogRefresh();
+    } else {
+      stopLogRefresh();
+    }
+  });
+
+  // Log filter input
+  document.getElementById('log-filter').addEventListener('input', (e) => {
+    logFilterText = e.target.value;
+    applyLogFilter();
   });
 
   // ---- Health Checks ----
@@ -168,13 +263,21 @@
           : check.status === 'warn' ? 'warn'
           : 'fail';
 
+        const displayName = HEALTH_CHECK_LABELS[check.name] || check.name;
         item.innerHTML = `
           <div class="health-dot ${dotClass}"></div>
-          <span class="health-label">${escapeHtml(check.name)}</span>
+          <span class="health-label">${escapeHtml(displayName)}</span>
           <span class="health-detail">${escapeHtml(check.detail || '')}</span>
         `;
         listEl.appendChild(item);
       });
+
+      // Hide instruction box when all health checks pass
+      const instructionBox = document.getElementById('instruction-box');
+      if (instructionBox) {
+        const allHealthy = health.checks.every(c => c.status === 'ok');
+        instructionBox.style.display = allHealthy ? 'none' : '';
+      }
 
       // Update overall from health if provided
       if (health.color) {

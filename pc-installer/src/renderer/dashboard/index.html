@@ -363,7 +363,7 @@
     </div>
 
     <!-- Setup instruction -->
-    <div class="instruction-box">
+    <div class="instruction-box" id="instruction-box">
       <span class="instruction-icon">&#9989;</span>
       <div class="instruction-text">
         <strong>Your Fula node is ready!</strong> To set it up, download the
@@ -389,6 +389,7 @@
           <option value="">Select a service...</option>
         </select>
         <button class="btn-sm" id="btn-fetch-logs">Load Logs</button>
+        <input type="text" id="log-filter" placeholder="Filter logs..." style="background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:6px 10px;color:#e0e0e0;font-size:13px;outline:none;flex:1;min-width:120px;">
       </div>
       <div class="log-output" id="log-output">Select a service and click "Load Logs" to view recent output.</div>
     </div>

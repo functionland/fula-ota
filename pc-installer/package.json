@@ -19,7 +19,11 @@
     "electron-store": "^8.1.0",
     "bonjour-service": "^1.2.0",
     "yaml": "^2.3.0",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "ethers": "^5.7.2",
+    "js-sha3": "^0.8.0",
+    "bs58": "^4.0.1",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "electron": "^40.0.0",

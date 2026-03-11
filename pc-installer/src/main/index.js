@@ -1,7 +1,11 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
+
+const execFileAsync = promisify(execFile);
 
 // Handle Squirrel.Windows install/uninstall events (must be early, before app.ready)
 if (process.platform === 'win32') {
@@ -84,6 +88,43 @@ const MdnsAdvertiser = require('./mdns-advertiser');
 const configStore = require('./config-store');
 const { createLogger } = require('./logger');
 const { PORTS, HEALTH_CHECK_INTERVAL, DEFAULT_DATA_DIR_WIN, DEFAULT_DATA_DIR_LINUX } = require('./constants');
+const { parseCliArgs, runHeadlessSetup } = require('./headless-setup');
+
+// ---------------------------------------------------------------------------
+// CLI headless mode detection (must be before app.ready / single-instance lock)
+// ---------------------------------------------------------------------------
+const cliArgs = parseCliArgs(process.argv);
+if (cliArgs) {
+  // Headless mode — no GUI, no single-instance lock, no tray.
+  // Run setup and exit.
+  app.on('ready', async () => {
+    try {
+      const logger = createLogger();
+      const storageManager = new StorageManager(logger);
+      const dockerManager = new DockerManager(configStore, logger);
+
+      await runHeadlessSetup(cliArgs, {
+        configStore,
+        storageManager,
+        dockerManager,
+        app,
+      });
+      process.exit(0);
+    } catch (err) {
+      console.error(`\nSetup failed: ${err.message}`);
+      if (err.stack && process.env.DEBUG) {
+        console.error(err.stack);
+      }
+      process.exit(1);
+    }
+  });
+  // Skip all GUI initialization below
+  return;
+}
+
+// ---------------------------------------------------------------------------
+// GUI mode (normal Electron app)
+// ---------------------------------------------------------------------------
 
 let trayManager;
 let dockerManager;
@@ -338,13 +379,28 @@ async function startServices() {
   healthMonitor = new HealthMonitor(dockerManager, configStore, logger);
   healthMonitor.on('status', (status) => {
     trayManager.setStatus(status.color);
+
+    // Transform checks object into array format for dashboard renderer
+    const checksArray = Object.entries(status.checks).map(([name, c]) => ({
+      name,
+      status: c.ok ? 'ok' : 'fail',
+      detail: c.detail || '',
+    }));
+
+    // Update tray tooltip with health summary
+    const totalChecks = checksArray.length;
+    const healthyCount = checksArray.filter(c => c.status === 'ok').length;
+    const issueCount = totalChecks - healthyCount;
+    if (totalChecks > 0) {
+      const summary = issueCount === 0
+        ? `Fula Node — ${totalChecks}/${totalChecks} healthy`
+        : `Fula Node — ${issueCount} issue${issueCount !== 1 ? 's' : ''}`;
+      if (trayManager.tray) {
+        try { trayManager.tray.setToolTip(summary); } catch {}
+      }
+    }
+
     if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-      // Transform checks object into array format for dashboard renderer
-      const checksArray = Object.entries(status.checks).map(([name, c]) => ({
-        name,
-        status: c.ok ? 'ok' : 'fail',
-        detail: c.detail || '',
-      }));
       dashboardWindow.webContents.send('health-status', {
         color: status.color,
         checks: checksArray,
@@ -558,7 +614,12 @@ function openWizard() {
   });
   wizardWindow.loadFile(path.join(__dirname, '..', 'renderer', 'wizard', 'index.html'));
   wizardWindow.setMenuBarVisibility(false);
-  wizardWindow.on('closed', () => { wizardWindow = null; });
+  // Pass window reference so dockerManager can send IPC progress events
+  dockerManager.setMainWindow(wizardWindow);
+  wizardWindow.on('closed', () => {
+    wizardWindow = null;
+    dockerManager.setMainWindow(dashboardWindow);
+  });
 }
 
 function openDashboard() {
@@ -669,6 +730,23 @@ function registerIpcHandlers() {
 
   // Network
   ipcMain.handle('get-lan-ip', () => getLanIp());
+
+  // mDNS availability check (Windows needs Bonjour service)
+  ipcMain.handle('check-mdns', async () => {
+    if (process.platform !== 'win32') return { available: true };
+    try {
+      await execFileAsync('sc', ['query', 'Bonjour Service'], { timeout: 5000 });
+      return { available: true };
+    } catch {
+      try {
+        // Also check for mDNSResponder (older Bonjour)
+        await execFileAsync('sc', ['query', 'mDNSResponder'], { timeout: 5000 });
+        return { available: true };
+      } catch {
+        return { available: false };
+      }
+    }
+  });
 }
 
 /**

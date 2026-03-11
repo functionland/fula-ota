@@ -36,6 +36,23 @@ class DockerManager extends EventEmitter {
     this.configStore = configStore;
     this.logger = logger;
     this._composeCommand = null; // cached after first detection
+    this._mainWindow = null;
+  }
+
+  /**
+   * Set the BrowserWindow reference so IPC progress events can be sent
+   * to the renderer during pull/launch operations.
+   * @param {BrowserWindow|null} win
+   */
+  setMainWindow(win) {
+    this._mainWindow = win;
+  }
+
+  /** Send an IPC event to the renderer if a window is available. */
+  _sendToRenderer(channel, data) {
+    if (this._mainWindow && !this._mainWindow.isDestroyed()) {
+      this._mainWindow.webContents.send(channel, data);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -192,18 +209,69 @@ class DockerManager extends EventEmitter {
   /**
    * Pull all images defined in the compose file.
    * Emits 'pull-progress' events with raw Docker output lines.
+   * Sends per-image IPC progress to the renderer via 'pull-progress' channel.
    */
   async pullImages() {
+    // Discover which images need pulling by reading the compose config
+    let imageList = [];
+    try {
+      const { stdout } = await this._runCompose(['config', '--images'], SHORT_TIMEOUT);
+      imageList = stdout.trim().split('\n').filter(Boolean);
+    } catch {
+      // Fallback: pull all at once without per-image tracking
+    }
+
     const cmd = await this.getDockerComposePath();
     const prefixArgs = await this._composeArgs();
-
     const tokens = cmd.split(/\s+/);
     const binary = tokens[0];
     const extraTokens = tokens.slice(1);
+    const total = imageList.length;
+
+    this.logger.info(`docker-manager: pulling images... (${total} discovered)`);
+
+    if (total > 0) {
+      // Pull images one by one for per-image progress reporting
+      for (let i = 0; i < total; i++) {
+        const image = imageList[i];
+        const imageName = image.split('/').pop().split(':')[0]; // short display name
+        this._sendToRenderer('pull-progress', {
+          image: imageName, status: 'pulling', current: i + 1, total,
+        });
+        this.emit('pull-progress', `Pulling ${image}...\n`);
+
+        try {
+          await execFileAsync('docker', ['pull', image], {
+            maxBuffer: 10 * 1024 * 1024,
+            timeout: PULL_TIMEOUT,
+          });
+          this._sendToRenderer('pull-progress', {
+            image: imageName, status: 'done', current: i + 1, total,
+          });
+          this.emit('pull-progress', `Pulled ${image}\n`);
+        } catch (err) {
+          // Check if image is already cached locally
+          try {
+            await execFileAsync('docker', ['image', 'inspect', image], { timeout: SHORT_TIMEOUT });
+            this._sendToRenderer('pull-progress', {
+              image: imageName, status: 'cached', current: i + 1, total,
+            });
+            this.emit('pull-progress', `Using cached ${image}\n`);
+          } catch {
+            this._sendToRenderer('pull-progress', {
+              image: imageName, status: 'error', current: i + 1, total,
+            });
+            this.logger.warn(`docker-manager: pull failed for ${image}: ${err.message}`);
+            throw err;
+          }
+        }
+      }
+      this.logger.info('docker-manager: pull complete');
+      return { stdout: '', stderr: '' };
+    }
+
+    // Fallback: bulk pull (no per-image progress)
     const fullArgs = [...extraTokens, ...prefixArgs, 'pull'];
-
-    this.logger.info(`docker-manager: pulling images...`);
-
     return new Promise((resolve, reject) => {
       const child = execFile(binary, fullArgs, { maxBuffer: 10 * 1024 * 1024, timeout: PULL_TIMEOUT }, (err, stdout, stderr) => {
         if (err) {
@@ -214,8 +282,6 @@ class DockerManager extends EventEmitter {
         resolve({ stdout, stderr });
       });
 
-      // Stream progress from both stdout and stderr (Docker often writes
-      // progress to stderr).
       if (child.stdout) {
         child.stdout.on('data', (chunk) => {
           this.emit('pull-progress', chunk.toString());
@@ -343,9 +409,11 @@ class DockerManager extends EventEmitter {
   /**
    * Start all Fula services.
    * Waits for Docker daemon, purges ghost containers, pulls images, then starts.
+   * Sends IPC 'launch-progress' events so the renderer can show phase updates.
    */
   async start() {
     // Ensure Docker daemon is responsive before proceeding
+    this._sendToRenderer('launch-progress', { phase: 'waiting-docker' });
     const dockerReady = await this.waitForDocker();
     if (!dockerReady) {
       const err = new Error('Docker daemon is not responsive after multiple retries');
@@ -355,16 +423,20 @@ class DockerManager extends EventEmitter {
     }
 
     try {
+      this._sendToRenderer('launch-progress', { phase: 'purging-ghosts' });
       await this.purgeGhostContainers();
       // Pull latest images before starting (non-fatal — offline startup still works)
+      this._sendToRenderer('launch-progress', { phase: 'pulling-updates' });
       try {
         await this._runCompose(['pull'], PULL_TIMEOUT);
         this.logger.info('docker-manager: pull complete before start');
       } catch (pullErr) {
         this.logger.warn(`docker-manager: pull before start failed (continuing): ${pullErr.message}`);
       }
+      this._sendToRenderer('launch-progress', { phase: 'starting-containers' });
       const { stdout, stderr } = await this._runCompose(['up', '-d']);
       this.logger.info(`docker-manager: started\n${stdout}${stderr}`);
+      this._sendToRenderer('launch-progress', { phase: 'waiting-healthy' });
       this.emit('status-change', 'started');
       this.emit('started');
     } catch (err) {
