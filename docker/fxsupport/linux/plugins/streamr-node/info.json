@@ -98,5 +98,7 @@
             "id": 2
         }
     ],
+    "installTimeout": 300,
+    "dockerImage": "streamr/node:latest",
     "approved": true
 }

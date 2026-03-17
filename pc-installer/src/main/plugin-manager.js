@@ -26,18 +26,18 @@ class PluginManager extends EventEmitter {
       try {
         const data = await fs.readFile(infoPath, 'utf-8');
         const plugins = JSON.parse(data);
-        // Filter out hardware-specific plugins
-        return Object.entries(plugins)
-          .filter(([name]) => !PC_EXCLUDED_PLUGINS.includes(name))
-          .map(([name, info]) => ({ name, ...info }));
+        // plugins is a JSON array of objects with name field
+        return plugins
+          .filter(p => !PC_EXCLUDED_PLUGINS.includes(p.name))
+          .map(p => ({ ...p }));
       } catch {
         // Try to extract from fxsupport container
         await execFileAsync('docker', ['cp', `fula_fxsupport:/linux/plugins/info.json`, infoPath]);
         const data = await fs.readFile(infoPath, 'utf-8');
         const plugins = JSON.parse(data);
-        return Object.entries(plugins)
-          .filter(([name]) => !PC_EXCLUDED_PLUGINS.includes(name))
-          .map(([name, info]) => ({ name, ...info }));
+        return plugins
+          .filter(p => !PC_EXCLUDED_PLUGINS.includes(p.name))
+          .map(p => ({ ...p }));
       }
     } catch (e) {
       this.logger.error(`Failed to get plugins: ${e.message}`);
@@ -72,13 +72,26 @@ class PluginManager extends EventEmitter {
     // Extract plugin files from fxsupport
     await execFileAsync('docker', ['cp', `fula_fxsupport:/linux/plugins/${name}`, pluginDir]);
 
+    // Execute PC-specific install script if available
+    const installScript = path.join(pluginDir, 'install-pc.sh');
+    try {
+      await fs.access(installScript);
+      await execFileAsync('bash', [installScript], {
+        cwd: pluginDir,
+        timeout: 300000,
+        env: { ...process.env, PLUGIN_DATA_DIR: pluginDir }
+      });
+    } catch (e) {
+      this.logger.info(`No PC install script for ${name} (skipping): ${e.message}`);
+    }
+
     // Run docker-compose up for the plugin
     const composePath = path.join(pluginDir, 'docker-compose.yml');
     try {
       await fs.access(composePath);
       await execFileAsync('docker', ['compose', '-f', composePath, 'up', '-d']);
     } catch (e) {
-      this.logger.warn(`No compose file for plugin ${name}, running install script`);
+      this.logger.warn(`No compose file for plugin ${name}: ${e.message}`);
     }
 
     // Add to active plugins list

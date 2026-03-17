@@ -14,6 +14,7 @@ LOCKFILE="/tmp/plugin_manager.lock"
 SEMAPHORE="/tmp/plugin_semaphore"
 PROCESSING_CHANGES=false
 old_plugins=()
+HEALTH_CHECK_COUNTER=0
 
 # Function to log messages
 log_message() {
@@ -52,7 +53,7 @@ mkdir -p ${INTERNAL_PLUGIN_DIR}
 wait_for_fula_fxsupport() {
     local attempt=0
     while ! sudo docker ps --format '{{.Names}}' | grep -q '^fula_fxsupport$'; do
-        
+
         attempt=$((attempt + 1))
         log_message "Waiting for fula_fxsupport container to start... (Attempt $attempt)"
         sleep 10
@@ -61,6 +62,12 @@ wait_for_fula_fxsupport() {
 
 # Function to copy plugins from docker
 copy_plugins_from_docker() {
+    # fula.sh already copies plugins on start/restart.
+    # Only copy here if plugins dir is empty (standalone run or first boot).
+    if [ -n "$(ls -A ${PLUGINS_DIR} 2>/dev/null)" ]; then
+        log_message "Plugins directory already populated by fula.sh, skipping docker cp"
+        return 0
+    fi
     log_message "Copying plugins from fula_fxsupport container..."
     sudo docker cp fula_fxsupport:/linux/plugins/. ${PLUGINS_DIR} 2>&1 | sudo tee -a $FULA_LOG_PATH
     sync
@@ -82,26 +89,112 @@ write_plugin_status() {
     log_message "Updated status for $plugin: $status"
 }
 
-# Function to add plugin to active plugins file
+# Validate plugin name to prevent path traversal and injection
+validate_plugin_name() {
+    local name=$1
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_message "SECURITY: Invalid plugin name rejected: $name"
+        return 1
+    fi
+    return 0
+}
+
+# Read per-plugin timeout from info.json, default 300s
+get_plugin_timeout() {
+    local plugin=$1
+    local info_file="$PLUGINS_DIR/$plugin/info.json"
+    if [ -f "$info_file" ] && command -v python3 &>/dev/null; then
+        python3 -c "
+import json
+try:
+    with open('$info_file') as f:
+        print(json.load(f).get('installTimeout', 300))
+except:
+    print(300)
+" 2>/dev/null || echo 300
+    else
+        echo 300
+    fi
+}
+
+# Read plugin version from info.json
+get_plugin_version() {
+    local plugin=$1
+    local info_file="$PLUGINS_DIR/$plugin/info.json"
+    if [ -f "$info_file" ] && command -v python3 &>/dev/null; then
+        python3 -c "
+import json
+try:
+    with open('$info_file') as f:
+        print(json.load(f).get('version', ''))
+except:
+    print('')
+" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
+# Function to add plugin to active plugins file (with duplicate check + atomic write)
 add_to_active_plugins() {
     local plugin=$1
-    echo "$plugin" | sudo tee -a "$ACTIVE_PLUGINS_FILE" > /dev/null
+    if ! validate_plugin_name "$plugin"; then return 1; fi
+    if grep -q "^${plugin}$" "$ACTIVE_PLUGINS_FILE" 2>/dev/null; then
+        log_message "$plugin already in active plugins file, skipping"
+        return 0
+    fi
+    local temp_file
+    temp_file=$(mktemp "${ACTIVE_PLUGINS_FILE}.XXXXXX")
+    cat "$ACTIVE_PLUGINS_FILE" > "$temp_file" 2>/dev/null || true
+    echo "$plugin" >> "$temp_file"
+    mv "$temp_file" "$ACTIVE_PLUGINS_FILE"
     log_message "Added $plugin to active plugins file"
 }
 
 # Function to remove plugin from active plugins file
+# Note: does NOT remove the internal plugin dir (needed for Failed status readback)
 remove_from_active_plugins() {
     local plugin=$1
+    if ! validate_plugin_name "$plugin"; then return 1; fi
     local temp_file
     temp_file=$(mktemp)
-    grep -v "^$plugin$" "$ACTIVE_PLUGINS_FILE" > "$temp_file"
+    grep -v "^$plugin$" "$ACTIVE_PLUGINS_FILE" > "$temp_file" || true
     mv "$temp_file" "$ACTIVE_PLUGINS_FILE"
     log_message "Removed $plugin from active plugins file"
+}
+
+# Clean up internal plugin directory (only called on successful uninstall)
+cleanup_plugin_dir() {
+    local plugin=$1
     if [ -n "${plugin:?}" ] && [ -d "${INTERNAL_PLUGIN_DIR:?}/${plugin}" ]; then
-        echo "Removing ${plugin} configuration directory..."
+        log_message "Removing ${plugin} configuration directory..."
         rm -rf "${INTERNAL_PLUGIN_DIR:?}/${plugin}"
     else
-        echo "${plugin} configuration directory not found or plugin name is empty. Skipping directory removal."
+        log_message "${plugin} configuration directory not found or plugin name is empty. Skipping directory removal."
+    fi
+}
+
+# Save installed version to internal plugin dir
+save_plugin_version() {
+    local plugin=$1
+    local version
+    version=$(get_plugin_version "$plugin")
+    if [ -n "$version" ]; then
+        mkdir -p "$INTERNAL_PLUGIN_DIR/$plugin"
+        echo -n "$version" > "$INTERNAL_PLUGIN_DIR/$plugin/version.txt"
+        log_message "Saved version $version for $plugin"
+    fi
+}
+
+# Check plugin health via systemd service status
+check_plugin_health() {
+    local plugin=$1
+    local service_name="${plugin}.service"
+    if systemctl list-unit-files | grep -q "$service_name"; then
+        if systemctl is-failed --quiet "$service_name"; then
+            write_plugin_status "$plugin" "Failed"
+            log_message "Health check: $plugin service is in failed state"
+        fi
     fi
 }
 
@@ -117,66 +210,79 @@ process_plugin() {
         return 0  # Return success
     fi
 
+    # Validate plugin name
+    if ! validate_plugin_name "$plugin"; then
+        log_message "Invalid plugin name: $plugin. Skipping processing."
+        return 1
+    fi
+
     local plugin_dir="$PLUGINS_DIR/$plugin"
-    local timeout=300  # 5 minutes timeout
+    local timeout
+    timeout=$(get_plugin_timeout "$plugin")
 
     (
         flock -x -w $timeout 201 || { log_message "Failed to acquire lock for $plugin"; return 1; }
         if [ "$action" == "install" ]; then
             if [ -f "$plugin_dir/install.sh" ]; then
                 log_message "Running install.sh for $plugin"
-                
+
                 write_plugin_status "$plugin" "Installing"
                 (
                     set -o pipefail
                     if timeout $timeout sudo bash "$plugin_dir/install.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "install.sh completed successfully for $plugin"
-                        
+
                         write_plugin_status "$plugin" "Installed"
+                        save_plugin_version "$plugin"
                         if [ -f "$plugin_dir/start.sh" ]; then
                             log_message "Running start.sh for $plugin"
-                            
+
                             if timeout $timeout sudo bash "$plugin_dir/start.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                                 log_message "start.sh completed successfully for $plugin"
-                                
+
                             else
                                 log_message "start.sh failed for $plugin"
+                                write_plugin_status "$plugin" "Failed"
                                 remove_from_active_plugins "$plugin"
-                                
+
                                 return 1
                             fi
                         else
                             log_message "start.sh not found for $plugin"
-                            
+
                         fi
                     else
                         log_message "install.sh failed for $plugin. Removing from active plugins."
+                        write_plugin_status "$plugin" "Failed"
                         remove_from_active_plugins "$plugin"
-                        
+
                         return 1
                     fi
                 )
                 install_exit_status=$?
                 if [ $install_exit_status -ne 0 ]; then
                     log_message "Installation process failed for $plugin with exit status $install_exit_status"
+                    write_plugin_status "$plugin" "Failed"
                     remove_from_active_plugins "$plugin"
-                    
+
                     return 1
                 fi
             else
                 log_message "install.sh not found for $plugin. Removing from active plugins."
+                write_plugin_status "$plugin" "Failed"
                 remove_from_active_plugins "$plugin"
-                
+
                 return 1
             fi
         elif [ "$action" == "uninstall" ]; then
+            write_plugin_status "$plugin" "Uninstalling"
             if [ -f "$plugin_dir/stop.sh" ]; then
                 log_message "Running stop.sh for $plugin"
                 (
                     set -o pipefail
                     if ! timeout $timeout sudo bash "$plugin_dir/stop.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "stop.sh failed for $plugin"
-                        
+
                     fi
                 )
             else
@@ -184,41 +290,45 @@ process_plugin() {
             fi
             if [ -f "$plugin_dir/uninstall.sh" ]; then
                 log_message "Running uninstall.sh for $plugin"
-                
+
                 (
                     set -o pipefail
                     if timeout $timeout sudo bash "$plugin_dir/uninstall.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
                         log_message "uninstall.sh completed successfully for $plugin"
                         remove_from_active_plugins "$plugin"
-                        
+                        cleanup_plugin_dir "$plugin"
+
                     else
-                        log_message "uninstall.sh failed for $plugin. Adding back to active plugins."
-                        add_to_active_plugins "$plugin"
-                        
+                        log_message "uninstall.sh failed for $plugin."
+                        write_plugin_status "$plugin" "Failed"
+                        echo "Uninstall failed at $(date)" > "$INTERNAL_PLUGIN_DIR/$plugin/error.txt"
+
                         return 1
                     fi
                 )
                 uninstall_exit_status=$?
                 if [ $uninstall_exit_status -ne 0 ]; then
                     log_message "Uninstallation process failed for $plugin with exit status $uninstall_exit_status"
-                    add_to_active_plugins "$plugin"
-                    
+                    write_plugin_status "$plugin" "Failed"
+                    echo "Uninstall failed at $(date)" > "$INTERNAL_PLUGIN_DIR/$plugin/error.txt"
+
                     return 1
                 fi
             else
                 log_message "uninstall.sh not found for $plugin"
                 remove_from_active_plugins "$plugin"
-                
+                cleanup_plugin_dir "$plugin"
+
             fi
         fi
         sync
         sleep 1
     ) 201>$SEMAPHORE
-    
+
     local exit_status=$?
     if [ $exit_status -ne 0 ]; then
         log_message "Error processing plugin $plugin (action: $action). Exit status: $exit_status"
-        
+
     fi
     return $exit_status
 }
@@ -266,7 +376,7 @@ process_active_plugins_changes() {
 
 # Function to install all active plugins
 install_active_plugins() {
-    
+
     local plugins
     if [ ! -s "$ACTIVE_PLUGINS_FILE" ]; then
         plugins=()
@@ -283,13 +393,28 @@ install_active_plugins() {
 
 update_plugin() {
     local plugin=$1
+    if ! validate_plugin_name "$plugin"; then return 1; fi
     local plugin_dir="$PLUGINS_DIR/$plugin"
-    
+    local timeout
+    timeout=$(get_plugin_timeout "$plugin")
+
+    # Version-aware: skip update if versions match
+    local new_version
+    new_version=$(get_plugin_version "$plugin")
+    local installed_version=""
+    if [ -f "$INTERNAL_PLUGIN_DIR/$plugin/version.txt" ]; then
+        installed_version=$(cat "$INTERNAL_PLUGIN_DIR/$plugin/version.txt" 2>/dev/null || echo "")
+    fi
+    if [ -n "$new_version" ] && [ -n "$installed_version" ] && [ "$new_version" = "$installed_version" ]; then
+        log_message "Plugin $plugin is already at version $installed_version, skipping update"
+        return 0
+    fi
 
     if [ -f "$plugin_dir/update.sh" ]; then
         log_message "Running update.sh for $plugin"
-        if timeout $timeout sudo bash "$plugin_dir/update.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
+        if timeout $timeout sudo bash -c "cd '$plugin_dir' && bash update.sh" 2>&1 | sudo tee -a $FULA_LOG_PATH; then
             log_message "update.sh completed successfully for $plugin"
+            save_plugin_version "$plugin"
         else
             log_message "update.sh failed for $plugin"
         fi
@@ -297,14 +422,15 @@ update_plugin() {
         log_message "update.sh not found for $plugin"
     fi
 }
+
 process_plugin_updates() {
     local plugins_to_update=()
     mapfile -t plugins_to_update < "$UPDATE_PLUGIN_FILE"
-    
+
     for plugin in "${plugins_to_update[@]}"; do
         update_plugin "$plugin"
     done
-    
+
     # Empty the file after processing all updates
     : > "$UPDATE_PLUGIN_FILE"
 }
@@ -345,6 +471,11 @@ else
 fi
 
 release_lock
+
+# Check for inotifywait availability
+if ! command -v inotifywait &>/dev/null; then
+    log_message "WARNING: inotifywait not found (install inotify-tools). Falling back to 10s polling."
+fi
 
 # Before the main loop
 running=true
@@ -392,6 +523,14 @@ while $running; do
             log_message "all_installed=$all_installed, all_uninstalled=$all_uninstalled"
         fi
 
+        # Periodic health check for active plugins (every ~60s = 6 iterations of ~10s)
+        ((++HEALTH_CHECK_COUNTER))
+        if [ $((HEALTH_CHECK_COUNTER % 6)) -eq 0 ]; then
+            for plugin in "${new_plugins[@]}"; do
+                check_plugin_health "$plugin"
+            done
+        fi
+
         sync
         sleep 1
         if ! $all_installed || ! $all_uninstalled; then
@@ -403,7 +542,7 @@ while $running; do
             continue
         fi
     fi
-    
+
     if ! $PROCESSING_CHANGES; then
         sync
         sleep 2
@@ -437,7 +576,7 @@ while $running; do
 
     trap - ERR
     release_lock
-    
+
     log_message "Finished processing changes"
     PROCESSING_CHANGES=false
     sync

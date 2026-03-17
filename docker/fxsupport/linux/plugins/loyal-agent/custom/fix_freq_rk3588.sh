@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/bin/bash
 
 echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state1/disable
 echo 1 > /sys/devices/system/cpu/cpu1/cpuidle/state1/disable

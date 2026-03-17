@@ -58,7 +58,8 @@ sleep 1
 # Enable the service
 systemctl enable loyal-agent.service
 
-# Run the download and setup script in the background using nohup and &
-nohup bash "${PLUGIN_EXEC_DIR}/custom/download_model.sh" &
-
-exit 0
+# Write "Downloading" status for the UI
+echo -n "Downloading" > "/home/pi/.internal/plugins/loyal-agent/status.txt"
+# Run synchronously — let plugins.sh manage the timeout
+bash "${PLUGIN_EXEC_DIR}/custom/download_model.sh"
+# Exit code propagates from download_model.sh

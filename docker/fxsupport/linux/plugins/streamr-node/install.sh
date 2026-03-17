@@ -128,6 +128,7 @@ fi
 
 # Store the private key in a file
 echo "$PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
+chmod 600 "$PRIVATE_KEY_FILE"
 
 NODE_ADDR=$(${VENV_DIR}/bin/python "${PLUGIN_EXEC_DIR}/custom/generate_evm_address.py" "$PRIVATE_KEY" | tr -d '[:space:]')
 
@@ -197,6 +198,7 @@ cat > "$CONFIG_FILE" <<EOL
     }
 }
 EOL
+chmod 600 "$CONFIG_FILE"
 
 # Copy service file
 cp "${PLUGIN_EXEC_DIR}/streamr-node.service" "/etc/systemd/system/"

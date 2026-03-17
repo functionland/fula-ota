@@ -1817,15 +1817,11 @@ function remove() {
   systemctl daemon-reload
   dockerPrune
 
-  if [ -f "${SYSTEMD_PATH}/fula-plugins.service" ]; then
-        echo "Removing fula-plugins service" | sudo tee -a $FULA_LOG_PATH
-        sudo systemctl stop fula-plugins
-        sudo systemctl disable fula-plugins
-        sudo rm fula-plugins
-        sudo systemctl daemon-reload
-  else
-        echo "fula-plugins service is not installed" | sudo tee -a $FULA_LOG_PATH
+  if service_exists fula-plugins.service; then
+    systemctl stop fula-plugins.service -q
+    systemctl disable fula-plugins.service -q
   fi
+  rm -f $SYSTEMD_PATH/fula-plugins.service
   echo "Removing Fula Finished" | sudo tee -a $FULA_LOG_PATH
 }
 

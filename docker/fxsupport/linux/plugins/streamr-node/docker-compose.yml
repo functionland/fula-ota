@@ -1,7 +1,7 @@
 version: '3'
 services:
   streamr-node:
-    image: streamr/node
+    image: streamr/node:latest
     container_name: streamr-node
     restart: unless-stopped
     security_opt:

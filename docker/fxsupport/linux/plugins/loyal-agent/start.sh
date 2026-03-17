@@ -37,4 +37,5 @@ if [ -f "$MODEL_FILE" ] && [ "$FILE_SIZE" -ge "$SIZE_LIMIT" ]; then
   echo "Loyal agent started successfully."
 else
   echo "Download failed or incomplete."
+  exit 1
 fi

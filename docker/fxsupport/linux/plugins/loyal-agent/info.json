@@ -50,5 +50,8 @@
     ],
     "outputs": [
     ],
+    "installTimeout": 3600,
+    "dockerImage": "functionland/loyal-agent:latest",
+    "modelSha256": "",
     "approved": true
 }
