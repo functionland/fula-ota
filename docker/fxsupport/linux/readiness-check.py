@@ -41,6 +41,11 @@ led_flash_stop_event = None
 # Counter for consecutive relay connection failures with broken swarm
 relay_fail_count = 0
 
+# ext4 filesystem repair state
+last_fsck_time = 0   # Timestamp of last e2fsck run — 1-hour cooldown
+FSCK_COOLDOWN = 3600
+FSCK_LOCKFILE = "/run/fula-fsck.lock"
+
 # YAML invalid control characters (all control chars except tab, newline, carriage return)
 YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 
@@ -214,6 +219,501 @@ def check_disk_space(path="/uniondrive", min_gb=1):
     except Exception as e:
         logging.error(f"Failed to check disk space on {path}: {e}")
         return True, -1  # Don't block on error
+
+
+def _acquire_fsck_lock():
+    """Acquire PID-based lockfile for fsck. Returns True if acquired."""
+    if os.path.exists(FSCK_LOCKFILE):
+        try:
+            with open(FSCK_LOCKFILE, 'r') as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, 0)  # Check if alive
+            logging.info(f"fsck lock held by PID {old_pid}, skipping")
+            return False
+        except (ValueError, ProcessLookupError, OSError):
+            logging.info("Removing stale fsck lockfile")
+            os.remove(FSCK_LOCKFILE)
+    with open(FSCK_LOCKFILE, 'w') as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def _release_fsck_lock():
+    """Release fsck lockfile."""
+    try:
+        os.remove(FSCK_LOCKFILE)
+    except OSError:
+        pass
+
+
+def _find_ro_ext4_partitions():
+    """Find ext4 partitions under /media/pi/ that are mounted read-only or have errors.
+
+    Returns list of (device, mountpoint) tuples needing repair.
+    """
+    results = []
+    seen_devices = set()
+
+    # Primary: check /proc/mounts for ext4 partitions mounted read-only
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                device, mountpoint, fstype, options = parts[0], parts[1], parts[2], parts[3]
+                if fstype != 'ext4' or not mountpoint.startswith('/media/pi/'):
+                    continue
+                mount_opts = options.split(',')
+                if 'ro' in mount_opts:
+                    logging.warning(f"ext4 partition {device} at {mountpoint} is mounted read-only")
+                    results.append((device, mountpoint))
+                    seen_devices.add(device)
+    except Exception as e:
+        logging.error(f"Error reading /proc/mounts: {e}")
+
+    # Secondary: check /sys/fs/ext4/*/errors_count for drives with errors=continue
+    try:
+        ext4_sys = '/sys/fs/ext4'
+        if os.path.isdir(ext4_sys):
+            for dev_name in os.listdir(ext4_sys):
+                errors_path = os.path.join(ext4_sys, dev_name, 'errors_count')
+                if not os.path.exists(errors_path):
+                    continue
+                try:
+                    with open(errors_path, 'r') as f:
+                        errors_count = int(f.read().strip())
+                except (ValueError, IOError):
+                    continue
+                if errors_count <= 0:
+                    continue
+                # Resolve the device path
+                device = f'/dev/{dev_name}'
+                if device in seen_devices:
+                    continue
+                # Find its mountpoint from /proc/mounts
+                try:
+                    with open('/proc/mounts', 'r') as f:
+                        for line in f:
+                            parts = line.split()
+                            if len(parts) >= 2 and parts[0] == device and parts[1].startswith('/media/pi/'):
+                                logging.warning(f"ext4 partition {device} has {errors_count} errors (errors=continue)")
+                                results.append((device, parts[1]))
+                                seen_devices.add(device)
+                                break
+                except Exception:
+                    pass
+    except Exception as e:
+        logging.error(f"Error checking ext4 errors_count: {e}")
+
+    return results
+
+
+def _detect_io_dead_drive():
+    """Detect external drives stuck in I/O errors with D-state (uninterruptible sleep) processes.
+
+    This catches drives too broken to mount — _find_ro_ext4_partitions() misses them.
+    Requires BOTH D-state processes targeting /dev/sd* AND I/O errors in dmesg to avoid
+    false positives (a brief D-state during normal I/O is not a problem).
+
+    Returns (device_path, partition_name, disk_name) or (None, None, None).
+    """
+    try:
+        # Find D-state processes targeting /dev/sd*
+        ps_result = subprocess.run(
+            ["ps", "-eo", "state,args", "--no-headers"],
+            capture_output=True, text=True, timeout=10
+        )
+        d_state_devices = set()
+        for line in ps_result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            state, args = parts[0], parts[1]
+            if 'D' not in state:
+                continue
+            for token in args.split():
+                if re.match(r'/dev/sd[a-z]+\d*$', token):
+                    d_state_devices.add(token)
+
+        if not d_state_devices:
+            return None, None, None
+
+        device = sorted(d_state_devices)[0]
+        disk_match = re.match(r'/dev/(sd[a-z]+)(\d*)$', device)
+        if not disk_match:
+            return None, None, None
+        disk_name = disk_match.group(1)
+        part_num = disk_match.group(2) or '1'
+        partition_name = f"{disk_name}{part_num}"
+
+        # Require I/O errors in dmesg to avoid false positives
+        try:
+            dmesg_result = subprocess.run(
+                ["dmesg"], capture_output=True, text=True, timeout=10
+            )
+            recent_lines = dmesg_result.stdout.strip().split('\n')[-200:]
+            has_io_errors = any(
+                f'I/O error, dev {disk_name}' in line or
+                f'[{disk_name}] timing out' in line
+                for line in recent_lines
+            )
+            if not has_io_errors:
+                logging.debug(f"D-state on {device} but no I/O errors in dmesg — not I/O dead")
+                return None, None, None
+        except Exception:
+            pass  # If dmesg fails, trust D-state alone (conservative)
+
+        logging.warning(f"I/O dead drive detected: /dev/{partition_name} (D-state + I/O errors)")
+        return f"/dev/{partition_name}", partition_name, disk_name
+
+    except Exception as e:
+        logging.error(f"Error detecting I/O dead drive: {e}")
+        return None, None, None
+
+
+def _reset_scsi_drive(disk_name, timeout=90):
+    """Reset a SCSI/USB drive via sysfs delete + host rescan.
+
+    Clears D-state processes by removing the block device from the kernel, then
+    rescans SCSI hosts to re-detect it. Waits for spinup and partition table.
+
+    Args:
+        disk_name: Base disk name, e.g. 'sda'
+        timeout: Max seconds to wait for drive to come back
+
+    Returns True if drive came back with a partition, False otherwise.
+    """
+    delete_path = f'/sys/block/{disk_name}/device/delete'
+
+    if not os.path.exists(delete_path):
+        logging.error(f"SCSI delete path not found: {delete_path}")
+        return False
+
+    # Delete the device — clears D-state processes waiting on it
+    logging.info(f"SCSI reset: deleting {disk_name} via sysfs")
+    try:
+        subprocess.run(
+            ["sudo", "tee", delete_path],
+            input=b"1", capture_output=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        logging.error(f"SCSI delete timed out for {disk_name}")
+        return False
+
+    # Wait for D-state processes to clear
+    time.sleep(10)
+
+    # Rescan all SCSI hosts to re-detect the drive
+    logging.info("SCSI reset: rescanning all SCSI hosts")
+    try:
+        scsi_host_dir = '/sys/class/scsi_host'
+        if os.path.isdir(scsi_host_dir):
+            for host in os.listdir(scsi_host_dir):
+                scan_path = os.path.join(scsi_host_dir, host, 'scan')
+                if os.path.exists(scan_path):
+                    try:
+                        subprocess.run(
+                            ["sudo", "tee", scan_path],
+                            input=b"- - -", capture_output=True, timeout=10
+                        )
+                    except Exception:
+                        pass
+    except Exception as e:
+        logging.error(f"SCSI host rescan failed: {e}")
+        return False
+
+    # Wait for drive to spin up and partition to appear
+    logging.info(f"SCSI reset: waiting up to {timeout}s for {disk_name} to come back")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(5)
+
+        if not os.path.exists(f'/sys/block/{disk_name}'):
+            continue
+
+        # Check size > 0 (0 means still spinning up)
+        try:
+            with open(f'/sys/block/{disk_name}/size', 'r') as f:
+                size = int(f.read().strip())
+            if size == 0:
+                logging.debug(f"SCSI reset: {disk_name} back but size=0, still spinning up")
+                continue
+        except (ValueError, IOError):
+            continue
+
+        # Check for partition
+        if os.path.exists(f'/sys/block/{disk_name}/{disk_name}1'):
+            logging.info(f"SCSI reset: {disk_name}1 is back")
+            return True
+
+        # Drive back but no partition — try partprobe
+        logging.info(f"SCSI reset: {disk_name} back but no partition, running partprobe")
+        try:
+            subprocess.run(
+                ["sudo", "partprobe", f"/dev/{disk_name}"],
+                capture_output=True, timeout=15
+            )
+        except Exception:
+            pass
+        time.sleep(3)
+
+        if os.path.exists(f'/sys/block/{disk_name}/{disk_name}1'):
+            logging.info(f"SCSI reset: {disk_name}1 found after partprobe")
+            return True
+
+    logging.error(f"SCSI reset: {disk_name} did not come back within {timeout}s")
+    return False
+
+
+def check_and_repair_ext4():
+    """Detect and repair ext4 filesystem corruption (read-only remount or error count).
+
+    Stops services, unmounts, runs e2fsck, restarts services.
+    Uses lockfile and cooldown to prevent races and rapid re-runs.
+
+    Returns True if repair was attempted, False if skipped.
+    """
+    global last_fsck_time
+
+    # Check cooldown
+    now = time.time()
+    if now - last_fsck_time < FSCK_COOLDOWN:
+        logging.info("ext4 fsck cooldown active, skipping")
+        return False
+
+    # Detect issues — RO mount first, then I/O dead drive
+    ro_partitions = _find_ro_ext4_partitions()
+    io_dead = False
+
+    if ro_partitions:
+        device, mountpoint = ro_partitions[0]
+        partition_name = device.split('/')[-1]
+    else:
+        dead_device, dead_part, dead_disk = _detect_io_dead_drive()
+        if dead_device is None:
+            return False
+        device, partition_name = dead_device, dead_part
+        mountpoint = f"/media/pi/{partition_name}"
+        io_dead = True
+
+    # Extract base disk name (sda from sda1) for SCSI reset
+    disk_match = re.match(r'(sd[a-z]+)', partition_name)
+    disk_name = disk_match.group(1) if disk_match else None
+
+    # Check if e2fsck is already running
+    try:
+        pgrep = subprocess.run(["pgrep", "-x", "e2fsck"], capture_output=True, timeout=10)
+        if pgrep.returncode == 0:
+            logging.info("e2fsck already running, skipping")
+            return False
+    except Exception:
+        pass
+
+    # Acquire lock
+    if not _acquire_fsck_lock():
+        return False
+
+    logging.warning(f"Starting ext4 repair for {device} at {mountpoint}"
+                    f"{' (I/O dead — SCSI reset needed)' if io_dead else ''}")
+
+    repair_attempted = False
+    try:
+        # Orange LED to indicate repair in progress
+        subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
+
+        # Stop fula first (explicit, even though uniondrive stop cascades via Requires)
+        logging.info("Stopping fula.service for ext4 repair")
+        subprocess.run(["sudo", "systemctl", "stop", "fula.service"],
+                       capture_output=True, timeout=120)
+        time.sleep(5)
+
+        # Stop Docker — containers hold file handles on SSD paths through mergerfs
+        logging.info("Stopping docker.service for ext4 repair")
+        subprocess.run(["sudo", "systemctl", "stop", "docker.service"],
+                       capture_output=True, timeout=120)
+        time.sleep(5)
+
+        # Stop uniondrive (kills union-drive.sh, cascade-stops fula via Requires)
+        logging.info("Stopping uniondrive.service for ext4 repair")
+        subprocess.run(["sudo", "systemctl", "stop", "uniondrive.service"],
+                       capture_output=True, timeout=120)
+        time.sleep(5)
+
+        # Stop automount for this partition
+        automount_unit = f"automount@{partition_name}.service"
+        logging.info(f"Stopping {automount_unit} for ext4 repair")
+        subprocess.run(["sudo", "systemctl", "stop", automount_unit],
+                       capture_output=True, timeout=120)
+        time.sleep(2)
+
+        # --- Make the device available for fsck ---
+        device_ready = False
+
+        if io_dead and disk_name:
+            # Drive is I/O dead — umount/fuser would hang. SCSI reset first.
+            logging.warning(f"Drive I/O dead, performing SCSI reset on {disk_name}")
+            if _reset_scsi_drive(disk_name):
+                device = f"/dev/{partition_name}"
+                device_ready = True
+            else:
+                logging.error("SCSI reset failed — drive may need physical intervention")
+        else:
+            # Normal path: unmount, then release block device holders
+            # Verify partition is unmounted; force-unmount if needed
+            mounted = subprocess.run(["mountpoint", "-q", mountpoint],
+                                     capture_output=True, timeout=10).returncode == 0
+            if mounted:
+                logging.info(f"Unmounting {device} from {mountpoint}")
+                result = subprocess.run(["sudo", "umount", device],
+                                        capture_output=True, timeout=30)
+                if result.returncode != 0:
+                    logging.warning(f"umount failed, trying lazy unmount: {result.stderr}")
+                    result = subprocess.run(["sudo", "umount", "-l", device],
+                                            capture_output=True, timeout=10)
+                    if result.returncode != 0:
+                        logging.warning("Lazy umount failed, killing users and retrying")
+                        subprocess.run(["sudo", "fuser", "-km", mountpoint],
+                                       capture_output=True, timeout=30)
+                        time.sleep(2)
+                        subprocess.run(["sudo", "umount", device],
+                                       capture_output=True, timeout=30)
+
+                # Final mount check
+                still_mounted = subprocess.run(["mountpoint", "-q", mountpoint],
+                                               capture_output=True, timeout=10).returncode == 0
+                if still_mounted:
+                    logging.error(f"Cannot unmount {device} — trying SCSI reset as fallback")
+                    if disk_name and _reset_scsi_drive(disk_name):
+                        device = f"/dev/{partition_name}"
+                        device_ready = True
+                    # If SCSI reset also failed, fall through — device_ready stays False
+
+            if not device_ready:
+                # Kill processes holding the block device (stale blkid, etc.)
+                try:
+                    fuser_result = subprocess.run(
+                        ["sudo", "fuser", "-v", device],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if fuser_result.returncode == 0:
+                        logging.warning(f"Processes holding {device} open:\n"
+                                        f"{fuser_result.stdout}{fuser_result.stderr}")
+                        subprocess.run(["sudo", "fuser", "-k", device],
+                                       capture_output=True, timeout=15)
+                        time.sleep(2)
+                        # Verify released
+                        recheck = subprocess.run(
+                            ["sudo", "fuser", device],
+                            capture_output=True, timeout=10
+                        )
+                        if recheck.returncode == 0:
+                            # fuser -k failed — processes likely in D-state. Try SCSI reset.
+                            logging.warning("fuser -k failed (D-state?), trying SCSI reset")
+                            if disk_name and _reset_scsi_drive(disk_name):
+                                device = f"/dev/{partition_name}"
+                                device_ready = True
+                            else:
+                                logging.error(f"Cannot release {device} — all methods exhausted")
+                        else:
+                            logging.info(f"Released all processes holding {device}")
+                            device_ready = True
+                    else:
+                        device_ready = True  # Nothing holding it — good to go
+                except subprocess.TimeoutExpired:
+                    # fuser itself hung — drive is likely I/O dead
+                    logging.warning(f"fuser on {device} timed out — trying SCSI reset")
+                    if disk_name and _reset_scsi_drive(disk_name):
+                        device = f"/dev/{partition_name}"
+                        device_ready = True
+                except Exception as e:
+                    logging.warning(f"Error checking device holders: {e}")
+                    device_ready = True  # Optimistically try e2fsck
+
+        if not device_ready:
+            logging.error("Could not make device available for fsck")
+            repair_attempted = True
+            last_fsck_time = time.time()
+            # fall through to finally — restart services
+            return repair_attempted
+
+        # Verify device node exists after possible SCSI reset
+        if not os.path.exists(device):
+            logging.error(f"Device {device} does not exist after reset")
+            repair_attempted = True
+            last_fsck_time = time.time()
+            return repair_attempted
+
+        # --- Run e2fsck ---
+        logging.info(f"Running e2fsck -p -f {device} (timeout 1800s)")
+        try:
+            fsck_result = subprocess.run(
+                ["sudo", "e2fsck", "-p", "-f", device],
+                capture_output=True, text=True, timeout=1800
+            )
+            logging.info(f"e2fsck exit code: {fsck_result.returncode}")
+            if fsck_result.stdout:
+                for line in fsck_result.stdout.strip().split('\n')[-20:]:
+                    logging.info(f"e2fsck: {line}")
+            if fsck_result.stderr:
+                for line in fsck_result.stderr.strip().split('\n')[-10:]:
+                    logging.warning(f"e2fsck stderr: {line}")
+            # Exit codes: 0=no errors, 1=errors corrected, 2=reboot needed,
+            # 4=errors left uncorrected, 8=operational error
+            if fsck_result.returncode in (0, 1):
+                logging.info(f"e2fsck completed successfully on {device}")
+            elif fsck_result.returncode & 2:
+                logging.warning(f"e2fsck requests reboot for {device}")
+            else:
+                logging.error(f"e2fsck reported uncorrected errors on {device} (exit {fsck_result.returncode})")
+        except subprocess.TimeoutExpired:
+            logging.error(f"e2fsck timed out after 1800s on {device}")
+
+        repair_attempted = True
+        last_fsck_time = time.time()
+
+    except Exception as e:
+        logging.error(f"Exception during ext4 repair: {e}")
+        repair_attempted = True  # Still restart services
+    finally:
+        # ALWAYS restart services, even on failure
+        logging.info("Restarting services after ext4 repair")
+
+        # Restart automount
+        automount_unit = f"automount@{partition_name}.service"
+        subprocess.run(["sudo", "systemctl", "reset-failed", automount_unit],
+                       capture_output=True, timeout=20)
+        subprocess.run(["sudo", "systemctl", "start", automount_unit],
+                       capture_output=True, timeout=60)
+        time.sleep(5)
+
+        # Restart Docker (must be up before uniondrive/fula)
+        subprocess.run(["sudo", "systemctl", "reset-failed", "docker.service"],
+                       capture_output=True, timeout=20)
+        subprocess.run(["sudo", "systemctl", "start", "docker.service"],
+                       capture_output=True, timeout=120)
+        time.sleep(5)
+
+        # Restart uniondrive (blocks until READY/mergerfs or WatchdogSec timeout)
+        subprocess.run(["sudo", "systemctl", "reset-failed", "uniondrive.service"],
+                       capture_output=True, timeout=20)
+        subprocess.run(["sudo", "systemctl", "start", "uniondrive.service"],
+                       capture_output=True, timeout=150)
+
+        # Start fula (has ExecStartPre=/bin/sleep 60 — don't wait for full startup)
+        safe_start_fula(capture_output=True, timeout=120)
+
+        # Clear LED
+        subprocess.run(["sudo", "python", LED_PATH, "green", "1"],
+                       capture_output=True, timeout=20)
+
+        _release_fsck_lock()
+        logging.info("ext4 repair sequence complete")
+
+    return repair_attempted
+
 
 def check_proxy_health():
     """Check if go-fula proxy ports (4020/4021) are reachable.
@@ -1317,6 +1817,10 @@ def monitor_docker_logs_and_restart():
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         if not check_conditions():
             logging.error("conditions not pass")
+            if check_and_repair_ext4():
+                logging.info("ext4 repair attempted inside monitor loop.")
+                time.sleep(30)
+                continue
             subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
             subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, timeout=120)
             subprocess.run(["sudo", "systemctl", "stop", "docker.service"], capture_output=True, timeout=120)
@@ -1441,6 +1945,10 @@ def monitor_docker_logs_and_restart():
                            capture_output=True, timeout=120)
 
     if restart_attempts >= 4:
+        if check_and_repair_ext4():
+            logging.info("ext4 repair attempted at escalation boundary.")
+            restart_attempts = 0
+            return  # Back to caller for fresh evaluation
         logging.error("Maximum restart attempts reached. Checking .reboot_flag status.")
         activate_wireguard_support()
         current_time = time.time()
@@ -1526,6 +2034,11 @@ def main():
                 time.sleep(10)
         else:
             logging.info("check_conditions failed")
+            if check_and_repair_ext4():
+                logging.info("ext4 repair attempted. Re-evaluating conditions.")
+                fula_restart_attempts = 0
+                time.sleep(90)  # fula.service needs 60s+ (ExecStartPre=sleep 60)
+                continue
             # Check if 'fula_go' exists in `docker ps -a`
             docker_ps_a_output = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
             docker_ps_output = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")

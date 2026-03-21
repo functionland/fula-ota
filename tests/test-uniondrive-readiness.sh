@@ -38,6 +38,7 @@ EXPECTED_READINESS_FUNCTIONS=(
     "check_and_fix_ipfs_host"
     "check_internet_connection"
     "check_external_drive"
+    "check_and_repair_ext4"
     "monitor_docker_logs_and_restart"
     "main"
 )
