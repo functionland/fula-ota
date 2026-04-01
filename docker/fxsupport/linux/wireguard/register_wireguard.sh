@@ -66,14 +66,24 @@ print(json.dumps({
 
 log "Registering with support server (device_id=${device_id}, peer_id=${peer_id:-none})..."
 
-# POST to registration endpoint
-response=$(curl -s -f --max-time 30 \
-  -H "Content-Type: application/json" \
-  -d "$payload" \
-  "$REGISTER_URL" 2>&1) || {
-  log "ERROR: Registration failed — server unreachable or returned error"
+# POST to registration endpoint with retry
+MAX_RETRIES=5
+RETRY_DELAY=10
+response=""
+for attempt in $(seq 1 $MAX_RETRIES); do
+  response=$(curl -s -f --max-time 30 \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "$REGISTER_URL" 2>&1) && break
+  log "WARNING: Registration attempt ${attempt}/${MAX_RETRIES} failed, retrying in ${RETRY_DELAY}s..."
+  response=""
+  sleep "$RETRY_DELAY"
+done
+
+if [ -z "$response" ]; then
+  log "ERROR: Registration failed after ${MAX_RETRIES} attempts — server unreachable or returned error"
   exit 1
-}
+fi
 
 # Parse server response
 server_public_key=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['server_public_key'])" 2>/dev/null) || {

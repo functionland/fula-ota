@@ -8,6 +8,8 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/bash /usr/bin/fula/wireguard/start.sh
 ExecStop=/bin/bash /usr/bin/fula/wireguard/stop.sh
+Restart=on-failure
+RestartSec=30
 RuntimeMaxSec=864000
 
 [Install]
