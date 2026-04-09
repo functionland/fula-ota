@@ -1615,6 +1615,175 @@ def check_and_fix_config_yaml():
         return False
 
 
+ENV_FILE_PATH = os.path.join(FULA_PATH, ".env")
+ENV_FILE_DEFAULT = {
+    "GO_FULA": "functionland/go-fula",
+    "FX_SUPPROT": "functionland/fxsupport",
+    "IPFS_CLUSTER": "functionland/ipfs-cluster",
+    "FULA_PINNING": "functionland/fula-pinning",
+    "FULA_GATEWAY": "functionland/fula-gateway",
+    "WPA_SUPLICANT_PATH": "/etc",
+    "CURRENT_USER": "pi",
+}
+
+
+def check_and_fix_env_file():
+    """Check /usr/bin/fula/.env for corruption (null bytes, binary garbage) and repair.
+
+    The .env file can become corrupted (filled with null bytes) due to filesystem
+    errors, power loss during write, or ext4 journal issues.  docker-compose and
+    fula.sh both refuse to read the file, which prevents all services from starting.
+
+    Detection:
+      - File contains null bytes (0x00) or other non-text bytes
+      - File fails KEY=VALUE line validation
+      - fula.sh logs show "unexpected character" errors
+
+    Repair:
+      - Attempt to salvage the existing tag (release, test*, etc.) from readable lines
+      - Rewrite the file with correct KEY=VALUE content using the salvaged or default tag
+
+    Returns:
+        bool: True if corruption was detected and fixed, False otherwise
+    """
+    try:
+        if not os.path.exists(ENV_FILE_PATH):
+            logging.warning(f".env file missing: {ENV_FILE_PATH}")
+            # Regenerate with default tag
+            _write_env_file("release")
+            logging.info(f"Regenerated missing .env with tag 'release'")
+            safe_restart_fula(capture_output=True, timeout=120)
+            time.sleep(30)
+            return True
+
+        # Read raw bytes to detect binary corruption
+        with open(ENV_FILE_PATH, 'rb') as f:
+            raw = f.read()
+
+        # Check 1: null bytes — the exact symptom reported
+        if b'\x00' in raw:
+            null_count = raw.count(b'\x00')
+            logging.warning(f".env file corrupted: {null_count} null bytes detected in {ENV_FILE_PATH}")
+            tag = _salvage_env_tag(raw)
+            _write_env_file(tag)
+            logging.info(f"Rewrote .env with tag '{tag}' after null-byte corruption")
+            safe_restart_fula(capture_output=True, timeout=120)
+            time.sleep(30)
+            return True
+
+        # Check 2: non-text bytes (binary garbage that isn't null)
+        try:
+            text = raw.decode('utf-8')
+        except UnicodeDecodeError:
+            logging.warning(f".env file corrupted: non-UTF8 content in {ENV_FILE_PATH}")
+            tag = _salvage_env_tag(raw)
+            _write_env_file(tag)
+            logging.info(f"Rewrote .env with tag '{tag}' after encoding corruption")
+            safe_restart_fula(capture_output=True, timeout=120)
+            time.sleep(30)
+            return True
+
+        # Check 3: validate every non-empty, non-comment line is KEY=VALUE
+        is_valid = True
+        for line_num, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', stripped):
+                logging.warning(f".env file has invalid line {line_num}: {stripped[:80]}")
+                is_valid = False
+                break
+
+        if not is_valid:
+            tag = _salvage_env_tag(raw)
+            _write_env_file(tag)
+            logging.info(f"Rewrote .env with tag '{tag}' after format corruption")
+            safe_restart_fula(capture_output=True, timeout=120)
+            time.sleep(30)
+            return True
+
+        # Check 4: ensure minimum required keys exist
+        required_keys = {"GO_FULA", "FX_SUPPROT"}
+        found_keys = set()
+        for line in text.splitlines():
+            stripped = line.strip()
+            if '=' in stripped and not stripped.startswith('#'):
+                key = stripped.split('=', 1)[0]
+                found_keys.add(key)
+
+        missing = required_keys - found_keys
+        if missing:
+            logging.warning(f".env file missing required keys: {missing}")
+            tag = _salvage_env_tag(raw)
+            _write_env_file(tag)
+            logging.info(f"Rewrote .env with tag '{tag}' after missing keys")
+            safe_restart_fula(capture_output=True, timeout=120)
+            time.sleep(30)
+            return True
+
+        return False
+
+    except Exception as e:
+        logging.error(f"Error in check_and_fix_env_file: {e}")
+        return False
+
+
+def _salvage_env_tag(raw_bytes):
+    """Try to extract the image tag from a possibly-corrupted .env file.
+
+    Scans for 'FX_SUPPROT=' or 'GO_FULA=' lines and extracts the tag after ':'.
+    Falls back to 'release' if nothing salvageable.
+
+    Args:
+        raw_bytes: raw file content (bytes)
+
+    Returns:
+        str: the salvaged tag or 'release'
+    """
+    try:
+        # Filter out null bytes and try to decode
+        cleaned = raw_bytes.replace(b'\x00', b'')
+        text = cleaned.decode('utf-8', errors='ignore')
+        for line in text.splitlines():
+            line = line.strip()
+            for prefix in ('FX_SUPPROT=', 'GO_FULA='):
+                if line.startswith(prefix):
+                    value = line[len(prefix):]
+                    if ':' in value:
+                        tag = value.rsplit(':', 1)[1]
+                        if tag and re.match(r'^[A-Za-z0-9._-]+$', tag):
+                            return tag
+    except Exception:
+        pass
+    return "release"
+
+
+def _write_env_file(tag):
+    """Write a valid .env file with the given image tag.
+
+    Args:
+        tag: Docker image tag (e.g. 'release', 'test153')
+    """
+    lines = []
+    for key, image in ENV_FILE_DEFAULT.items():
+        if key in ("WPA_SUPLICANT_PATH", "CURRENT_USER"):
+            lines.append(f"{key}={image}")
+        else:
+            lines.append(f"{key}={image}:{tag}")
+    content = "\n".join(lines) + "\n"
+    try:
+        with open(ENV_FILE_PATH, 'w') as f:
+            f.write(content)
+        logging.info(f"Wrote .env file: {ENV_FILE_PATH}")
+    except PermissionError:
+        # Try with sudo
+        subprocess.run(
+            ["sudo", "tee", ENV_FILE_PATH],
+            input=content.encode(), capture_output=True, timeout=10
+        )
+        logging.info(f"Wrote .env file via sudo: {ENV_FILE_PATH}")
+
+
 def check_internet_connection():
     try:
         requests.head("https://www.google.com", timeout=5)
@@ -1878,6 +2047,10 @@ def monitor_docker_logs_and_restart():
                 break  # Break to re-check all containers after an attempt
             
         # Run fix checks BEFORE proxy health check so they can't be short-circuited
+        env_file_fixed = check_and_fix_env_file()
+        if env_file_fixed:
+            restart_attempts += 1
+            continue  # re-check after .env repair
         ipfs_cluster_fixed = check_and_fix_ipfs_cluster()
         ipfs_host_fixed = check_and_fix_ipfs_host()
         config_yaml_fixed = check_and_fix_config_yaml()
@@ -2038,6 +2211,12 @@ def main():
                 logging.info("ext4 repair attempted. Re-evaluating conditions.")
                 fula_restart_attempts = 0
                 time.sleep(90)  # fula.service needs 60s+ (ExecStartPre=sleep 60)
+                continue
+            # Check .env corruption early — a corrupt .env prevents all containers from starting
+            if check_and_fix_env_file():
+                logging.info(".env file repaired. Re-evaluating conditions.")
+                fula_restart_attempts = 0
+                time.sleep(90)
                 continue
             # Check if 'fula_go' exists in `docker ps -a`
             docker_ps_a_output = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
