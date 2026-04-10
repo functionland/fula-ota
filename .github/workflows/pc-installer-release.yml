@@ -53,11 +53,18 @@ jobs:
             pc-installer/out/make/appx/x64/*.msix
           retention-days: 7
 
+      - name: Rename EXE for release
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path pc-installer/out/make/squirrel.windows/x64/*.exe | Select-Object -First 1
+          Copy-Item $exe.FullName "pc-installer/out/make/squirrel.windows/x64/Fula.Node.Setup.exe"
+
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: pc-installer/out/make/squirrel.windows/x64/*.exe
+          files: pc-installer/out/make/squirrel.windows/x64/Fula.Node.Setup.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -83,8 +90,13 @@ jobs:
           name: linux-installer
           path: pc-installer/out/make/deb/x64/*.deb
 
+      - name: Rename DEB for release
+        if: github.event_name == 'release'
+        run: |
+          cp pc-installer/out/make/deb/x64/*.deb pc-installer/out/make/deb/x64/fula-node_amd64.deb
+
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: pc-installer/out/make/deb/x64/*.deb
+          files: pc-installer/out/make/deb/x64/fula-node_amd64.deb
