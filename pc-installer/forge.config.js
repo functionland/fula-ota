@@ -33,6 +33,7 @@ module.exports = {
         publisherDisplayName: 'Functionland',
         identityName: 'Functionland.FulaNode',
         applicationDescription: 'Fula Node for PC — run a Fula decentralized storage node on your computer',
+        packageExecutable: 'app/fula-node.exe',
         devCert: 'FulaNodeDevCert',
         certProfileName: 'FulaNodeDevCert',
       },
