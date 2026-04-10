@@ -29,13 +29,13 @@ module.exports = {
     {
       name: '@electron-forge/maker-appx',
       config: {
-        publisher: 'CN=Functionland',
+        publisher: 'CN=E9FEC2DC-DBBE-45BA-A112-26EFEA253DB5',
         publisherDisplayName: 'Functionland',
-        identityName: 'Functionland.FulaNode',
+        identityName: 'Functionland.FunctionlandFulaCloud',
         applicationDescription: 'Fula Node for PC — run a Fula decentralized storage node on your computer',
         packageExecutable: 'app/fula-node.exe',
-        devCert: 'FulaNodeDevCert',
-        certProfileName: 'FulaNodeDevCert',
+        devCert: process.env.MSIX_DEV_CERT || require('path').join(require('os').homedir(), 'FulaNodeDevCert.pfx'),
+        certPass: '',
       },
       platforms: ['win32'],
     },

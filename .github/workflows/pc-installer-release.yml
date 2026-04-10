@@ -21,6 +21,20 @@ jobs:
       - name: Install dependencies
         run: cd pc-installer && npm ci
 
+      - name: Create self-signed certificate for MSIX
+        shell: pwsh
+        run: |
+          $pfxPath = "$env:USERPROFILE\FulaNodeDevCert.pfx"
+          $cert = New-SelfSignedCertificate -Type Custom `
+            -Subject "CN=E9FEC2DC-DBBE-45BA-A112-26EFEA253DB5" `
+            -KeyUsage DigitalSignature -FriendlyName "FulaNodeDevCert" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+            -FilePath $pfxPath -Password (New-Object System.Security.SecureString)
+          Write-Output "MSIX_DEV_CERT=$pfxPath" >> $env:GITHUB_ENV
+          Write-Output "Certificate exported to $pfxPath"
+
       - name: Build installer
         run: cd pc-installer && npm run make
 
@@ -30,11 +44,13 @@ jobs:
           name: windows-installer-exe
           path: pc-installer/out/make/squirrel.windows/x64/*.exe
 
-      - name: Upload Windows MSIX installer
+      - name: Upload Windows MSIX package
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-msix
-          path: pc-installer/out/make/appx/x64/*.appx
+          path: |
+            pc-installer/out/make/appx/x64/*.appx
+            pc-installer/out/make/appx/x64/*.msix
           retention-days: 7
 
       - name: Upload to GitHub Release
