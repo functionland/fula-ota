@@ -1,0 +1,291 @@
+# Olostep Plugin — Blocked Domain List
+# Domains listed here are resolved to 0.0.0.0 inside the container,
+# preventing the scraper from accessing them.
+# Format: one domain per line, including www. variants.
+# Lines starting with # are comments.
+#
+# To update: edit this file and re-run install.sh (or uninstall + reinstall).
+
+# ============================================================
+# US GOVERNMENT (.gov)
+# ============================================================
+usa.gov
+www.usa.gov
+whitehouse.gov
+www.whitehouse.gov
+irs.gov
+www.irs.gov
+ssa.gov
+www.ssa.gov
+medicare.gov
+www.medicare.gov
+medicaid.gov
+www.medicaid.gov
+healthcare.gov
+www.healthcare.gov
+benefits.gov
+www.benefits.gov
+treasury.gov
+www.treasury.gov
+home.treasury.gov
+state.gov
+www.state.gov
+justice.gov
+www.justice.gov
+doj.gov
+sec.gov
+www.sec.gov
+fcc.gov
+www.fcc.gov
+ftc.gov
+www.ftc.gov
+fda.gov
+www.fda.gov
+epa.gov
+www.epa.gov
+ed.gov
+www.ed.gov
+energy.gov
+www.energy.gov
+hhs.gov
+www.hhs.gov
+dhs.gov
+www.dhs.gov
+defense.gov
+www.defense.gov
+va.gov
+www.va.gov
+sba.gov
+www.sba.gov
+census.gov
+www.census.gov
+cdc.gov
+www.cdc.gov
+nih.gov
+www.nih.gov
+usda.gov
+www.usda.gov
+gsa.gov
+www.gsa.gov
+opm.gov
+www.opm.gov
+login.gov
+www.login.gov
+
+# ============================================================
+# US MILITARY (.mil)
+# ============================================================
+army.mil
+www.army.mil
+navy.mil
+www.navy.mil
+af.mil
+www.af.mil
+marines.mil
+www.marines.mil
+defense.gov
+www.defense.gov
+disa.mil
+www.disa.mil
+centcom.mil
+www.centcom.mil
+nsa.gov
+www.nsa.gov
+
+# ============================================================
+# US LAW ENFORCEMENT
+# ============================================================
+fbi.gov
+www.fbi.gov
+ic3.gov
+www.ic3.gov
+dea.gov
+www.dea.gov
+atf.gov
+www.atf.gov
+usmarshals.gov
+www.usmarshals.gov
+secretservice.gov
+www.secretservice.gov
+uscis.gov
+www.uscis.gov
+ice.gov
+www.ice.gov
+cbp.gov
+www.cbp.gov
+
+# ============================================================
+# CANADIAN GOVERNMENT
+# ============================================================
+canada.ca
+www.canada.ca
+gc.ca
+www.gc.ca
+cra-arc.gc.ca
+service.canada.ca
+justice.gc.ca
+rcmp-grc.gc.ca
+www.rcmp-grc.gc.ca
+cbsa-asfc.gc.ca
+priv.gc.ca
+www.priv.gc.ca
+cse-cst.gc.ca
+
+# ============================================================
+# UK GOVERNMENT
+# ============================================================
+gov.uk
+www.gov.uk
+service.gov.uk
+nhs.uk
+www.nhs.uk
+police.uk
+www.police.uk
+parliament.uk
+www.parliament.uk
+hmrc.gov.uk
+www.hmrc.gov.uk
+mi5.gov.uk
+www.mi5.gov.uk
+mod.uk
+www.mod.uk
+sis.gov.uk
+www.sis.gov.uk
+gchq.gov.uk
+www.gchq.gov.uk
+
+# ============================================================
+# EU / INTERNATIONAL GOVERNMENT
+# ============================================================
+europa.eu
+www.europa.eu
+ec.europa.eu
+europarl.europa.eu
+interpol.int
+www.interpol.int
+un.org
+www.un.org
+nato.int
+www.nato.int
+who.int
+www.who.int
+worldbank.org
+www.worldbank.org
+imf.org
+www.imf.org
+
+# ============================================================
+# HEALTHCARE
+# ============================================================
+epic.com
+www.epic.com
+mychart.com
+www.mychart.com
+cerner.com
+www.cerner.com
+mayoclinic.org
+www.mayoclinic.org
+clevelandclinic.org
+www.clevelandclinic.org
+hopkinsmedicine.org
+www.hopkinsmedicine.org
+massgeneral.org
+www.massgeneral.org
+mountsinai.org
+www.mountsinai.org
+stanfordhealthcare.org
+www.stanfordhealthcare.org
+uchealth.org
+www.uchealth.org
+kaiserpermanente.org
+www.kaiserpermanente.org
+anthem.com
+www.anthem.com
+unitedhealth.com
+www.unitedhealth.com
+uhc.com
+www.uhc.com
+cigna.com
+www.cigna.com
+aetna.com
+www.aetna.com
+humana.com
+www.humana.com
+bluecross.com
+www.bluecross.com
+
+# ============================================================
+# FINANCIAL INSTITUTIONS
+# ============================================================
+chase.com
+www.chase.com
+bankofamerica.com
+www.bankofamerica.com
+wellsfargo.com
+www.wellsfargo.com
+citibank.com
+www.citibank.com
+usbank.com
+www.usbank.com
+capitalone.com
+www.capitalone.com
+tdbank.com
+www.tdbank.com
+pnc.com
+www.pnc.com
+goldmansachs.com
+www.goldmansachs.com
+morganstanley.com
+www.morganstanley.com
+jpmorgan.com
+www.jpmorgan.com
+schwab.com
+www.schwab.com
+fidelity.com
+www.fidelity.com
+vanguard.com
+www.vanguard.com
+paypal.com
+www.paypal.com
+stripe.com
+www.stripe.com
+visa.com
+www.visa.com
+mastercard.com
+www.mastercard.com
+americanexpress.com
+www.americanexpress.com
+discover.com
+www.discover.com
+rbcroyalbank.com
+www.rbcroyalbank.com
+td.com
+www.td.com
+scotiabank.com
+www.scotiabank.com
+bmo.com
+www.bmo.com
+cibc.com
+www.cibc.com
+hsbc.com
+www.hsbc.com
+barclays.com
+www.barclays.com
+lloydsbank.com
+www.lloydsbank.com
+natwest.com
+www.natwest.com
+
+# ============================================================
+# CRITICAL INFRASTRUCTURE
+# ============================================================
+ferc.gov
+www.ferc.gov
+nrc.gov
+www.nrc.gov
+tsa.gov
+www.tsa.gov
+faa.gov
+www.faa.gov
+fema.gov
+www.fema.gov

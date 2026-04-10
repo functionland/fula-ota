@@ -20,3 +20,5 @@ User can activate or deactivate plugins and active plugins are stored in /home/p
 ## Current Plugins
 
 - streamr-node: This plugin runs a streamr node on the blox and can earn $DATA
+- loyal-agent: This plugin runs a local AI agent using NPU on RK3588
+- olostep-node: This plugin runs an Olostep web scraping node and earns Olostep Credits
