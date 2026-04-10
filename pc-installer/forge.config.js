@@ -27,6 +27,16 @@ module.exports = {
       },
     },
     {
+      name: '@electron-forge/maker-appx',
+      config: {
+        publisher: 'CN=Functionland',
+        publisherDisplayName: 'Functionland',
+        identityName: 'Functionland.FulaNode',
+        applicationDescription: 'Fula Node for PC — run a Fula decentralized storage node on your computer',
+      },
+      platforms: ['win32'],
+    },
+    {
       name: '@electron-forge/maker-zip',
       platforms: ['darwin', 'linux', 'win32'],
     },

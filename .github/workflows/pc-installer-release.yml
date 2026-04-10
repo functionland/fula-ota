@@ -24,11 +24,18 @@ jobs:
       - name: Build installer
         run: cd pc-installer && npm run make
 
-      - name: Upload Windows installer
+      - name: Upload Windows EXE installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: windows-installer-exe
           path: pc-installer/out/make/squirrel.windows/x64/*.exe
+
+      - name: Upload Windows MSIX installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-msix
+          path: pc-installer/out/make/appx/x64/*.appx
+          retention-days: 7
 
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
