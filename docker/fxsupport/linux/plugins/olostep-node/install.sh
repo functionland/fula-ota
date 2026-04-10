@@ -27,36 +27,26 @@ mkdir -p "$INTERNAL_DIR/plugins"
 mkdir -p "$OLOSTEP_DIR"
 mkdir -p "$STORAGE_DIR"
 
-# --- Derive deterministic device_id from device secrets ---
-# Same HMAC-SHA256 pattern as streamr-node (install.sh:117-122)
-# One-way: knowing the device_id, the secret_seed cannot be recovered
+# --- Derive deterministic device_id from box_props.json ---
+# Uses HMAC-SHA256 of blox_seed with plugin-specific key.
+# One-way: knowing the device_id, the blox_seed cannot be recovered.
 
-if [ ! -f "$INTERNAL_DIR/.secrets/secret_seed.txt" ]; then
-  echo "Error: secret_seed.txt not found."
+BOX_PROPS="$INTERNAL_DIR/box_props.json"
+if [ ! -f "$BOX_PROPS" ]; then
+  echo "Error: box_props.json not found at $BOX_PROPS"
   exit 1
 fi
 
-if [ ! -f "$INTERNAL_DIR/.secrets/password.txt" ]; then
-  echo "Error: password.txt not found."
-  exit 1
-fi
+BLOX_SEED=$(cat "$BOX_PROPS" | grep -o '"blox_seed":"[^"]*"' | cut -d'"' -f4)
 
-SECRET_SEED=$(cat "$INTERNAL_DIR/.secrets/secret_seed.txt" | tr -d '[:space:]')
-
-if [ -z "$SECRET_SEED" ]; then
-    echo "Error: SECRET_SEED is empty or file is missing."
-    exit 1
-fi
-
-SALT=$(cat "$INTERNAL_DIR/.secrets/password.txt" | tr -d '[:space:]')
-if [ -z "$SALT" ]; then
-    echo "Error: SALT is empty or file is missing."
+if [ -z "$BLOX_SEED" ]; then
+    echo "Error: blox_seed not found in box_props.json"
     exit 1
 fi
 
 # Derive device_id suffix using HMAC-SHA256 (one-way, plugin-specific)
-HASH=$(echo -n "${SECRET_SEED}${PLUGIN_NAME}" | \
-  openssl dgst -binary -sha256 -mac HMAC -macopt "key:${SALT}${PLUGIN_NAME}" | \
+HASH=$(echo -n "${BLOX_SEED}" | \
+  openssl dgst -binary -sha256 -mac HMAC -macopt "key:${PLUGIN_NAME}" | \
   od -An -tx1 -v | \
   tr -d ' \n')
 
