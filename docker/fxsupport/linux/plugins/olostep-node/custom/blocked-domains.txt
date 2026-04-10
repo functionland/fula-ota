@@ -83,8 +83,6 @@ af.mil
 www.af.mil
 marines.mil
 www.marines.mil
-defense.gov
-www.defense.gov
 disa.mil
 www.disa.mil
 centcom.mil
