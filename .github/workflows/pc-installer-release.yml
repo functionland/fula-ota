@@ -35,6 +35,11 @@ jobs:
           Write-Output "MSIX_DEV_CERT=$pfxPath" >> $env:GITHUB_ENV
           Write-Output "Certificate exported to $pfxPath"
 
+      - name: Exclude build dir from Windows Defender
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE\pc-installer\out"
+
       - name: Build installer
         run: cd pc-installer && npm run make
 
