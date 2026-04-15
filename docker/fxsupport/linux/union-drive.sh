@@ -37,6 +37,17 @@ remove_unionready
 
 umount_drives() {
     systemd-notify WATCHDOG=1
+    # Remove Docker's shared-volume-external volume and its bind mount.
+    # Docker's local volume driver (device: /uniondrive, o: bind) creates a
+    # bind mount that, through shared mount propagation from the root mount,
+    # stacks an ext4 mount from the root partition back on top of mergerfs.
+    # Just unmounting the data path is not enough — the Docker daemon
+    # independently recreates it.  Removing the volume forces docker-compose
+    # to recreate it later (from the correct mergerfs mount).
+    docker stop ipfs_host ipfs_local ipfs_cluster fula_go 2>/dev/null || true
+    umount /var/lib/docker/volumes/fula_shared-volume-external/_data 2>/dev/null || true
+    docker volume rm fula_shared-volume-external 2>/dev/null || true
+
   # Set a maximum number of attempts to prevent an infinite loop
     MAX_ATTEMPTS=10
     ATTEMPT=0
@@ -148,9 +159,16 @@ unionfs_fuse_mount_drives() {
 
     echo "MOUNT_ARG= $MOUNT_ARG"
     echo "MOUNT_PATH= $MOUNT_PATH"
-    
+
+    # Remove Docker volume so the daemon cannot recreate its stale bind mount.
+    # docker-compose up (in fula.sh) will recreate it from the correct mergerfs.
+    umount /var/lib/docker/volumes/fula_shared-volume-external/_data 2>/dev/null || true
+    docker volume rm fula_shared-volume-external 2>/dev/null || true
+
     if mergerfs -o allow_other,cache.files=partial,dropcacheonclose=true,default_permissions,use_ino,category.create=lfs,nonempty "$MOUNT_ARG" "$MOUNT_PATH"; then
         systemd-notify WATCHDOG=1
+        # Prevent future Docker bind-mount propagation from stacking mounts.
+        mount --make-private "$MOUNT_PATH" 2>/dev/null || true
         echo "MergerFS mounted successfully"
     else
         systemd-notify WATCHDOG=1
@@ -318,6 +336,34 @@ check_and_remount() {
             fi
         else
             echo "$MOUNT_PATH is mounted but not as mergerfs."
+            # Docker's shared-volume-external bind mount can propagate a stale
+            # ext4 mount from the root partition on top of mergerfs.  Peel off
+            # all non-mergerfs layers and clear the Docker volume bind mount
+            # that sources the propagation.
+            actual_fs=$(findmnt -n -o FSTYPE "$MOUNT_PATH" 2>/dev/null)
+            if [ "$actual_fs" = "ext4" ]; then
+                echo "Stale ext4 bind mount detected on $MOUNT_PATH. Removing..."
+                # Remove the Docker volume entirely so the daemon stops
+                # recreating its bind mount.
+                docker stop ipfs_host ipfs_local ipfs_cluster fula_go 2>/dev/null || true
+                umount /var/lib/docker/volumes/fula_shared-volume-external/_data 2>/dev/null || true
+                docker volume rm fula_shared-volume-external 2>/dev/null || true
+                # Peel all ext4 layers from /uniondrive
+                peel_count=0
+                while [ "$peel_count" -lt 10 ] && \
+                      mountpoint -q "$MOUNT_PATH" && \
+                      [ "$(findmnt -n -o FSTYPE "$MOUNT_PATH" 2>/dev/null)" = "ext4" ]; do
+                    umount "$MOUNT_PATH" 2>/dev/null || break
+                    peel_count=$((peel_count + 1))
+                done
+                sleep 1
+                new_fs=$(findmnt -n -o FSTYPE "$MOUNT_PATH" 2>/dev/null)
+                if [ "$new_fs" = "fuse.mergerfs" ]; then
+                    echo "mergerfs now visible after removing stale bind mount(s)."
+                    mount --make-private "$MOUNT_PATH" 2>/dev/null || true
+                    is_correctly_mounted=true
+                fi
+            fi
         fi
     else
         echo "$MOUNT_PATH is not mounted."

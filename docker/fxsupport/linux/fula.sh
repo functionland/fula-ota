@@ -383,6 +383,13 @@ function install() {
   sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
   sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
+  # Auto-repair broken dpkg state (e.g. from interrupted apt during power loss).
+  # This is a fast no-op on healthy systems — only does work if /var/lib/dpkg/updates/ has pending configs.
+  if [ -n "$(ls -A /var/lib/dpkg/updates/ 2>/dev/null)" ]; then
+    echo "Broken dpkg state detected, repairing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo dpkg --configure -a 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dpkg --configure -a failed" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
+
   if check_internet; then
     echo "Installing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     sudo apt-get update || { echo "Could not update before install" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; }

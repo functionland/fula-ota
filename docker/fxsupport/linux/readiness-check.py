@@ -1627,6 +1627,27 @@ ENV_FILE_DEFAULT = {
 }
 
 
+def check_and_repair_dpkg():
+    """Repair broken dpkg state if pending configurations exist."""
+    try:
+        updates_dir = "/var/lib/dpkg/updates/"
+        if os.path.isdir(updates_dir) and os.listdir(updates_dir):
+            logging.info("Broken dpkg state detected (pending configs in /var/lib/dpkg/updates/). Repairing...")
+            result = subprocess.run(
+                ["sudo", "dpkg", "--configure", "-a"],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                logging.info("dpkg repair successful.")
+                return True
+            else:
+                logging.error(f"dpkg repair failed: {result.stderr}")
+                return False
+    except Exception as e:
+        logging.error(f"dpkg repair check error: {e}")
+    return False
+
+
 def check_and_fix_env_file():
     """Check /usr/bin/fula/.env for corruption (null bytes, binary garbage) and repair.
 
@@ -2215,6 +2236,11 @@ def main():
             # Check .env corruption early — a corrupt .env prevents all containers from starting
             if check_and_fix_env_file():
                 logging.info(".env file repaired. Re-evaluating conditions.")
+                fula_restart_attempts = 0
+                time.sleep(90)
+                continue
+            if check_and_repair_dpkg():
+                logging.info("dpkg repair attempted. Re-evaluating conditions.")
                 fula_restart_attempts = 0
                 time.sleep(90)
                 continue
