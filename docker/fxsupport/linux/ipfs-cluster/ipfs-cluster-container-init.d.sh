@@ -228,18 +228,28 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
       fi
     fi
 
-    # Initialize ipfs-cluster-service if the configuration does not exist
-    if [ ! -f "${IPFS_CLUSTER_PATH}/service.json" ]; then
-        echo "Initializing ipfs-cluster-service..."
+    # Initialize ipfs-cluster-service if the configuration is missing, empty, or not valid JSON.
+    # An empty/corrupted service.json breaks the daemon with "unexpected end of JSON input",
+    # so we wipe and regenerate rather than feeding garbage to jq.
+    if [ ! -f "${IPFS_CLUSTER_PATH}/service.json" ] \
+       || ! [ -s "${IPFS_CLUSTER_PATH}/service.json" ] \
+       || ! jq empty "${IPFS_CLUSTER_PATH}/service.json" >/dev/null 2>&1; then
+        echo "Initializing ipfs-cluster-service (service.json missing/empty/invalid)..."
+        rm -f "${IPFS_CLUSTER_PATH}/service.json" "${IPFS_CLUSTER_PATH}/service_temp.json"
         /usr/local/bin/ipfs-cluster-service init
     fi
 
     if [ -f "${IPFS_CLUSTER_PATH}/service.json" ]; then
         echo "Modifying service.json to replace allocator and informer sections..."
 
-        # Use jq to update the JSON file
-        # --arg trust_peer passes the server cluster peer ID for peer_addresses tunnel fallback
-        jq --arg trust_peer "$CLUSTER_CRDT_TRUSTEDPEERS" '
+        service_temp="${IPFS_CLUSTER_PATH}/service_temp.json"
+        rm -f "$service_temp"
+
+        # Use jq to update the JSON file.
+        # --arg trust_peer passes the server cluster peer ID for peer_addresses tunnel fallback.
+        # Guard the write: only overwrite service.json if jq exits 0 AND the temp file is
+        # non-empty AND parses as JSON. Otherwise preserve the original so the daemon still starts.
+        if jq --arg trust_peer "$CLUSTER_CRDT_TRUSTEDPEERS" '
             .cluster.connection_manager = {
                 "high_water": 400,
                 "low_water": 100,
@@ -258,7 +268,11 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             .cluster.peer_watch_interval = "60s" |
             .cluster.pin_recover_interval = "8m0s" |
             .cluster.state_sync_interval = "5m0s" |
-            .cluster.listen_multiaddress = (.cluster.listen_multiaddress | map(if test("/quic$") then sub("/quic$"; "/quic-v1") else . end)) |
+            .cluster.listen_multiaddress = (
+                (.cluster.listen_multiaddress // [])
+                | (if type == "array" then . else [tostring] end)
+                | map(if type == "string" and test("/quic$") then sub("/quic$"; "/quic-v1") else . end)
+            ) |
             .consensus.crdt.batching = {
                 "max_batch_size": 100,
                 "max_batch_age": "1m"
@@ -294,11 +308,16 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             if $trust_peer != "" then
                 .cluster.peer_addresses = ["/ip4/127.0.0.1/tcp/19096/p2p/" + $trust_peer]
             else . end
-        ' "${IPFS_CLUSTER_PATH}/service.json" > "${IPFS_CLUSTER_PATH}/service_temp.json"
-
-        mv "${IPFS_CLUSTER_PATH}/service_temp.json" "${IPFS_CLUSTER_PATH}/service.json"
-
-        echo "Modification completed."
+        ' "${IPFS_CLUSTER_PATH}/service.json" > "$service_temp" \
+           && [ -s "$service_temp" ] \
+           && jq empty "$service_temp" >/dev/null 2>&1
+        then
+            mv "$service_temp" "${IPFS_CLUSTER_PATH}/service.json"
+            echo "Modification completed."
+        else
+            log "WARNING: jq failed or produced invalid output; preserving original service.json"
+            rm -f "$service_temp"
+        fi
     fi
 
     # Register cluster tunnel forward on kubo (best-effort)
@@ -306,7 +325,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
     # go-fula's health check will maintain it if kubo restarts.
     if [ -n "${MASTER_KUBO_PEERID}" ]; then
         log "Registering cluster tunnel forward to server kubo: ${MASTER_KUBO_PEERID}"
-        curl -s -X POST "http://127.0.0.1:5001/api/v0/p2p/forward?arg=/x/fula-cluster&arg=/ip4/127.0.0.1/tcp/19096&target=/p2p/${MASTER_KUBO_PEERID}&allow-custom-protocol=true" \
+        curl -s -X POST "http://127.0.0.1:5001/api/v0/p2p/forward?arg=/x/fula-cluster&arg=/ip4/127.0.0.1/tcp/19096&arg=/p2p/${MASTER_KUBO_PEERID}&allow-custom-protocol=true" \
             --connect-timeout 5 --max-time 10 2>/dev/null || \
             log "Warning: Could not register cluster tunnel forward (will be retried by go-fula)"
     fi

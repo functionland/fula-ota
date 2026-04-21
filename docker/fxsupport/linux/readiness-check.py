@@ -1,5 +1,6 @@
 # Watcher for Fula tower v1.2
 import os
+import errno
 import subprocess
 import time
 import logging
@@ -468,6 +469,175 @@ def _reset_scsi_drive(disk_name, timeout=90):
     return False
 
 
+def _detect_phantom_mergerfs_entries(target_dir):
+    """Detect phantom dentries left by a failed mergerfs branch.
+
+    After a successful wipe, if listdir() returns entries but stat() on any of
+    them fails with ENOENT, the underlying backing disk is dead or disconnected:
+    mergerfs is still serving dentries cached from the failed branch, but reads
+    go nowhere. No userspace rm can clear these — only remounting mergerfs
+    without the dead branch will.
+
+    This is distinct from _detect_io_dead_drive() which catches drives stuck in
+    D-state with I/O errors. A drive that has fully disappeared (reports 0 size
+    in lsblk) produces no D-state processes — it produces phantom dentries.
+
+    Returns list of phantom entry names, or empty list if the directory looks healthy.
+    """
+    try:
+        entries = os.listdir(target_dir)
+    except OSError:
+        return []
+    phantoms = []
+    for entry in entries:
+        path = os.path.join(target_dir, entry)
+        try:
+            os.stat(path)
+        except FileNotFoundError:
+            phantoms.append(entry)
+        except OSError:
+            pass
+    return phantoms
+
+
+# Default probe paths for EBADMSG scans — directories that hold high-churn pebble
+# state on /uniondrive. These are where ext4 metadata-checksum corruption tends to
+# surface first on fxblox devices.
+_EBADMSG_PROBE_DIRS = [
+    "/uniondrive/ipfs_datastore_local/datastore",
+    "/uniondrive/ipfs_datastore_local/blocks",
+    "/uniondrive/ipfs-cluster/pebble",
+]
+
+
+def _resolve_ext4_mount_for_path(path):
+    """Given a path, find the backing ext4 partition (device, mountpoint).
+
+    Walks /proc/mounts looking for the longest-prefix mountpoint that contains
+    the path and is an ext4 filesystem. Returns (device, mountpoint) or
+    (None, None) if nothing matches (e.g. path is on mergerfs and the backing
+    branch can't be resolved through the mount table alone).
+
+    For /uniondrive paths we resolve the underlying branch via
+    os.path.realpath() first so mergerfs doesn't mask the real device.
+    """
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        real = path
+    try:
+        best = (None, None, -1)
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                device, mountpoint, fstype = parts[0], parts[1], parts[2]
+                if fstype != 'ext4':
+                    continue
+                if real == mountpoint or real.startswith(mountpoint.rstrip('/') + '/'):
+                    if len(mountpoint) > best[2]:
+                        best = (device, mountpoint, len(mountpoint))
+        if best[0]:
+            return best[0], best[1]
+    except Exception as e:
+        logging.debug(f"Could not resolve ext4 mount for {path}: {e}")
+    return None, None
+
+
+def _scan_path_for_ebadmsg(target_dir):
+    """Stat every entry in target_dir and collect names that return EBADMSG.
+
+    ext4 with metadata_csum (default on modern mkfs.ext4) returns -EBADMSG
+    when a block/inode checksum fails verification — surfaces to userspace
+    as 'Bad message'. rm/chown/stat all refuse to touch such files until
+    e2fsck repairs the metadata.
+
+    Returns list of entry names that hit EBADMSG. Empty list if the dir
+    looks clean, doesn't exist, or can't be listed.
+    """
+    try:
+        entries = os.listdir(target_dir)
+    except OSError:
+        return []
+    bad = []
+    for entry in entries:
+        path = os.path.join(target_dir, entry)
+        try:
+            os.stat(path)
+        except OSError as e:
+            if e.errno == errno.EBADMSG:
+                bad.append(entry)
+    return bad
+
+
+def _detect_ebadmsg_ext4_partitions(probe_dirs=None):
+    """Probe known paths for EBADMSG and map hits back to ext4 partitions.
+
+    Returns list of (device, mountpoint) tuples, deduplicated. Only returns
+    partitions under /media/pi/ (fxblox external-drive convention) to match
+    the scope of _find_ro_ext4_partitions.
+    """
+    if probe_dirs is None:
+        probe_dirs = _EBADMSG_PROBE_DIRS
+    hits = {}
+    for probe in probe_dirs:
+        bad_entries = _scan_path_for_ebadmsg(probe)
+        if not bad_entries:
+            continue
+        sample = os.path.join(probe, bad_entries[0])
+        device, mountpoint = _resolve_ext4_mount_for_path(sample)
+        if device and mountpoint and mountpoint.startswith('/media/pi/'):
+            hits.setdefault(device, (mountpoint, []))[1].extend(bad_entries)
+            logging.warning(
+                f"ext4 EBADMSG detected on {device} at {mountpoint} "
+                f"(probe={probe}, {len(bad_entries)} bad entries)"
+            )
+    return [(dev, mp) for dev, (mp, _entries) in hits.items()]
+
+
+def _rm_stderr_reports_ebadmsg(stderr_text):
+    """True if an rm/chown stderr blob contains the EBADMSG textual signature.
+
+    Used as a fallback when proactive probing missed the corruption but a wipe
+    attempt caught it. Both 'Bad message' (EBADMSG strerror) and the raw
+    'Input/output error' (EIO — commonly co-emitted) count.
+    """
+    if not stderr_text:
+        return False
+    return "Bad message" in stderr_text or "Input/output error" in stderr_text
+
+
+def _log_dead_branch_diagnostic(target_dir, phantoms):
+    """Emit a loud, actionable diagnostic when a dead mergerfs branch is detected.
+
+    Stops fula.service so the Restart=always loop can't hide the problem behind
+    a wall of container init-script log noise. Operator intervention is required
+    because no auto-fix can revive a physically failed disk.
+    """
+    logging.error("=" * 72)
+    logging.error("DEAD MERGERFS BRANCH DETECTED — operator intervention required")
+    logging.error("=" * 72)
+    logging.error(f"Path: {target_dir}")
+    logging.error(f"Phantom entries (visible in listdir, ENOENT on stat): {phantoms[:10]}"
+                  + (f" (+{len(phantoms)-10} more)" if len(phantoms) > 10 else ""))
+    logging.error("Cause: one of the underlying mergerfs backing disks has failed or")
+    logging.error("       disconnected. Userspace rm cannot clear phantom dentries.")
+    logging.error("Diagnostic commands to run on the device:")
+    logging.error("  lsblk                         # look for disks reporting 0B size")
+    logging.error("  mount | grep merger           # list mergerfs branches")
+    logging.error("  sudo dmesg | grep -iE 'sd[a-z]|i/o error|ata' | tail -40")
+    logging.error("Recovery: reseat / replace the failed disk, or remount mergerfs")
+    logging.error("         without the failed branch, then restart fula.service.")
+    logging.error("Stopping fula.service to break the Restart=always loop.")
+    logging.error("=" * 72)
+    try:
+        subprocess.run(["sudo", "systemctl", "stop", "fula.service"],
+                       capture_output=True, timeout=30)
+    except Exception as e:
+        logging.error(f"Could not stop fula.service: {e}")
+
+
 def check_and_repair_ext4():
     """Detect and repair ext4 filesystem corruption (read-only remount or error count).
 
@@ -484,7 +654,9 @@ def check_and_repair_ext4():
         logging.info("ext4 fsck cooldown active, skipping")
         return False
 
-    # Detect issues — RO mount first, then I/O dead drive
+    # Detect issues — RO mount first, then I/O dead drive, then EBADMSG
+    # (metadata checksum failure on ext4 — filesystem still rw, individual
+    # inodes fail stat/rm with 'Bad message' until e2fsck rebuilds checksums).
     ro_partitions = _find_ro_ext4_partitions()
     io_dead = False
 
@@ -493,11 +665,21 @@ def check_and_repair_ext4():
         partition_name = device.split('/')[-1]
     else:
         dead_device, dead_part, dead_disk = _detect_io_dead_drive()
-        if dead_device is None:
-            return False
-        device, partition_name = dead_device, dead_part
-        mountpoint = f"/media/pi/{partition_name}"
-        io_dead = True
+        if dead_device is not None:
+            device, partition_name = dead_device, dead_part
+            mountpoint = f"/media/pi/{partition_name}"
+            io_dead = True
+        else:
+            ebadmsg_partitions = _detect_ebadmsg_ext4_partitions()
+            if not ebadmsg_partitions:
+                return False
+            device, mountpoint = ebadmsg_partitions[0]
+            partition_name = device.split('/')[-1]
+            logging.warning(
+                f"ext4 metadata corruption (EBADMSG) detected on {device} — "
+                "filesystem remains rw but individual inodes fail checksum. "
+                "Triggering fsck repair."
+            )
 
     # Extract base disk name (sda from sda1) for SCSI reset
     disk_match = re.match(r'(sd[a-z]+)', partition_name)
@@ -1005,10 +1187,43 @@ def attempt_wifi_connection():
 
 def check_and_fix_ipfs_cluster():
     try:
-        ipfs_cluster_logs = subprocess.getoutput("sudo docker logs ipfs_cluster --tail 15 2>&1")
+        # Widened from 15 to 80 lines: pebble can emit dozens of per-sstable "stat ... no
+        # such file or directory" lines before/after the one-line match pattern, which
+        # pushes the match out of the tail window on a corrupted DB.
+        ipfs_cluster_logs = subprocess.getoutput("sudo docker logs ipfs_cluster --tail 80 2>&1")
         cluster_error_found = False
-        
-        if "error creating datastore: failed to open pebble database" in ipfs_cluster_logs or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs:
+
+        # Empty or unparseable service.json — triggers "unexpected end of JSON input" /
+        # "error loading configurations" in the daemon. Root cause is the init-script jq
+        # pipeline overwriting service.json with an empty temp file when a filter errors.
+        # Fix: remove the bad file so the init script regenerates it on next startup.
+        service_json = "/uniondrive/ipfs-cluster/service.json"
+        service_temp = "/uniondrive/ipfs-cluster/service_temp.json"
+        svc_config_error = (
+            "unexpected end of JSON input" in ipfs_cluster_logs
+            and "error loading configurations" in ipfs_cluster_logs
+        )
+        try:
+            svc_empty = os.path.exists(service_json) and os.path.getsize(service_json) == 0
+        except OSError:
+            svc_empty = False
+        if svc_config_error or svc_empty:
+            logging.warning("IPFS Cluster service.json empty or unparseable. Removing for regeneration.")
+            subprocess.run(["sudo", "systemctl", "stop", "fula.service"],
+                           capture_output=True, check=True)
+            time.sleep(10)
+            subprocess.run(["sudo", "rm", "-f", service_json, service_temp],
+                           capture_output=True)
+            safe_start_fula(capture_output=True, check=True)
+            time.sleep(30)
+            cluster_error_found = True
+        elif (
+            "error creating datastore: failed to open pebble database" in ipfs_cluster_logs
+            or "failed to open pebble database: pebble:" in ipfs_cluster_logs
+            or "unknown to the objstorage provider: file does not exist" in ipfs_cluster_logs
+            or ".sst: no such file or directory" in ipfs_cluster_logs
+            or "could not open manifest file" in ipfs_cluster_logs
+        ):
             logging.warning("IPFS Cluster Pebble database issue detected. Attempting to fix.")
 
             # Check disk space first — pebble fix is pointless if disk is full
@@ -1022,12 +1237,54 @@ def check_and_fix_ipfs_cluster():
                     logging.error("Disk still full after prune. Skipping pebble fix to avoid escalation.")
                     return False  # Don't count toward restart_attempts
 
+            # Pre-check: if the pebble dir has EBADMSG inodes, no amount of rm
+            # will work — the ext4 metadata is corrupt. Delegate to the fsck
+            # repair path instead of burning through the wipe loop.
+            pebble_dir = "/uniondrive/ipfs-cluster/pebble"
+            if _scan_path_for_ebadmsg(pebble_dir):
+                logging.warning(
+                    "ipfs_cluster: EBADMSG in pebble dir — ext4 metadata corrupt. "
+                    "Triggering check_and_repair_ext4 instead of rm loop."
+                )
+                check_and_repair_ext4()
+                return False
+
             subprocess.run(["sudo", "systemctl", "stop", "fula.service"], capture_output=True, check=True)
             time.sleep(10)
-            pebble_dir = "/uniondrive/ipfs-cluster/pebble"
             if os.path.exists(pebble_dir):
-                subprocess.run(["sudo", "rm", "-rf", pebble_dir], capture_output=True, check=True)
+                rm_result = subprocess.run(["sudo", "rm", "-rf", pebble_dir],
+                                           capture_output=True, text=True, timeout=60)
+                if rm_result.returncode != 0 and _rm_stderr_reports_ebadmsg(rm_result.stderr):
+                    logging.warning(
+                        f"ipfs_cluster: rm of {pebble_dir} hit EBADMSG — "
+                        "ext4 metadata corrupt. Triggering fsck repair."
+                    )
+                    check_and_repair_ext4()
+                    return False
+                # Flush mergerfs/union buffers so the delete actually lands on the backing fs
+                # before kubo re-mounts the volume (union-mount issues have silently masked
+                # deletes in the past — see MEMORY.md "Docker Compose bridge != docker0").
+                subprocess.run(["sudo", "sync"], capture_output=True, timeout=30)
                 subprocess.run(["sudo", "mkdir", "-p", pebble_dir], capture_output=True, check=True)
+                # Verify the wipe actually took effect — union-mount inconsistencies can
+                # hide the rm from some layers, leaving stale MANIFEST/sst files visible.
+                try:
+                    remaining = os.listdir(pebble_dir)
+                    if remaining:
+                        logging.error(f"Pebble dir non-empty after wipe ({len(remaining)} entries); attempting per-entry rm")
+                        for entry in remaining:
+                            subprocess.run(["sudo", "rm", "-rf", os.path.join(pebble_dir, entry)],
+                                           capture_output=True, timeout=30)
+                        subprocess.run(["sudo", "sync"], capture_output=True, timeout=30)
+                        # If entries still survive per-entry rm AND stat returns ENOENT on
+                        # them, a backing disk is dead. No auto-fix possible — surface it
+                        # and bail before fula.service restarts into the same loop.
+                        phantoms = _detect_phantom_mergerfs_entries(pebble_dir)
+                        if phantoms:
+                            _log_dead_branch_diagnostic(pebble_dir, phantoms)
+                            return False
+                except OSError as e:
+                    logging.warning(f"Could not list pebble dir after wipe: {e}")
                 logging.info("Pebble directory contents removed.")
             else:
                 logging.warning("Pebble directory not found.")
@@ -1347,7 +1604,10 @@ def check_and_fix_kubo_local():
         if "ipfs_local" not in all_containers:
             return False
 
-        ipfs_local_logs = subprocess.getoutput("sudo docker logs ipfs_local --tail 20 2>&1")
+        # --tail 100 (was 20): each container crash+restart emits ~50 lines of init-script
+        # trace before the one-line fatal error. With Restart=always looping, a 20-line
+        # window easily misses the error line and none of the patterns below ever match.
+        ipfs_local_logs = subprocess.getoutput("sudo docker logs ipfs_local --tail 100 2>&1")
 
         # 1. IPFS_PATH directory missing — kubo entrypoint chown fails
         if "chown:" in ipfs_local_logs and "ipfs_data_local" in ipfs_local_logs and "No such file or directory" in ipfs_local_logs:
@@ -1372,24 +1632,104 @@ def check_and_fix_kubo_local():
             time.sleep(15)
             return True
 
-        # 3. Pebble database corruption
-        if "failed to open pebble database" in ipfs_local_logs:
+        # 3. Pebble database corruption (missing MANIFEST / sstables / general open failure)
+        if (
+            "failed to open pebble database" in ipfs_local_logs
+            or "could not open manifest file" in ipfs_local_logs
+            or ".sst: no such file or directory" in ipfs_local_logs
+            or "unknown to the objstorage provider: file does not exist" in ipfs_local_logs
+        ):
             logging.warning("kubo-local: Pebble database error. Clearing datastore and restarting.")
+
+            # Pre-check: if either target dir has EBADMSG inodes, the ext4
+            # metadata is corrupt and rm will fail with 'Bad message'. Delegate
+            # to fsck repair instead of burning through the wipe loop.
+            for probe in ("/uniondrive/ipfs_datastore_local/datastore",
+                          "/uniondrive/ipfs_datastore_local/blocks"):
+                if _scan_path_for_ebadmsg(probe):
+                    logging.warning(
+                        f"kubo-local: EBADMSG in {probe} — ext4 metadata corrupt. "
+                        "Triggering check_and_repair_ext4 instead of rm loop."
+                    )
+                    check_and_repair_ext4()
+                    return False
+
             subprocess.run(["sudo", "docker", "stop", "ipfs_local"],
                            capture_output=True, timeout=60)
             time.sleep(5)
-            datastore_dir = "/uniondrive/ipfs_datastore_local/datastore"
-            if os.path.exists(datastore_dir):
-                subprocess.run(["sudo", "rm", "-rf", datastore_dir], capture_output=True, timeout=30)
-                subprocess.run(["sudo", "mkdir", "-p", datastore_dir], capture_output=True, timeout=10)
-                subprocess.run(["sudo", "chown", "-R", "1000:1000", datastore_dir],
+
+            dead_branch = [False]
+            ebadmsg_hit = [False]
+
+            def _wipe_and_verify(target_dir):
+                """Wipe + recreate + chown; verify the wipe stuck. /uniondrive is mergerfs
+                and has historically left pebble's CURRENT/MANIFEST pointer files behind
+                on one of the underlying branches, making the restart fail the same way.
+                If entries remain after rm -rf, retry per-entry. If they STILL remain and
+                stat() returns ENOENT, a backing disk has failed — flag dead_branch so the
+                caller can bail instead of restarting into the same error."""
+                if os.path.exists(target_dir):
+                    rm_result = subprocess.run(["sudo", "rm", "-rf", target_dir],
+                                               capture_output=True, text=True, timeout=60)
+                    if rm_result.returncode != 0 and _rm_stderr_reports_ebadmsg(rm_result.stderr):
+                        logging.warning(
+                            f"kubo-local: rm of {target_dir} hit EBADMSG — "
+                            "ext4 metadata corrupt. Aborting wipe for fsck repair."
+                        )
+                        ebadmsg_hit[0] = True
+                        return
+                subprocess.run(["sudo", "sync"], capture_output=True, timeout=30)
+                subprocess.run(["sudo", "mkdir", "-p", target_dir], capture_output=True, timeout=10)
+                subprocess.run(["sudo", "chown", "-R", "1000:1000", target_dir],
                                capture_output=True, timeout=20)
-            blocks_dir = "/uniondrive/ipfs_datastore_local/blocks"
-            if os.path.exists(blocks_dir):
-                subprocess.run(["sudo", "rm", "-rf", blocks_dir], capture_output=True, timeout=30)
-                subprocess.run(["sudo", "mkdir", "-p", blocks_dir], capture_output=True, timeout=10)
-                subprocess.run(["sudo", "chown", "-R", "1000:1000", blocks_dir],
-                               capture_output=True, timeout=20)
+                try:
+                    remaining = os.listdir(target_dir)
+                except OSError as e:
+                    logging.warning(f"kubo-local: cannot list {target_dir} after wipe: {e}")
+                    return
+                if remaining:
+                    # Check for ext4 EBADMSG first — it's actionable and distinct from
+                    # mergerfs phantoms. If any entry stats with EBADMSG, stop the wipe
+                    # and delegate to fsck.
+                    if _scan_path_for_ebadmsg(target_dir):
+                        logging.warning(
+                            f"kubo-local: {target_dir} has EBADMSG entries after wipe — "
+                            "ext4 metadata corrupt. Aborting for fsck repair."
+                        )
+                        ebadmsg_hit[0] = True
+                        return
+                    logging.error(
+                        f"kubo-local: {target_dir} non-empty after wipe ({len(remaining)} entries); "
+                        "mergerfs layer likely hid the delete — retrying per-entry"
+                    )
+                    for entry in remaining:
+                        rm_entry = subprocess.run(["sudo", "rm", "-rf", os.path.join(target_dir, entry)],
+                                                   capture_output=True, text=True, timeout=30)
+                        if rm_entry.returncode != 0 and _rm_stderr_reports_ebadmsg(rm_entry.stderr):
+                            logging.warning(
+                                f"kubo-local: per-entry rm on {entry} hit EBADMSG — fsck needed"
+                            )
+                            ebadmsg_hit[0] = True
+                            return
+                    subprocess.run(["sudo", "sync"], capture_output=True, timeout=30)
+                    phantoms = _detect_phantom_mergerfs_entries(target_dir)
+                    if phantoms:
+                        _log_dead_branch_diagnostic(target_dir, phantoms)
+                        dead_branch[0] = True
+
+            _wipe_and_verify("/uniondrive/ipfs_datastore_local/datastore")
+            if ebadmsg_hit[0]:
+                check_and_repair_ext4()
+                return False
+            if dead_branch[0]:
+                return False
+            _wipe_and_verify("/uniondrive/ipfs_datastore_local/blocks")
+            if ebadmsg_hit[0]:
+                check_and_repair_ext4()
+                return False
+            if dead_branch[0]:
+                return False
+
             subprocess.run(["sudo", "docker", "start", "ipfs_local"],
                            capture_output=True, timeout=60)
             time.sleep(15)
