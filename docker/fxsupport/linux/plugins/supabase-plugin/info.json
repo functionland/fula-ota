@@ -1,0 +1,48 @@
+{
+  "name": "supabase",
+  "version": "1.0.0",
+  "description": "Open source Firebase alternative with PostgreSQL database, Authentication, instant APIs, Edge Functions, Realtime subscriptions, and Storage",
+  "author": "FxSupport Plugin",
+  "license": "MIT",
+  "homepage": "https://supabase.com",
+  "repository": "https://github.com/supabase/supabase",
+  "category": "database",
+  "tags": [
+    "database",
+    "postgresql",
+    "authentication",
+    "realtime",
+    "storage",
+    "api"
+  ],
+  "requirements": {
+    "os": ["linux"],
+    "arch": ["x86_64", "aarch64"],
+    "memory": "2GB",
+    "disk": "10GB",
+    "docker": "20.10.0+"
+  },
+  "ports": [
+    {
+      "port": 8000,
+      "protocol": "tcp",
+      "description": "API Gateway"
+    },
+    {
+      "port": 5432,
+      "protocol": "tcp",
+      "description": "PostgreSQL Database"
+    }
+  ],
+  "commands": {
+    "install": "./install.sh",
+    "start": "./start.sh",
+    "stop": "./stop.sh",
+    "restart": "./restart.sh",
+    "uninstall": "./uninstall.sh",
+    "status": "./status.sh"
+  },
+  "environment": {
+    "SUPABASE_DIR": "/opt/supabase"
+  }
+}
