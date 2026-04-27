@@ -45,6 +45,11 @@ MANAGED_FIELDS = [
     "Addresses.Swarm",
     "Discovery",
     "Routing.AcceleratedDHTClient",
+    # Forces go-libp2p's AutoRelay to keep the relay finder running so circuit
+    # reservations are continuously refreshed. Without this, AutoNAT can settle
+    # reachability to Public, the relay finder stops, and after an internet
+    # flap the reservation isn't re-acquired — leaving the device unreachable.
+    "Internal.Libp2pForceReachability",
 ]
 
 # Fields that must NEVER be touched (even if present in template).
