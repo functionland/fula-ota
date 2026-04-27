@@ -94,6 +94,19 @@ for cfg_file in "/internal/ipfs_data/config" "/internal/ipfs_config"; do
         # kubo 0.40+ FATALs if deprecated Provider field exists. Remove it.
         sed -i '/"Provider":/,/}/d' "$cfg_file" 2>/dev/null || true
         sed -i '/"Reprovider":/d' "$cfg_file" 2>/dev/null || true
+        # Force private reachability so go-libp2p's AutoRelay keeps its relay finder
+        # alive across internet flaps. Without this, AutoNAT can settle to Public,
+        # the finder stops, and the circuit reservation isn't re-acquired after
+        # the upstream link recovers — leaving the device unreachable until kubo
+        # is restarted. The watchdog in fula_go is the fail-safe for any case where
+        # this sed silently no-ops (e.g. future kubo template emits "Internal":{}).
+        if ! grep -q '"Libp2pForceReachability"' "$cfg_file"; then
+            if grep -q '"Internal": {}' "$cfg_file"; then
+                sed -i 's/"Internal": {}/"Internal": {"Libp2pForceReachability":"private"}/' "$cfg_file" 2>/dev/null || true
+            elif grep -q '"Internal": {' "$cfg_file"; then
+                sed -i 's/"Internal": {/"Internal": {"Libp2pForceReachability":"private",/' "$cfg_file" 2>/dev/null || true
+            fi
+        fi
     fi
 done
 

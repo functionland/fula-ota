@@ -11,7 +11,7 @@ cleanup() {
 trap cleanup SIGTERM
 sudo rm -rf /home/pi/commands/*
 WATCH_PATH="/home/pi/commands/"
-FILE_NAMES=(".command_partition" ".command_repairfs" ".command_led" ".command_reboot")  # Add your file names here
+FILE_NAMES=(".command_partition" ".command_repairfs" ".command_led" ".command_reboot" ".command_restart_fula")  # Add your file names here
 FILE_CONTENT=""
 
 while true
@@ -58,6 +58,19 @@ do
                 echo "Rebooting now..."
                 sync
                 sudo reboot
+                ;;
+            ".command_restart_fula")
+                # Restart all fula services — used by fula_go's watchdog when
+                # kubo's libp2p host has lost its circuit reservation and isn't
+                # self-healing. Restarting kubo alone leaves ipfs-cluster in a
+                # degraded state because cluster's one-time init (peering add,
+                # p2p forward register) doesn't re-run on kubo restart. Doing
+                # a compose restart re-runs every service's init script, so
+                # cluster re-registers cleanly against the fresh kubo.
+                # Less disruptive than a host reboot.
+                echo "Restarting all fula services..."
+                sync
+                sudo docker compose -f /usr/bin/fula/docker-compose.yml restart
                 ;;
             esac
         fi
