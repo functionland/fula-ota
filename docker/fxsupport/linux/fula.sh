@@ -2102,7 +2102,8 @@ case $1 in
     restart_fula=false
     restart_readiness_check=false
     restart_bluetooth=false
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py; do
+    restart_commands=false
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2117,6 +2118,11 @@ case $1 in
             restart_readiness_check=true
           elif [ "$file" = "bluetooth.py" ] || [ "$file" = "local_command_server.py" ]; then
             restart_bluetooth=true
+          elif [ "$file" = "commands.sh" ]; then
+            # commands.sh is loaded into bash memory at process start;
+            # disk changes don't take effect until the service is restarted.
+            # Without this, new .command_* handlers (added via OTA) never fire.
+            restart_commands=true
           fi
           # firewall.sh changes are handled by unconditional re-apply at end of start
         fi
@@ -2158,6 +2164,7 @@ case $1 in
     if [ -f "${FULA_PATH}/commands.service" ]; then
       if copy_service_file "${FULA_PATH}/commands.service" "$SYSTEMD_PATH/commands.service" "commands"; then
         systemd_reload_needed=true
+        restart_commands=true
       fi
     fi
 
@@ -2216,6 +2223,11 @@ case $1 in
       sudo pkill -f bluetooth.py 2>/dev/null || true
       sleep 2
       sudo bash ${FULA_PATH}/bluetooth.sh 2>&1 | tee -a $FULA_LOG_PATH &
+    fi
+
+    if [ "$restart_commands" = true ]; then
+      echo "commands.sh or commands.service changed, restarting commands service" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart commands 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
