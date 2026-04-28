@@ -1,0 +1,64 @@
+{
+    "name": "olostep-node",
+    "description": "Olostep is a distributed web data infrastructure. By running an Olostep node, your device contributes compute and bandwidth to process web scraping tasks using a headless browser. The node connects to the Olostep network, receives scraping requests, and sends back structured content (text, markdown, HTML). Earn rewards for your device's contribution to the network.",
+    "version": "101",
+    "usage": {
+        "storage": "low",
+        "compute": "medium",
+        "bandwidth": "high",
+        "ram": "medium",
+        "gpu": "none"
+    },
+    "rewards": [
+        {
+            "type": "token",
+            "currency": "Olostep Credits",
+            "link": "https://olostep.com"
+        }
+    ],
+    "socials": [
+        {
+            "telegram": "",
+            "twitter": "https://x.com/olaborai",
+            "email": "",
+            "website": "https://olostep.com",
+            "discord": ""
+        }
+    ],
+    "instructions": [
+        {
+            "order": 1,
+            "description": "IMPORTANT — READ BEFORE INSTALLING: This plugin is developed and operated by Olostep Technologies, Inc., a third party. It is NOT developed by Functionland. By installing this plugin, your device will execute web scraping tasks sent by Olostep's servers. Your device's IP address will be used to access third-party websites on behalf of Olostep's clients.",
+            "url": ""
+        },
+        {
+            "order": 2,
+            "description": "LEGAL NOTICE: Web scraping may implicate legal risks. Your residential IP address will appear in the server logs of websites being scraped. While Olostep has contractually agreed to comply with applicable laws and indemnify device owners, risks remain including: (a) cease-and-desist letters directed to your IP address, (b) potential ISP terms of service concerns regarding automated traffic, (c) IP reputation impacts that may affect your normal internet usage (e.g. increased CAPTCHAs). Government, military, healthcare, financial, and law enforcement domains are blocked by default.",
+            "url": ""
+        },
+        {
+            "order": 3,
+            "description": "SECURITY: This plugin runs in a fully isolated Docker container. It cannot access your device files, other services, or your local network. All Linux capabilities are dropped, memory and CPU are limited, and firewall rules prevent the container from reaching any device on your home network. Only outbound internet access is permitted.",
+            "url": ""
+        },
+        {
+            "order": 4,
+            "description": "Click Install to proceed. No additional configuration is needed.",
+            "url": ""
+        },
+        {
+            "order": 5,
+            "description": "After installation, the node automatically connects to the Olostep network and begins processing tasks. Your device ID is shown below — use it to track your node.",
+            "url": "https://olostep.com",
+            "paramId": 1
+        }
+    ],
+    "requiredInputs": [],
+    "outputs": [
+        {
+            "name": "device_id",
+            "id": 1
+        }
+    ],
+    "approved": true
+}

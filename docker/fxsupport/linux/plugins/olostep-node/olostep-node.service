@@ -1,0 +1,16 @@
+[Unit]
+Description=Olostep Node
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/home/pi/.internal/plugins/olostep-node
+ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/plugins/olostep-node/docker-compose.yml up
+ExecStartPost=/bin/bash /usr/bin/fula/plugins/olostep-node/custom/firewall-isolate.sh
+ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/plugins/olostep-node/docker-compose.yml down
+ExecStopPost=/bin/bash /usr/bin/fula/plugins/olostep-node/custom/firewall-remove.sh
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
