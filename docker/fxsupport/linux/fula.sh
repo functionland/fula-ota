@@ -2076,7 +2076,10 @@ case $1 in
   done
   if [ "$container_status" = "running" ] && { [ "$last_pull_time_docker" -gt "$last_modification_time_stop_docker" ] || ! find /home/pi -name stop_docker_copy.txt -mmin -1440 | grep -q 'stop_docker_copy.txt'; }; then
     declare -A file_info
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py; do
+    # Files in this list MUST match the files in the change-detection loop below.
+    # Adding a file to one list but not the other means changes are never detected
+    # for that file (old_info will be empty, so the [ -n "$old_info" ] guard skips).
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
