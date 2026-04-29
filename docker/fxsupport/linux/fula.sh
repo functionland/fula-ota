@@ -98,6 +98,37 @@ function check_internet() {
   return $?   # Return the status directly, no need for if/else.
 }
 
+# Public DNS resolvers in priority order. Cloudflare first (fastest on most
+# networks), then Google, Quad9, OpenDNS — chosen so that any single provider
+# being blocked or down still leaves five working alternatives. Used by
+# check_internet_dns below; do not collapse to a single DNS.
+FULA_DNS_LIST="1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 9.9.9.9 208.67.222.222"
+
+# Returns 0 if any DNS in FULA_DNS_LIST answers a single ICMP echo within 2s,
+# OR if google.com is reachable via the network's own resolver. Returns 1 only
+# if ALL six public providers AND the google.com hostname fallback fail (true
+# "no internet"). Echoes the reachable target (IP or "google.com") on stdout
+# so callers that need a working endpoint can capture it via
+# dns=$(check_internet_dns); yes/no callers use `if check_internet_dns >/dev/null;`.
+#
+# The google.com fallback handles private networks that ship their own DNS
+# server and block 1.1.1.1/8.8.8.8/9.9.9.9 directly. We wrap with `timeout 5`
+# in case the local resolver is broken — bare `ping <hostname>` can hang for
+# 30s+ waiting on getaddrinfo.
+check_internet_dns() {
+  for dns in $FULA_DNS_LIST; do
+    if ping -c 1 -W 2 "$dns" >/dev/null 2>&1; then
+      echo "$dns"
+      return 0
+    fi
+  done
+  if timeout 5 ping -c 1 -W 2 google.com >/dev/null 2>&1; then
+    echo "google.com"
+    return 0
+  fi
+  return 1
+}
+
 function modify_bluetooth() {
   # Backup the original file
   if [ ! -f ${SYSTEMD_PATH}/dbus-org.bluez.service.bak ]; then
@@ -369,8 +400,10 @@ function install() {
   mkdir -p ${HOME_DIR}/.internal/ipfs_data
   mkdir -p ${HOME_DIR}/.internal/ipfs_data_local
 
-  touch ${HOME_DIR}/.internal/ipfs_data/version
-  touch ${HOME_DIR}/.internal/ipfs_data/datastore_spec
+  # Do NOT pre-create version/datastore_spec here. initipfs (in the fula_go
+  # container) writes them with correct content; an empty placeholder makes
+  # initipfs's "skip if exists" check leave them empty, which kubo then
+  # rejects with "invalid data in repo version file".
 
   if test -f /etc/apt/apt.conf.d/proxy.conf; then sudo rm /etc/apt/apt.conf.d/proxy.conf; fi
   setup_logrotate $FULA_LOG_PATH || { echo "Error setting up logrotate" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
@@ -1480,10 +1513,17 @@ function restart() {
     echo "Ran $UPDATE_SC" | sudo tee -a $FULA_LOG_PATH
   fi
 
-  # Check if the directory exists and the version file contains '15' or '16'
+  # Auto-heal version file: write '18' (kubo 0.41 RepoVersion) if empty — a
+  # stale touch from older install scripts can leave an empty file that kubo
+  # rejects with "invalid data in repo version file". The 15→17 and 16→17
+  # legacy mappings remain for very old repos whose data is in 17-era format.
   if [ -d "${HOME_DIR}/.internal/ipfs_data" ] && [ -f "$VERSION_FILE" ]; then
       chmod 777 "$VERSION_FILE" 2>/dev/null || true
       case "$(cat "$VERSION_FILE" 2>/dev/null)" in
+          "")
+              echo "18" > "$VERSION_FILE" || true
+              echo "Wrote 18 to empty $VERSION_FILE"
+              ;;
           15)
               sed -i 's/^15$/17/' "$VERSION_FILE" || true
               echo "Updated version from 15 to 17 in $VERSION_FILE"
@@ -1989,8 +2029,10 @@ function install_wireguard() {
 
     # Use a lightweight connectivity check independent of Docker Hub.
     # check_internet() tests hub.docker.com which may be intentionally blocked,
-    # but apt repos can still be reachable.
-    if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
+    # but apt repos can still be reachable. Probes a list of public DNS
+    # providers (see check_internet_dns) so that a single provider being
+    # blocked at the network level doesn't false-negative this gate.
+    if check_internet_dns >/dev/null; then
         echo "Installing WireGuard support tunnel..." | sudo tee -a $FULA_LOG_PATH
         timeout 120 sudo bash "$WG_INSTALL" 2>&1 || {
             echo "WARNING: WireGuard install failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH

@@ -9,8 +9,9 @@ services:
     container_name: fula_updater
     networks: [fula-net]
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -58,8 +59,9 @@ services:
       - IPFS_PATH=/internal/ipfs_data
       - IPFS_TELEMETRY=off
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     labels:
@@ -89,8 +91,9 @@ services:
       - IPFS_PATH=/internal/ipfs_data_local
       - IPFS_TELEMETRY=off
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     logging:
@@ -119,8 +122,9 @@ services:
       - "9095:9095"
       - "9096:9096"
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     labels:
@@ -158,8 +162,9 @@ services:
       - SETGID
       - SETUID
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     depends_on:
@@ -180,8 +185,9 @@ services:
     networks: [fula-net]
     command: tail -F /dev/null
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -212,8 +218,9 @@ services:
       - SYNC_INTERVAL=3m
       - REGISTRY_CID_PATH=/internal/fula-gateway/registry.cid
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     labels:

@@ -32,15 +32,29 @@ check_internet() {
     return 1
 }
 
+# Public DNS resolvers in priority order — Cloudflare → Google → Quad9 → OpenDNS.
+# Listed here (not shared with the host's fula.sh) because go-fula runs in its
+# own container and doesn't source the host script.
+FULA_DNS_LIST="1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 9.9.9.9 208.67.222.222"
+
 check_ping() {
-  # Ping a well-known website (Google's DNS) to check for connectivity
-  if ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; then
-    log "Ping to 8.8.8.8 successful."
+  # Probe each DNS in priority order; success on the first reachable one.
+  # If all six public DNS IPs fail, fall back to ping google.com so private
+  # networks that block public DNS but ship their own resolver still detect
+  # internet correctly. timeout 5 bounds the hostname call in case the local
+  # resolver is broken (bare ping <name> can hang on getaddrinfo for 30s+).
+  for dns in $FULA_DNS_LIST; do
+    if ping -c 1 -W 1 "$dns" >/dev/null 2>&1; then
+      log "Ping to $dns successful."
+      return 0
+    fi
+  done
+  if timeout 5 ping -c 1 -W 1 google.com >/dev/null 2>&1; then
+    log "Ping to google.com successful (via network's own DNS)."
     return 0
-  else
-    log "Ping to 8.8.8.8 failed."
-    return 1
   fi
+  log "Ping to all public DNS providers and google.com failed — no internet."
+  return 1
 }
 
 check_files_exist() {

@@ -50,6 +50,42 @@ FSCK_LOCKFILE = "/run/fula-fsck.lock"
 # YAML invalid control characters (all control chars except tab, newline, carriage return)
 YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 
+# Public DNS resolvers in priority order. Cloudflare first (fastest on most
+# networks), then Google, Quad9, OpenDNS — chosen so that any single provider
+# being blocked or down still leaves five working alternatives.
+FULA_DNS_LIST = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "208.67.222.222"]
+
+
+def check_dns_reachable(timeout=5):
+    """Return first reachable target from FULA_DNS_LIST, or "google.com" if all
+    public DNS IPs fail but google.com resolves via the network's own resolver,
+    or None if everything fails (truly no internet).
+
+    The google.com fallback handles private networks that ship their own DNS
+    server and block 1.1.1.1/8.8.8.8/9.9.9.9 directly. subprocess timeout
+    bounds the call so a broken local resolver can't hang the script.
+    """
+    for dns in FULA_DNS_LIST:
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", str(timeout), dns],
+                capture_output=True, timeout=timeout + 2,
+            )
+            if result.returncode == 0:
+                return dns
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", str(timeout), "google.com"],
+            capture_output=True, timeout=timeout + 2,
+        )
+        if result.returncode == 0:
+            return "google.com"
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
 
 def safe_restart_fula(**kwargs):
     """Restart fula.service, clearing any start-limit failures first."""
@@ -1106,12 +1142,13 @@ def attempt_wifi_connection():
                 # LED flashing blue code here to indicate connection successful
                 start_led_flash("blue")
                 
-                # Verify internet connectivity by pinging a reliable server
-                ping_result = subprocess.run(["ping", "-c", "3", "-W", "5", "8.8.8.8"], 
-                                           capture_output=True, text=True)
-                
-                if ping_result.returncode == 0:
-                    logging.info(f"Internet connection verified for {wifi_con}")
+                # Verify internet connectivity by probing public DNS resolvers
+                # in priority order (Cloudflare → Google → Quad9 → OpenDNS).
+                # Returns the first reachable IP, or None if all six fail.
+                working_dns = check_dns_reachable()
+
+                if working_dns is not None:
+                    logging.info(f"Internet connection verified for {wifi_con} via DNS {working_dns}")
                     wifi_connected = True
                     # stop LED flashing blue code here
                     stop_led_flash()
@@ -1421,7 +1458,62 @@ def check_and_fix_ipfs_host():
             return True
         except Exception as e:
             logging.error(f"Error fixing migration permission issue: {str(e)}")
-    
+
+    # Check for empty/corrupt version file (kubo: "invalid data in repo version file").
+    # Caused by a stale touch from older install scripts, or a write that was
+    # truncated by power loss. Only auto-fix when the file is genuinely empty —
+    # a non-empty-but-unparseable file is unknown territory and should be left alone.
+    # Writes "18" to match kubo 0.41 RepoVersion (matches initipfs).
+    if "Error: invalid data in repo version file" in ipfs_host_logs:
+        version_file_path = "/home/pi/.internal/ipfs_data/version"
+        try:
+            file_size = os.path.getsize(version_file_path) if os.path.exists(version_file_path) else -1
+            if file_size == 0:
+                logging.warning(f"IPFS Host: empty {version_file_path} detected. Writing version 18.")
+                subprocess.run(["sudo", "tee", version_file_path],
+                               input=b"18", capture_output=True, check=True, timeout=20)
+                logging.info(f"Successfully wrote 18 to {version_file_path}")
+                subprocess.run(["sudo", "docker", "restart", "ipfs_host"],
+                               capture_output=True, check=True, timeout=60)
+                time.sleep(30)
+                return True
+            else:
+                logging.warning(f"IPFS Host: 'invalid data in repo version file' but {version_file_path} size={file_size}. Not auto-fixing.")
+        except Exception as e:
+            logging.error(f"Error fixing empty version file: {str(e)}")
+
+    # Check for empty/corrupt datastore_spec file (kubo: "datastore configuration
+    # of '<x>' does not match what is on disk '<y>'"). The mismatch error has
+    # legitimate non-empty causes (path changes, partial migrations) — overwriting
+    # would corrupt the pin set. Gate strictly on size==0.
+    if ("datastore configuration of" in ipfs_host_logs
+            and "does not match what is on disk" in ipfs_host_logs):
+        datastore_spec_path = "/home/pi/.internal/ipfs_data/datastore_spec"
+        try:
+            file_size = os.path.getsize(datastore_spec_path) if os.path.exists(datastore_spec_path) else -1
+            if file_size == 0:
+                logging.warning(f"IPFS Host: empty {datastore_spec_path} detected. Writing standard spec.")
+                # Must match initipfs's writePredefinedFiles output exactly so the
+                # subsequent kubo restart sees a config↔disk match.
+                standard_spec = (
+                    b'{"mounts":[{"mountpoint":"/blocks",'
+                    b'"path":"/uniondrive/ipfs_datastore/blocks",'
+                    b'"shardFunc":"/repo/flatfs/shard/v1/next-to-last/2","type":"flatfs"},'
+                    b'{"mountpoint":"/","path":"/uniondrive/ipfs_datastore/datastore",'
+                    b'"type":"pebbleds"}],"type":"mount"}'
+                )
+                subprocess.run(["sudo", "tee", datastore_spec_path],
+                               input=standard_spec, capture_output=True, check=True, timeout=20)
+                logging.info(f"Successfully wrote standard datastore_spec to {datastore_spec_path}")
+                subprocess.run(["sudo", "docker", "restart", "ipfs_host"],
+                               capture_output=True, check=True, timeout=60)
+                time.sleep(30)
+                return True
+            else:
+                logging.warning(f"IPFS Host: 'datastore configuration mismatch' but {datastore_spec_path} size={file_size}. Not auto-fixing (legitimate non-empty mismatches like path changes need manual review).")
+        except Exception as e:
+            logging.error(f"Error fixing empty datastore_spec: {str(e)}")
+
     # Check for version mismatch errors and fix version file
     version_file_path = "/home/pi/.internal/ipfs_data/version"
     if "Error: Your programs version (17) is lower than your repos" in ipfs_host_logs:

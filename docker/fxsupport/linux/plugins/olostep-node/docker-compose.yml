@@ -18,7 +18,9 @@ services:
     cpus: 2
     pids_limit: 200
     dns:
+      - 1.1.1.1
       - 8.8.8.8
+      - 9.9.9.9
     volumes:
       - /home/pi/.internal/plugins/olostep-node/storage:/data
     networks:

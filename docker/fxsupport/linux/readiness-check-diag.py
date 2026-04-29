@@ -317,6 +317,29 @@ def check_and_fix_ipfs_host():
         logging.info("[L573] WOULD: restart fula.service, sleep 30")
         return True
 
+    # Check for empty/corrupt version file
+    if "Error: invalid data in repo version file" in ipfs_host_logs:
+        version_file = "/home/pi/.internal/ipfs_data/version"
+        size = os.path.getsize(version_file) if os.path.exists(version_file) else -1
+        logging.info(f"[L578] DETECTED: invalid data in repo version file (file size={size})")
+        if size == 0:
+            logging.info(f"[L580] WOULD: write '18' to {version_file}, restart ipfs_host")
+        else:
+            logging.info(f"[L582] WOULD: skip — file non-empty, manual review needed")
+        return True
+
+    # Check for empty/corrupt datastore_spec
+    if ("datastore configuration of" in ipfs_host_logs
+            and "does not match what is on disk" in ipfs_host_logs):
+        ds_spec = "/home/pi/.internal/ipfs_data/datastore_spec"
+        size = os.path.getsize(ds_spec) if os.path.exists(ds_spec) else -1
+        logging.info(f"[L591] DETECTED: datastore configuration mismatch (file size={size})")
+        if size == 0:
+            logging.info(f"[L593] WOULD: write standard spec to {ds_spec}, restart ipfs_host")
+        else:
+            logging.info(f"[L595] WOULD: skip — file non-empty, manual review needed (path change or partial migration?)")
+        return True
+
     # Check for version mismatch
     version_file_path = "/home/pi/.internal/ipfs_data/version"
     if "Error: Your programs version (17) is lower than your repos" in ipfs_host_logs:

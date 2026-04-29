@@ -182,14 +182,17 @@ esac
 exit 0
 EOF
 
-    # Mock ping command
+    # Mock ping command — accept any DNS in FULA_DNS_LIST so tests pass
+    # regardless of which provider check_internet_dns / check_ping tries first.
     cat > "$TEST_MOCK_DIR/bin/ping" << 'EOF'
 #!/bin/bash
 case "$*" in
-    *"8.8.8.8"*)
-        echo "PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data."
-        echo "64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=20.1 ms"
-        echo "--- 8.8.8.8 ping statistics ---"
+    *"1.1.1.1"*|*"1.0.0.1"*|*"8.8.8.8"*|*"8.8.4.4"*|*"9.9.9.9"*|*"208.67.222.222"*|*"google.com"*)
+        # Extract the target (IP or hostname) from the args (last whitespace-separated token).
+        target="${*##* }"
+        echo "PING $target ($target) 56(84) bytes of data."
+        echo "64 bytes from $target: icmp_seq=1 ttl=118 time=20.1 ms"
+        echo "--- $target ping statistics ---"
         echo "1 packets transmitted, 1 received, 0% packet loss"
         ;;
     *)
@@ -376,8 +379,9 @@ test_network_connectivity() {
     ((TESTS_TOTAL++))
     log_test "Testing network connectivity checks..."
     
-    # Test ping functionality
-    if ! grep -q "check_ping\|ping.*8.8.8.8" "$GO_FULA_SCRIPT"; then
+    # Test ping functionality — accept either the legacy hardcoded probe
+    # (older revisions) or the new multi-DNS helper (FULA_DNS_LIST iteration).
+    if ! grep -q "check_ping\|FULA_DNS_LIST\|ping.*1.1.1.1\|ping.*8.8.8.8" "$GO_FULA_SCRIPT"; then
         log_fail "Network ping functionality not found"
         return 1
     fi

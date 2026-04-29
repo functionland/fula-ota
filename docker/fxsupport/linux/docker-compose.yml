@@ -5,8 +5,9 @@ services:
     restart: always
     container_name: fula_updater
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
@@ -56,8 +57,9 @@ services:
       - IPFS_PATH=/internal/ipfs_data
       - IPFS_TELEMETRY=off
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     labels:
@@ -86,8 +88,9 @@ services:
       - IPFS_PATH=/internal/ipfs_data_local
       - IPFS_TELEMETRY=off
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     logging:
@@ -174,8 +177,9 @@ services:
     container_name: fula_fxsupport
     command: tail -F /dev/null
     dns:
+      - 1.1.1.1
       - 8.8.8.8
-      - 8.8.4.4
+      - 9.9.9.9
     security_opt:
       - no-new-privileges:true
     read_only: true

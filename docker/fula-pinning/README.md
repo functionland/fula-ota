@@ -214,7 +214,7 @@ The `readiness-check.py` service monitors `fula_pinning` alongside other contain
 
 **Sync failures ("failed to fetch remote pins")**
 - Verify the pinning service endpoint is reachable: `curl -H "Authorization: Bearer TOKEN" ENDPOINT/pins`
-- Check DNS resolution (container uses `8.8.8.8` and `8.8.4.4`)
+- Check DNS resolution (container uses `1.1.1.1`, `8.8.8.8`, `9.9.9.9` in priority order)
 - Token may have expired — update `auto_pin_token` in `box_props.json`
 
 **Pin failures ("failed to pin CID")**
