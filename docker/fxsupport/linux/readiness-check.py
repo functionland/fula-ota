@@ -46,6 +46,25 @@ relay_fail_count = 0
 last_fsck_time = 0   # Timestamp of last e2fsck run — 1-hour cooldown
 FSCK_COOLDOWN = 3600
 FSCK_LOCKFILE = "/run/fula-fsck.lock"
+# Consecutive repair attempts that did not lead to a clean run. After
+# REPLACE_DISK_THRESHOLD attempts in a row, the script logs a loud hint
+# that the disk may need physical replacement.
+consecutive_fsck_attempts = 0
+REPLACE_DISK_THRESHOLD = 2
+
+# Strict dmesg error patterns for ext4 corruption. Generic "EXT4-fs (sdX1):"
+# info lines are excluded — we only match lines the kernel logs at error
+# severity (ext4_error / ext4_msg with KERN_CRIT). These surface during the
+# failure mode where blkid still reports ext4 but mount fails because of
+# journal/superblock damage.
+EXT4_DMESG_ERROR_PATTERNS = [
+    re.compile(r'EXT4-fs error.*device (sd[a-z]+\d+|nvme\d+n\d+p\d+)'),
+    re.compile(
+        r'EXT4-fs \((sd[a-z]+\d+|nvme\d+n\d+p\d+)\):.*'
+        r'(no journal found|cannot find journal|bad superblock|'
+        r'corrupt|bad inode|unable to read superblock)'
+    ),
+]
 
 # YAML invalid control characters (all control chars except tab, newline, carriage return)
 YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
@@ -632,6 +651,206 @@ def _detect_ebadmsg_ext4_partitions(probe_dirs=None):
     return [(dev, mp) for dev, (mp, _entries) in hits.items()]
 
 
+def _get_boot_disk():
+    """Return the bare disk name backing /, e.g. 'mmcblk0', or None on failure.
+
+    Resolves the device backing the root mount through /proc/mounts, then
+    strips the partition suffix. Used to make sure ext4 repair never touches
+    the system disk regardless of how the partition is enumerated.
+    """
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                if parts[1] == '/':
+                    dev = parts[0]
+                    if not dev.startswith('/dev/'):
+                        return None
+                    name = dev[len('/dev/'):]
+                    # mmcblk0p1 -> mmcblk0, nvme0n1p1 -> nvme0n1, sda1 -> sda
+                    m = re.match(r'(mmcblk\d+|nvme\d+n\d+|sd[a-z]+)', name)
+                    return m.group(1) if m else name
+    except Exception as e:
+        logging.debug(f"Could not resolve boot disk: {e}")
+    return None
+
+
+def _list_external_ext4_partitions():
+    """List ext4 partitions on external (sd*/nvme*) drives, excluding the boot disk.
+
+    Returns list of (device, partition_name) tuples. Uses lsblk for
+    enumeration and blkid for filesystem type. Skips zero-size and read-only
+    block devices (e.g. /dev/sdb in the user-reported case where lsblk shows
+    SIZE 0B — the kernel never enumerated the disk and probing it would hang).
+    """
+    boot_disk = _get_boot_disk()
+    results = []
+    try:
+        lsblk = subprocess.run(
+            ["lsblk", "-rno", "NAME,TYPE,SIZE,RO"],
+            capture_output=True, text=True, timeout=15
+        )
+        if lsblk.returncode != 0:
+            return results
+        for line in lsblk.stdout.strip().split('\n'):
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            name, dev_type, size, ro = parts[0], parts[1], parts[2], parts[3]
+            if dev_type != 'part':
+                continue
+            if not re.match(r'(sd[a-z]+\d+|nvme\d+n\d+p\d+)$', name):
+                continue
+            # Skip partitions whose parent is the boot disk
+            parent_match = re.match(r'(sd[a-z]+|nvme\d+n\d+)', name)
+            if not parent_match:
+                continue
+            parent = parent_match.group(1)
+            if boot_disk and parent == boot_disk:
+                continue
+            # Skip 0B / read-only partitions — they're either unenumerated
+            # ghost devices (sdb in the user log) or write-protected media
+            # that fsck can't repair anyway.
+            if size in ('0', '0B'):
+                continue
+            if ro == '1':
+                continue
+            device = f"/dev/{name}"
+            try:
+                blkid = subprocess.run(
+                    ["sudo", "blkid", "-o", "value", "-s", "TYPE", device],
+                    capture_output=True, text=True, timeout=10
+                )
+                fstype = blkid.stdout.strip()
+            except Exception:
+                continue
+            if fstype != 'ext4':
+                continue
+            results.append((device, name))
+    except Exception as e:
+        logging.debug(f"Error enumerating external ext4 partitions: {e}")
+    return results
+
+
+def _is_partition_mounted_under_media_pi(partition_name):
+    """True if /dev/<partition_name> is currently mounted under /media/pi/."""
+    target_dev = f"/dev/{partition_name}"
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                if parts[0] == target_dev and parts[1].startswith('/media/pi/'):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _dmesg_has_ext4_error(partition_name):
+    """True if recent dmesg contains a strict ext4-corruption pattern for
+    this partition.
+
+    Uses sudo because kernel.dmesg_restrict=1 is the default on the Debian
+    bookworm images these devices ship with.
+    """
+    try:
+        result = subprocess.run(
+            ["sudo", "dmesg"], capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return False
+        # Limit the scan to the last 400 lines so an ancient one-off error
+        # from months ago doesn't trigger a fsck on a healthy disk.
+        recent = result.stdout.strip().split('\n')[-400:]
+        for line in recent:
+            for pattern in EXT4_DMESG_ERROR_PATTERNS:
+                m = pattern.search(line)
+                # Compare against the captured device — a substring match would
+                # let a 'sda1' query trigger on a 'sda12' dmesg line.
+                if m and m.group(1) == partition_name:
+                    return True
+    except Exception as e:
+        logging.debug(f"dmesg scan failed: {e}")
+    return False
+
+
+def _dumpe2fs_indicates_corruption(device):
+    """Tiebreaker: run dumpe2fs -h and treat parse / superblock failures as
+    evidence of corruption.
+
+    dumpe2fs reads only the primary superblock, so this catches superblock
+    damage but NOT pure journal-inode corruption (the user-reported case).
+    Used only when dmesg has no signal — e.g. after kernel printk ratelimit
+    suppressed duplicates on a long-running failure cycle.
+
+    Returns True only on hard failures whose stderr matches a known
+    corruption phrase. A non-zero exit alone is not enough — a busy device
+    can fail dumpe2fs for unrelated reasons.
+    """
+    try:
+        result = subprocess.run(
+            ["sudo", "dumpe2fs", "-h", device],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            return False
+        text = (result.stderr or "") + "\n" + (result.stdout or "")
+        markers = [
+            "Bad magic number in super-block",
+            "Couldn't find valid filesystem superblock",
+            "bad checksum",
+            "Group descriptors look bad",
+        ]
+        return any(m in text for m in markers)
+    except Exception:
+        return False
+
+
+def _detect_unmountable_corrupt_ext4():
+    """Detect ext4 partitions that are present (lsblk + blkid agree) but
+    cannot be mounted under /media/pi/ because of corruption.
+
+    Returns list of (device, partition_name) tuples. Triggers when:
+      1. The partition is on /dev/sd*/nvme* (not the boot disk)
+      2. blkid reports ext4
+      3. The partition is NOT currently mounted under /media/pi/
+      4. EITHER dmesg has a strict ext4-error pattern matching the
+         partition, OR dumpe2fs -h fails with a known-corruption marker
+
+    Mirrors the discipline of _detect_io_dead_drive: requires positive
+    corruption evidence, not just "didn't mount." A drive that simply
+    hasn't been plugged in long enough produces neither dmesg errors nor
+    dumpe2fs failures.
+    """
+    results = []
+    seen = set()
+    for device, partition_name in _list_external_ext4_partitions():
+        if device in seen:
+            continue
+        if _is_partition_mounted_under_media_pi(partition_name):
+            continue
+        if _dmesg_has_ext4_error(partition_name):
+            logging.warning(
+                f"Unmountable ext4 partition {device} — dmesg shows ext4 "
+                "corruption errors. Triggering fsck repair."
+            )
+            results.append((device, partition_name))
+            seen.add(device)
+            continue
+        if _dumpe2fs_indicates_corruption(device):
+            logging.warning(
+                f"Unmountable ext4 partition {device} — dumpe2fs reports "
+                "superblock corruption. Triggering fsck repair."
+            )
+            results.append((device, partition_name))
+            seen.add(device)
+    return results
+
+
 def _rm_stderr_reports_ebadmsg(stderr_text):
     """True if an rm/chown stderr blob contains the EBADMSG textual signature.
 
@@ -682,7 +901,7 @@ def check_and_repair_ext4():
 
     Returns True if repair was attempted, False if skipped.
     """
-    global last_fsck_time
+    global last_fsck_time, consecutive_fsck_attempts
 
     # Check cooldown
     now = time.time()
@@ -692,7 +911,10 @@ def check_and_repair_ext4():
 
     # Detect issues — RO mount first, then I/O dead drive, then EBADMSG
     # (metadata checksum failure on ext4 — filesystem still rw, individual
-    # inodes fail stat/rm with 'Bad message' until e2fsck rebuilds checksums).
+    # inodes fail stat/rm with 'Bad message' until e2fsck rebuilds checksums),
+    # then unmountable-corrupt (drive is plugged in and blkid says ext4 but
+    # mount fails because of journal/superblock damage — uniondrive can never
+    # bring up mergerfs in this state, so fula never starts).
     ro_partitions = _find_ro_ext4_partitions()
     io_dead = False
 
@@ -707,15 +929,20 @@ def check_and_repair_ext4():
             io_dead = True
         else:
             ebadmsg_partitions = _detect_ebadmsg_ext4_partitions()
-            if not ebadmsg_partitions:
-                return False
-            device, mountpoint = ebadmsg_partitions[0]
-            partition_name = device.split('/')[-1]
-            logging.warning(
-                f"ext4 metadata corruption (EBADMSG) detected on {device} — "
-                "filesystem remains rw but individual inodes fail checksum. "
-                "Triggering fsck repair."
-            )
+            if ebadmsg_partitions:
+                device, mountpoint = ebadmsg_partitions[0]
+                partition_name = device.split('/')[-1]
+                logging.warning(
+                    f"ext4 metadata corruption (EBADMSG) detected on {device} — "
+                    "filesystem remains rw but individual inodes fail checksum. "
+                    "Triggering fsck repair."
+                )
+            else:
+                unmountable = _detect_unmountable_corrupt_ext4()
+                if not unmountable:
+                    return False
+                device, partition_name = unmountable[0]
+                mountpoint = None  # not currently mounted — skip the umount path
 
     # Extract base disk name (sda from sda1) for SCSI reset
     disk_match = re.match(r'(sd[a-z]+)', partition_name)
@@ -734,7 +961,8 @@ def check_and_repair_ext4():
     if not _acquire_fsck_lock():
         return False
 
-    logging.warning(f"Starting ext4 repair for {device} at {mountpoint}"
+    mountpoint_label = mountpoint if mountpoint else "(unmounted)"
+    logging.warning(f"Starting ext4 repair for {device} at {mountpoint_label}"
                     f"{' (I/O dead — SCSI reset needed)' if io_dead else ''}")
 
     repair_attempted = False
@@ -779,35 +1007,39 @@ def check_and_repair_ext4():
             else:
                 logging.error("SCSI reset failed — drive may need physical intervention")
         else:
-            # Normal path: unmount, then release block device holders
-            # Verify partition is unmounted; force-unmount if needed
-            mounted = subprocess.run(["mountpoint", "-q", mountpoint],
-                                     capture_output=True, timeout=10).returncode == 0
-            if mounted:
-                logging.info(f"Unmounting {device} from {mountpoint}")
-                result = subprocess.run(["sudo", "umount", device],
-                                        capture_output=True, timeout=30)
-                if result.returncode != 0:
-                    logging.warning(f"umount failed, trying lazy unmount: {result.stderr}")
-                    result = subprocess.run(["sudo", "umount", "-l", device],
-                                            capture_output=True, timeout=10)
+            # Normal path: unmount, then release block device holders.
+            # mountpoint is None when the partition was never mounted (the
+            # _detect_unmountable_corrupt_ext4 case) — skip the umount block
+            # and go straight to releasing block-device holders before fsck.
+            if mountpoint is not None:
+                # Verify partition is unmounted; force-unmount if needed
+                mounted = subprocess.run(["mountpoint", "-q", mountpoint],
+                                         capture_output=True, timeout=10).returncode == 0
+                if mounted:
+                    logging.info(f"Unmounting {device} from {mountpoint}")
+                    result = subprocess.run(["sudo", "umount", device],
+                                            capture_output=True, timeout=30)
                     if result.returncode != 0:
-                        logging.warning("Lazy umount failed, killing users and retrying")
-                        subprocess.run(["sudo", "fuser", "-km", mountpoint],
-                                       capture_output=True, timeout=30)
-                        time.sleep(2)
-                        subprocess.run(["sudo", "umount", device],
-                                       capture_output=True, timeout=30)
+                        logging.warning(f"umount failed, trying lazy unmount: {result.stderr}")
+                        result = subprocess.run(["sudo", "umount", "-l", device],
+                                                capture_output=True, timeout=10)
+                        if result.returncode != 0:
+                            logging.warning("Lazy umount failed, killing users and retrying")
+                            subprocess.run(["sudo", "fuser", "-km", mountpoint],
+                                           capture_output=True, timeout=30)
+                            time.sleep(2)
+                            subprocess.run(["sudo", "umount", device],
+                                           capture_output=True, timeout=30)
 
-                # Final mount check
-                still_mounted = subprocess.run(["mountpoint", "-q", mountpoint],
-                                               capture_output=True, timeout=10).returncode == 0
-                if still_mounted:
-                    logging.error(f"Cannot unmount {device} — trying SCSI reset as fallback")
-                    if disk_name and _reset_scsi_drive(disk_name):
-                        device = f"/dev/{partition_name}"
-                        device_ready = True
-                    # If SCSI reset also failed, fall through — device_ready stays False
+                    # Final mount check
+                    still_mounted = subprocess.run(["mountpoint", "-q", mountpoint],
+                                                   capture_output=True, timeout=10).returncode == 0
+                    if still_mounted:
+                        logging.error(f"Cannot unmount {device} — trying SCSI reset as fallback")
+                        if disk_name and _reset_scsi_drive(disk_name):
+                            device = f"/dev/{partition_name}"
+                            device_ready = True
+                        # If SCSI reset also failed, fall through — device_ready stays False
 
             if not device_ready:
                 # Kill processes holding the block device (stale blkid, etc.)
@@ -857,6 +1089,15 @@ def check_and_repair_ext4():
             # fall through to finally — restart services
             return repair_attempted
 
+        # Defensive umount: even if detection saw the partition unmounted,
+        # union-drive.sh retries continuously and could have raced a successful
+        # mount in between. e2fsck on a mounted ext4 corrupts it. Both calls
+        # are no-ops when nothing is mounted.
+        subprocess.run(["sudo", "umount", device],
+                       capture_output=True, timeout=15)
+        subprocess.run(["sudo", "umount", f"/media/pi/{partition_name}"],
+                       capture_output=True, timeout=15)
+
         # Verify device node exists after possible SCSI reset
         if not os.path.exists(device):
             logging.error(f"Device {device} does not exist after reset")
@@ -882,12 +1123,23 @@ def check_and_repair_ext4():
             # 4=errors left uncorrected, 8=operational error
             if fsck_result.returncode in (0, 1):
                 logging.info(f"e2fsck completed successfully on {device}")
+                consecutive_fsck_attempts = 0
             elif fsck_result.returncode & 2:
                 logging.warning(f"e2fsck requests reboot for {device}")
+                consecutive_fsck_attempts += 1
             else:
                 logging.error(f"e2fsck reported uncorrected errors on {device} (exit {fsck_result.returncode})")
+                consecutive_fsck_attempts += 1
         except subprocess.TimeoutExpired:
             logging.error(f"e2fsck timed out after 1800s on {device}")
+            consecutive_fsck_attempts += 1
+
+        if consecutive_fsck_attempts >= REPLACE_DISK_THRESHOLD:
+            logging.error(
+                f"e2fsck has run {consecutive_fsck_attempts} times in a row on "
+                f"{device} without a clean exit — the disk may be physically "
+                "failing and require replacement."
+            )
 
         repair_attempted = True
         last_fsck_time = time.time()
