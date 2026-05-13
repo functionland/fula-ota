@@ -140,3 +140,32 @@ sudo bash ./tests/test-device-hardening.sh --build --ota-sim --verify
 ```
 
 The script is also registered in test-fula-system-complete.sh as a test suite.
+
+---
+
+## Python unit tests — readiness-check discovery integration
+
+In addition to the shell integration tests above, this directory also holds Python pytest unit tests for the Cloudflare-Workers discovery-API integration that lives inside `readiness-check.py`.
+
+### Setup
+
+```bash
+cd E:\GitHub\fula-ota
+python -m venv .venv
+source .venv/bin/activate    # or .venv\Scripts\Activate.ps1 on Windows
+pip install -r tests/requirements-test.txt
+```
+
+### Run
+
+```bash
+pytest tests/test_canonical_json.py tests/test_kubo_key_loader.py tests/test_relay_drift.py -v
+```
+
+### What's covered
+
+- **`test_canonical_json.py`** — the Python `_canonical_json` in `readiness-check.py` produces byte-identical output to the TypeScript `canonicalJSON` in `cloudflare/src/verify.ts`. Cross-language gate; if it fails, every heartbeat signature mismatches.
+
+- **`test_kubo_key_loader.py`** — `_load_kubo_ed25519_key` parses a synthetic kubo config with a real libp2p-wrapped ed25519 PrivKey and produces an `Ed25519PrivateKey` whose public key matches the claimed peer ID. Also tests missing-file and malformed-wire-format failure paths.
+
+- **`test_relay_drift.py`** — `maybe_refresh_relays` correctly: skips kubo restart when Workers' list matches on-disk, triggers `docker restart ipfs_host` when they differ, silently no-ops when Workers is unreachable, rate-limits within `RELAY_DRIFT_CHECK_INTERVAL_SEC`.

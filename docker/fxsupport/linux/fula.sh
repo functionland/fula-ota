@@ -482,6 +482,14 @@ function install() {
       echo "psutil not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
       sudo apt-get install -y python3-psutil 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-psutil" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
     }
+
+    # Check if cryptography is installed (used by readiness-check to sign
+    # heartbeats sent to the Discovery API). Heartbeat code degrades to a
+    # no-op without it, but production should have it installed.
+    python -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey" 2>/dev/null || {
+      echo "python3-cryptography not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+      sudo apt-get install -y python3-cryptography 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-cryptography" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+    }
   else
     echo "Internet check failed, checking for existing dependencies..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     command -v pip >/dev/null 2>&1 || { echo "pip not found"; all_success=false; }
@@ -1585,6 +1593,12 @@ function restart() {
   python -c "import requests" 2>/dev/null || {
     echo "requests not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
     sudo apt install python3-requests 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-requests" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
+  }
+
+  # Check if cryptography is installed (heartbeat signing in readiness-check)
+  python -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey" 2>/dev/null || {
+    echo "python3-cryptography not found, installing..." 2>&1 | sudo tee -a $FULA_LOG_PATH
+    sudo apt install python3-cryptography 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Could not apt install python3-cryptography" 2>&1 | sudo tee -a $FULA_LOG_PATH; } || true
   }
 
   #setup samba for blox storage access /uniondrive/fxblox

@@ -21,11 +21,18 @@ import os
 import sys
 import shutil
 import logging
+import urllib.request
+import urllib.error
 from datetime import datetime
 from copy import deepcopy
 
 FULA_PATH = os.environ.get("FULA_PATH", "/usr/bin/fula")
 HOME_DIR = os.environ.get("HOME_DIR", "/home/pi")
+
+# Discovery API. Set via env var so test environments / staging can point elsewhere.
+# Empty string disables the discovery fetch entirely (falls back to template).
+DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fx.land")
+DISCOVERY_TIMEOUT_SEC = float(os.environ.get("DISCOVERY_TIMEOUT_SEC", "5"))
 
 TEMPLATE_CONFIG = os.path.join(FULA_PATH, "kubo", "config")
 DEPLOYED_CONFIG = os.path.join(HOME_DIR, ".internal", "ipfs_data", "config")
@@ -161,6 +168,69 @@ def merge_configs(template, deployed, logger):
     return result, changes
 
 
+def fetch_relays_from_discovery_api(logger):
+    """Fetch the live relay list from the Cloudflare Workers discovery API.
+
+    Returns a list of relay records (see schema/kv-layout.md), or None on
+    any failure. Failure is non-fatal — caller falls back to template defaults.
+    """
+    if not DISCOVERY_API_URL:
+        return None
+    url = DISCOVERY_API_URL.rstrip("/") + "/relays"
+    try:
+        req = urllib.request.Request(url, headers={"accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=DISCOVERY_TIMEOUT_SEC) as resp:
+            if resp.status != 200:
+                logger.warning("discovery: %s returned HTTP %d", url, resp.status)
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError) as e:
+        logger.info("discovery: fetch failed (%s) — falling back to template defaults", e)
+        return None
+
+    if not isinstance(data, list) or len(data) == 0:
+        logger.info("discovery: API returned empty list — falling back to template defaults")
+        return None
+
+    # Sanity-check each entry; drop malformed ones.
+    valid = []
+    for r in data:
+        if not isinstance(r, dict):
+            continue
+        if not all(k in r for k in ("peerId", "addr", "multiaddr")):
+            continue
+        valid.append(r)
+    if not valid:
+        logger.info("discovery: API returned no valid relay records")
+        return None
+    logger.info("discovery: fetched %d relay(s) from %s", len(valid), url)
+    return valid
+
+
+def apply_relays_from_discovery(config, relays, logger):
+    """Override Swarm.RelayClient.StaticRelays + Peering.Peers with discovery values.
+
+    Returns list of (field, action) changes for logging.
+    """
+    changes = []
+
+    new_static = [r["multiaddr"] for r in relays]
+    cur_static, _ = get_nested(config, "Swarm.RelayClient.StaticRelays")
+    if cur_static != new_static:
+        set_nested(config, "Swarm.RelayClient.StaticRelays", new_static)
+        changes.append(("Swarm.RelayClient.StaticRelays", "discovery-override"))
+
+    new_peering = [{"Addrs": [r["addr"]], "ID": r["peerId"]} for r in relays]
+    cur_peering, _ = get_nested(config, "Peering.Peers")
+    if cur_peering != new_peering:
+        set_nested(config, "Peering.Peers", new_peering)
+        changes.append(("Peering.Peers", "discovery-override"))
+
+    for field, _ in changes:
+        logger.info("  %s: discovery-override (%d relay(s))", field, len(relays))
+    return changes
+
+
 def compute_dynamic_storage_max(config, logger):
     """Set Datastore.StorageMax based on /uniondrive total space (80%)."""
     try:
@@ -211,8 +281,17 @@ def main():
         logger.error("Failed to read deployed config: %s", e)
         return 1
 
-    # Merge
+    # Merge — applies static template defaults including the hardcoded relay
+    # entry (which serves as the bootstrap fallback if discovery is unreachable).
     updated, changes = merge_configs(template, deployed, logger)
+
+    # Discovery override — fetch live relay list from Cloudflare Workers and
+    # override the template's hardcoded values if reachable. This is what makes
+    # relay additions/removals zero-code-push: a KV update on the Worker side
+    # propagates to every edge on its next kubo restart.
+    relays = fetch_relays_from_discovery_api(logger)
+    if relays:
+        changes.extend(apply_relays_from_discovery(updated, relays, logger))
 
     # Dynamic StorageMax — independent of managed fields merge
     storage_changed = compute_dynamic_storage_max(updated, logger)

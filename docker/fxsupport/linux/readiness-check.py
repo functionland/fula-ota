@@ -11,6 +11,7 @@ import re
 import threading
 import shutil
 import yaml
+from datetime import datetime
 
 FULA_PATH = "/usr/bin/fula"
 HOME_PATH = "/home/pi"
@@ -18,15 +19,31 @@ COMMAND_PARTITION_PATH = os.path.join(HOME_PATH, "commands/.command_partition")
 REBOOT_FLAG_PATH = os.path.join(HOME_PATH, ".reboot_flag")
 LED_PATH = os.path.join(FULA_PATH, "control_led.py")
 
-RELAY_MULTIADDR = "/dns/relay.dev.fx.land/tcp/4001/p2p/12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"
+# Bootstrap fallback for relay swarm-connect probe — used if the Discovery API
+# (Cloudflare Workers) is unreachable AND the deployed kubo config has no
+# Swarm.RelayClient.StaticRelays. The live relay set comes from get_relay_multiaddrs().
+RELAY_MULTIADDR_FALLBACK = "/dns/relay.dev.fx.land/tcp/4001/p2p/12D3KooWDRrBaAfPwsGJivBoUw5fE7ZpDiyfUjqgiURq2DEcL835"
 IPFS_API_URL = "http://127.0.0.1:5001"
 IPFS_LOCAL_API_URL = "http://127.0.0.1:5002"
+KUBO_CONFIG_PATH = os.path.join(HOME_PATH, ".internal", "ipfs_data", "config")
 BOOTSTRAP_PEERS = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
     "/ip4/172.65.0.13/tcp/4009/p2p/QmcfgsJsMtx6qJb74akCw1M24X1zFwgGo11h1cuhwQjtJP",
 ]
+
+# === Discovery API (Cloudflare Workers) ====================================
+# The Worker owns the live relay configuration. Heartbeats from this device
+# go to /heartbeat (signed with the kubo ed25519 identity). Relay-list drift
+# is detected hourly via /relays and forces a kubo restart if changed.
+# Empty DISCOVERY_API_URL disables the integration (graceful no-op).
+DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fx.land").rstrip("/")
+DISCOVERY_TIMEOUT_SEC = 5
+RELAY_DRIFT_CHECK_INTERVAL_SEC = 3600   # hourly
+HEARTBEAT_INTERVAL_SEC = 60             # every minute
+_last_relay_drift_check = 0.0
+_last_heartbeat = 0.0
 
 # Configure logging to write to standard output
 logging.basicConfig(
@@ -73,6 +90,217 @@ YAML_INVALID_CHARS = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x2
 # networks), then Google, Quad9, OpenDNS — chosen so that any single provider
 # being blocked or down still leaves five working alternatives.
 FULA_DNS_LIST = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "208.67.222.222"]
+
+
+# === Discovery API helpers ==================================================
+# Source of truth for the relay set at runtime. update_kubo_config.py already
+# refreshes kubo's StaticRelays from the same API on every fula.sh start; this
+# module is responsible for (a) drift detection between fula.sh runs and
+# (b) signed heartbeats so the Worker's /find-box endpoint knows where this
+# device is reachable right now.
+
+def fetch_discovery_relays(timeout=DISCOVERY_TIMEOUT_SEC):
+    """Fetch the live relay list from the discovery API.
+    Returns list of relay records, or None on any failure (graceful no-op)."""
+    if not DISCOVERY_API_URL:
+        return None
+    try:
+        r = requests.get(DISCOVERY_API_URL + "/relays", timeout=timeout,
+                         headers={"accept": "application/json"})
+        if r.status_code != 200:
+            logging.info("discovery: /relays returned HTTP %d", r.status_code)
+            return None
+        data = r.json()
+    except Exception as e:
+        logging.info("discovery: /relays fetch failed: %s", e)
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    valid = [r for r in data if isinstance(r, dict) and all(k in r for k in ("peerId", "addr", "multiaddr"))]
+    return valid or None
+
+
+def get_relay_multiaddrs():
+    """Return the list of relay multiaddrs the current kubo deployment knows
+    about. Reads from the on-disk kubo config; falls back to the single
+    bootstrap multiaddr if config is unreadable."""
+    try:
+        with open(KUBO_CONFIG_PATH) as f:
+            cfg = json.load(f)
+        static = cfg.get("Swarm", {}).get("RelayClient", {}).get("StaticRelays", [])
+        if isinstance(static, list) and static:
+            return [s for s in static if isinstance(s, str)]
+    except (FileNotFoundError, json.JSONDecodeError, OSError, KeyError):
+        pass
+    return [RELAY_MULTIADDR_FALLBACK]
+
+
+def maybe_refresh_relays():
+    """Once per RELAY_DRIFT_CHECK_INTERVAL_SEC, compare Workers' relay list with
+    kubo's configured StaticRelays. If they differ, restart ipfs_host so kubo
+    picks up the new list on next start (update_kubo_config.py runs as part of
+    fula.sh start and applies the override before kubo comes up)."""
+    global _last_relay_drift_check
+    now = time.time()
+    if now - _last_relay_drift_check < RELAY_DRIFT_CHECK_INTERVAL_SEC:
+        return
+    _last_relay_drift_check = now
+
+    latest = fetch_discovery_relays()
+    if not latest:
+        return
+    current = set(get_relay_multiaddrs())
+    desired = set(r["multiaddr"] for r in latest)
+    if current == desired:
+        return
+    logging.info(
+        "discovery: relay list drift (current=%d, desired=%d); restarting ipfs_host to reload",
+        len(current), len(desired),
+    )
+    try:
+        subprocess.run(["sudo", "docker", "restart", "ipfs_host"],
+                       capture_output=True, timeout=60, check=False)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logging.warning("discovery: docker restart ipfs_host failed: %s", e)
+
+
+def _canonical_json(value):
+    """Produce canonical JSON matching the Worker's verify.ts canonicalJSON.
+    Keys sorted alphabetically; no whitespace; standard JSON escaping.
+
+    ensure_ascii=False matches JSON.stringify in TypeScript, which outputs
+    raw UTF-8 for non-ASCII chars rather than \\uXXXX escapes. For ASCII-only
+    payloads (peer IDs, multiaddrs) this doesn't matter, but the signing
+    input must be byte-identical to the Worker side regardless of content.
+    """
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ",".join(_canonical_json(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            json.dumps(k, ensure_ascii=False) + ":" + _canonical_json(v)
+            for k, v in sorted(value.items())
+        ) + "}"
+    raise TypeError(f"_canonical_json: unsupported type {type(value).__name__}")
+
+
+def _load_kubo_ed25519_key():
+    """Load this device's kubo ed25519 private key for heartbeat signing.
+    Returns (Ed25519PrivateKey, peer_id_str) or (None, None) on any failure.
+    cryptography is imported lazily so heartbeat-disabled devices don't crash."""
+    try:
+        import base64
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError:
+        return None, None
+    try:
+        with open(KUBO_CONFIG_PATH) as f:
+            cfg = json.load(f)
+        peer_id = cfg["Identity"]["PeerID"]
+        privkey_b64 = cfg["Identity"]["PrivKey"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, OSError):
+        return None, None
+    try:
+        raw = base64.b64decode(privkey_b64)
+        # libp2p PrivateKey protobuf for ed25519:
+        #   field1 Type=Ed25519: 0x08 0x01
+        #   field2 Data, length 64: 0x12 0x40 <64 bytes (32 seed + 32 pubkey)>
+        # Total 68 bytes. We need the first 32 bytes of the 64-byte payload.
+        if len(raw) != 68 or raw[0:4] != b"\x08\x01\x12\x40":
+            return None, None
+        seed = raw[4:36]
+        return Ed25519PrivateKey.from_private_bytes(seed), peer_id
+    except Exception:
+        return None, None
+
+
+def _kubo_id_addresses():
+    """Return (peer_id, addresses[]) from kubo's /api/v0/id, or (None, [])."""
+    try:
+        r = requests.post(IPFS_API_URL + "/api/v0/id", timeout=5)
+        if r.status_code != 200:
+            return None, []
+        j = r.json()
+        return j.get("ID"), j.get("Addresses", [])
+    except Exception:
+        return None, []
+
+
+def _extract_relay_dns_names(circuit_addrs):
+    """Given a list of /dns/<host>/.../p2p-circuit/p2p/... multiaddrs, return
+    the unique set of relay DNS hostnames the kubo is currently reachable through."""
+    out = set()
+    for a in circuit_addrs:
+        m = re.match(r"^/dns[46]?/([^/]+)/", a)
+        if m:
+            out.add(m.group(1))
+    return sorted(out)
+
+
+def post_heartbeat():
+    """Once per HEARTBEAT_INTERVAL_SEC, POST a signed heartbeat to the Discovery
+    API describing which relays this box is currently reachable through. The
+    Worker's /find-box uses this to route the box-app to the right circuit
+    address. Best-effort; failures are logged but never raise."""
+    global _last_heartbeat
+    now = time.time()
+    if now - _last_heartbeat < HEARTBEAT_INTERVAL_SEC:
+        return
+    if not DISCOVERY_API_URL:
+        return
+
+    key, peer_id = _load_kubo_ed25519_key()
+    if key is None or peer_id is None:
+        # cryptography missing OR kubo config unreadable. Either way we can't
+        # produce signed heartbeats; the Worker rejects unsigned. Log once and
+        # don't spam — Last heartbeat timer prevents repeat work, but log
+        # rate-limiting via _last_heartbeat would suppress the message. Just
+        # log at debug level.
+        logging.debug("heartbeat: skipping (no signing key)")
+        _last_heartbeat = now
+        return
+
+    _, addrs = _kubo_id_addresses()
+    circuit_addrs = [a for a in addrs if "/p2p-circuit/" in a]
+    reserved_on = _extract_relay_dns_names(circuit_addrs)
+
+    if not circuit_addrs:
+        # Nothing useful to report yet (kubo just started, no circuits
+        # established). Rate-limit retry to one minute — checking earlier
+        # rarely changes the outcome since circuit reservation handshakes
+        # take 10–30 seconds anyway.
+        _last_heartbeat = now
+        return
+
+    timestamp = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+    data = {
+        "type": "box",
+        "reservedOn": reserved_on,
+        "libp2pAddrs": circuit_addrs,
+    }
+    signing_input = _canonical_json({
+        "peerId": peer_id,
+        "timestamp": timestamp,
+        "data": data,
+    })
+    try:
+        import base64
+        sig = key.sign(signing_input.encode("utf-8"))
+        body = {
+            "type": "box",
+            "peerId": peer_id,
+            "timestamp": timestamp,
+            "data": data,
+            "signature": base64.b64encode(sig).decode("ascii"),
+        }
+        r = requests.post(DISCOVERY_API_URL + "/heartbeat", json=body, timeout=5)
+        if r.status_code != 200:
+            logging.info("heartbeat: POST returned HTTP %d: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logging.info("heartbeat: POST failed: %s", e)
+    _last_heartbeat = now
+
 
 
 def check_dns_reachable(timeout=5):
@@ -1870,23 +2098,34 @@ def check_and_fix_ipfs_host():
         logging.info("config.yaml does not exist, skipping relay check (device not configured).")
         return False
 
-    try:
-        relay_response = requests.post(
-            IPFS_API_URL + "/api/v0/swarm/connect",
-            params={"arg": RELAY_MULTIADDR},
-            timeout=15
-        )
-        relay_json = relay_response.json()
-        relay_strings = relay_json.get("Strings", [])
+    # Iterate over all configured relays from kubo's StaticRelays — the failure
+    # path that escalates fula.service restart only triggers when ALL of them
+    # are unreachable, so a single relay outage no longer counts as a failure.
+    configured_relays = get_relay_multiaddrs()
+    any_relay_success = False
+    last_failure_detail = ""
+    for relay_addr in configured_relays:
+        try:
+            relay_response = requests.post(
+                IPFS_API_URL + "/api/v0/swarm/connect",
+                params={"arg": relay_addr},
+                timeout=15
+            )
+            relay_json = relay_response.json()
+            relay_strings = relay_json.get("Strings", [])
+            if any("success" in s.lower() for s in relay_strings):
+                any_relay_success = True
+                break
+            last_failure_detail = f"{relay_addr}: {relay_strings}"
+        except Exception as e:
+            last_failure_detail = f"{relay_addr}: {e}"
 
-        if any("success" in s.lower() for s in relay_strings):
-            logging.info("Relay connection successful.")
-            relay_fail_count = 0
-            return False
+    if any_relay_success:
+        logging.info(f"Relay connection successful (1/{len(configured_relays)} relays reachable).")
+        relay_fail_count = 0
+        return False
 
-        logging.warning(f"Relay connection failed: {relay_strings}")
-    except Exception as e:
-        logging.warning(f"Relay connection attempt failed: {e}")
+    logging.warning(f"All {len(configured_relays)} relays failed; last: {last_failure_detail}")
 
     # Relay failed — verify swarm health by connecting to bootstrap peers
     bootstrap_successes = 0
@@ -2887,6 +3126,18 @@ def main():
     fula_restart_attempts = 0
     cycles_with_no_wifi = 0
     while True:
+        # Discovery API integration — both are internally rate-limited (60s and
+        # 3600s respectively), so safe to call on every iteration regardless of
+        # main-loop cadence. Failures are non-fatal and logged.
+        try:
+            post_heartbeat()
+        except Exception as e:
+            logging.debug(f"post_heartbeat raised: {e}")
+        try:
+            maybe_refresh_relays()
+        except Exception as e:
+            logging.debug(f"maybe_refresh_relays raised: {e}")
+
         if check_conditions():
             logging.info("check_conditions passed")
             wifi_status = check_wifi_connection()
