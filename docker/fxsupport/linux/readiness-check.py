@@ -241,6 +241,25 @@ def _extract_relay_dns_names(circuit_addrs):
     return sorted(out)
 
 
+def _read_cluster_peer_id():
+    """Return ipfs-cluster's libp2p peer ID from identity.json, or None if
+    missing / unreadable / empty. Not every blox has a cluster identity
+    (pre-bootstrap, identity.json absent during first install, or the cluster
+    container hasn't generated its key yet) — caller must handle None and
+    omit the field from the heartbeat rather than sending a null/empty string.
+    """
+    cluster_identity_path = "/uniondrive/ipfs-cluster/identity.json"
+    try:
+        with open(cluster_identity_path) as f:
+            identity = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    pid = identity.get("id")
+    if not isinstance(pid, str) or not pid:
+        return None
+    return pid
+
+
 def post_heartbeat():
     """Once per HEARTBEAT_INTERVAL_SEC, POST a signed heartbeat to the Discovery
     API describing which relays this box is currently reachable through. The
@@ -282,6 +301,14 @@ def post_heartbeat():
         "reservedOn": reserved_on,
         "libp2pAddrs": circuit_addrs,
     }
+    # ipfs-cluster peer ID is OPTIONAL. Bloxes that haven't bootstrapped the
+    # cluster yet (or older installs that never had a separate identity) won't
+    # have one — omit the field entirely in that case so signed canonical
+    # JSON matches the Worker's parse (no null/empty-string discrepancy).
+    cluster_pid = _read_cluster_peer_id()
+    if cluster_pid:
+        data["clusterPeerId"] = cluster_pid
+
     signing_input = _canonical_json({
         "peerId": peer_id,
         "timestamp": timestamp,
