@@ -31,7 +31,7 @@ HOME_DIR = os.environ.get("HOME_DIR", "/home/pi")
 
 # Discovery API. Set via env var so test environments / staging can point elsewhere.
 # Empty string disables the discovery fetch entirely (falls back to template).
-DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fx.land")
+DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fula.network")
 DISCOVERY_TIMEOUT_SEC = float(os.environ.get("DISCOVERY_TIMEOUT_SEC", "5"))
 
 TEMPLATE_CONFIG = os.path.join(FULA_PATH, "kubo", "config")

@@ -38,10 +38,13 @@ BOOTSTRAP_PEERS = [
 # go to /heartbeat (signed with the kubo ed25519 identity). Relay-list drift
 # is detected hourly via /relays and forces a kubo restart if changed.
 # Empty DISCOVERY_API_URL disables the integration (graceful no-op).
-DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fx.land").rstrip("/")
+DISCOVERY_API_URL = os.environ.get("DISCOVERY_API_URL", "https://discovery.fula.network").rstrip("/")
 DISCOVERY_TIMEOUT_SEC = 5
-RELAY_DRIFT_CHECK_INTERVAL_SEC = 3600   # hourly
-HEARTBEAT_INTERVAL_SEC = 60             # every minute
+RELAY_DRIFT_CHECK_INTERVAL_SEC = int(os.environ.get("RELAY_DRIFT_CHECK_INTERVAL_SEC", "3600"))  # hourly
+# 5 min default keeps Worker request volume within Cloudflare's free-tier
+# 100k/day budget at ~100 edges. Override at deploy time via the
+# HEARTBEAT_INTERVAL_SEC env var (e.g., 60 on paid-tier) without rebuilding.
+HEARTBEAT_INTERVAL_SEC = int(os.environ.get("HEARTBEAT_INTERVAL_SEC", "300"))
 _last_relay_drift_check = 0.0
 _last_heartbeat = 0.0
 
