@@ -72,7 +72,7 @@
     "FilestoreEnabled": false,
     "Libp2pStreamMounting": true,
     "OptimisticProvide": true,
-    "OptimisticProvideJobsPoolSize": 60,
+    "OptimisticProvideJobsPoolSize": 16,
     "P2pHttpProxy": false,
     "StrategicProviding": false,
     "UrlstoreEnabled": false

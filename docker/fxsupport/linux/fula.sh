@@ -413,8 +413,8 @@ function install() {
     connectwifi
   fi
 
-  sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
-  sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.rmem_max=7500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.wmem_max=7500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
   # Auto-repair broken dpkg state (e.g. from interrupted apt during power loss).
   # This is a fast no-op on healthy systems — only does work if /var/lib/dpkg/updates/ has pending configs.
@@ -1452,8 +1452,8 @@ function restart() {
   # Install bootup reset service for backward compatibility with existing installations
   install_bootup_reset || { echo "Error installing bootup reset service" | sudo tee -a $FULA_LOG_PATH; } || true
 
-  sudo sysctl -w net.core.rmem_max=2500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
-  sudo sysctl -w net.core.wmem_max=2500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.rmem_max=7500000 || { echo "Could not set net.core.rmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
+  sudo sysctl -w net.core.wmem_max=7500000 || { echo "Could not set net.core.wmem_max" 2>&1 | sudo tee -a $FULA_LOG_PATH; all_success=false; } || true
 
   # Clear stale reboot flag so readiness-check gets a fresh start after reboot/restart.
   # Without this, readiness-check can get stuck in an infinite red LED loop if .reboot_flag
@@ -1662,7 +1662,7 @@ template = {
             "FilestoreEnabled": False,
             "Libp2pStreamMounting": True,
             "OptimisticProvide": True,
-            "OptimisticProvideJobsPoolSize": 60,
+            "OptimisticProvideJobsPoolSize": 16,
             "P2pHttpProxy": False,
             "StrategicProviding": False,
             "UrlstoreEnabled": False

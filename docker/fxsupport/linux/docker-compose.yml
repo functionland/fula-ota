@@ -119,6 +119,8 @@ services:
       - 8.8.4.4
     env_file:
       - .env.cluster
+    environment:
+      - GOMAXPROCS=6
     security_opt:
       - no-new-privileges:true
     labels:
