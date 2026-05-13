@@ -2121,7 +2121,7 @@ case $1 in
     # Files in this list MUST match the files in the change-detection loop below.
     # Adding a file to one list but not the other means changes are never detected
     # for that file (old_info will be empty, so the [ -n "$old_info" ] guard skips).
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2148,7 +2148,8 @@ case $1 in
     restart_readiness_check=false
     restart_bluetooth=false
     restart_commands=false
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh; do
+    restart_ipfs_cluster=false
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2168,6 +2169,13 @@ case $1 in
             # disk changes don't take effect until the service is restarted.
             # Without this, new .command_* handlers (added via OTA) never fire.
             restart_commands=true
+          elif [ "$file" = "ipfs-cluster/ipfs-cluster-container-init.d.sh" ]; then
+            # The init script is bind-mounted into ipfs_cluster as its entrypoint
+            # and rewrites service.json on every container start. The dockerComposeUp
+            # in restart() runs BEFORE this docker cp, so the running container still
+            # holds the old config; restarting it forces the entrypoint to re-run
+            # against the freshly-copied script.
+            restart_ipfs_cluster=true
           fi
           # firewall.sh changes are handled by unconditional re-apply at end of start
         fi
@@ -2273,6 +2281,11 @@ case $1 in
     if [ "$restart_commands" = true ]; then
       echo "commands.sh or commands.service changed, restarting commands service" | sudo tee -a $FULA_LOG_PATH
       sudo systemctl restart commands 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    fi
+
+    if [ "$restart_ipfs_cluster" = true ]; then
+      echo "ipfs-cluster init script changed, restarting ipfs_cluster container" | sudo tee -a $FULA_LOG_PATH
+      sudo docker restart ipfs_cluster 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH

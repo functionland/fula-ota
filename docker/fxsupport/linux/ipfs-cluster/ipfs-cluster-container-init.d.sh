@@ -264,7 +264,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
                 "flood_publish": false
             } |
             .cluster.dial_peer_timeout = "30s" |
-            .cluster.monitor_ping_interval = "60s" |
+            .cluster.monitor_ping_interval = "12h" |
             .cluster.peer_watch_interval = "60s" |
             .cluster.pin_recover_interval = "8m0s" |
             .cluster.state_sync_interval = "5m0s" |
@@ -279,7 +279,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             } |
             .pin_tracker.stateless.concurrent_pins = 5 |
             .ipfs_connector.ipfshttp.pin_timeout = "15m0s" |
-            .monitor.pubsubmon.check_interval = "1m" |
+            .monitor.pubsubmon.check_interval = "10m" |
             .allocator = {
                 "balanced": {
                     "allocate_by": [
