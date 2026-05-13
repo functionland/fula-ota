@@ -178,7 +178,12 @@ def fetch_relays_from_discovery_api(logger):
         return None
     url = DISCOVERY_API_URL.rstrip("/") + "/relays"
     try:
-        req = urllib.request.Request(url, headers={"accept": "application/json"})
+        req = urllib.request.Request(url, headers={
+            "accept": "application/json",
+            # Cloudflare's Bot Fight Mode flags Python's default urllib UA;
+            # set a descriptive one so /relays passes BFM at default settings.
+            "user-agent": "fula-ota-kubo-config/1.0",
+        })
         with urllib.request.urlopen(req, timeout=DISCOVERY_TIMEOUT_SEC) as resp:
             if resp.status != 200:
                 logger.warning("discovery: %s returned HTTP %d", url, resp.status)

@@ -109,7 +109,11 @@ def fetch_discovery_relays(timeout=DISCOVERY_TIMEOUT_SEC):
         return None
     try:
         r = requests.get(DISCOVERY_API_URL + "/relays", timeout=timeout,
-                         headers={"accept": "application/json"})
+                         headers={
+                             "accept": "application/json",
+                             # Avoid Cloudflare Bot Fight Mode's default-UA blocklist.
+                             "user-agent": "fula-readiness-check/1.0",
+                         })
         if r.status_code != 200:
             logging.info("discovery: /relays returned HTTP %d", r.status_code)
             return None
@@ -324,7 +328,12 @@ def post_heartbeat():
             "data": data,
             "signature": base64.b64encode(sig).decode("ascii"),
         }
-        r = requests.post(DISCOVERY_API_URL + "/heartbeat", json=body, timeout=5)
+        r = requests.post(
+            DISCOVERY_API_URL + "/heartbeat",
+            json=body,
+            timeout=5,
+            headers={"user-agent": "fula-readiness-check/1.0"},
+        )
         if r.status_code != 200:
             logging.info("heartbeat: POST returned HTTP %d: %s", r.status_code, r.text[:200])
     except Exception as e:
