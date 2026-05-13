@@ -414,15 +414,13 @@ phase_build() {
     log_info "  fxsupport: built"
 
     # --- 2b. ipfs-cluster ---
-    log_info "2b. Building ipfs-cluster image (this may take 10-20 min)..."
-    # Remove stale base image references to ensure --pull fetches fresh copies
-    docker rmi golang:1.25 alpine:3.17 2>/dev/null || true
-    # Always fresh clone to ensure latest code from GitHub
-    rm -rf "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
-    git clone --depth 1 -b master https://github.com/ipfs-cluster/ipfs-cluster \
-        "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster"
-    log_info "  ipfs-cluster: cloned $(cd "$REPO_LOCAL/docker/ipfs-cluster/ipfs-cluster" && git log --oneline -1)"
-    docker build --pull --no-cache -t functionland/ipfs-cluster:release \
+    log_info "2b. Building ipfs-cluster image (thin wrapper, ~30s)..."
+    # The Dockerfile now FROMs the upstream Docker Hub image and only layers
+    # in jq + curl. No source clone, no Go build. --pull ensures we get the
+    # latest digest for ipfs/ipfs-cluster:stable.
+    docker build --pull --no-cache \
+        --build-arg IPFS_CLUSTER_TAG="${IPFS_CLUSTER_UPSTREAM_TAG:-stable}" \
+        -t functionland/ipfs-cluster:release \
         -f "$REPO_LOCAL/docker/ipfs-cluster/Dockerfile" \
         "$REPO_LOCAL/docker/ipfs-cluster/"
     log_info "  ipfs-cluster: built"

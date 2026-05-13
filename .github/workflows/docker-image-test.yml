@@ -61,9 +61,8 @@ jobs:
         run: |
           cd ./docker && source env_test.sh
           cd ./ipfs-cluster
-          git clone -b "$IPFS_CLUSTER_BRANCH" https://github.com/ipfs-cluster/ipfs-cluster
-          cd ipfs-cluster && git pull && cd ..
           docker buildx build --platform "$ARCH_SUPPORT" \
+            --build-arg IPFS_CLUSTER_TAG="$IPFS_CLUSTER_UPSTREAM_TAG" \
             -t "$IPFS_CLUSTER_IMAGE:$IPFS_CLUSTER_DOCKER_TAG-build-$GITHUB_RUN_ID" --push .
 
   build_fula_pinning:

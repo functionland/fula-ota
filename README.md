@@ -650,10 +650,11 @@ cd /tmp/fula-ota/docker/go-fula
 git clone -b main https://github.com/functionland/go-fula
 sudo docker build --load -t functionland/go-fula:test147 .
 
-# Build ipfs-cluster (requires Go compilation)
+# Build ipfs-cluster (thin wrapper around upstream; no Go build, no source clone needed)
 cd /tmp/fula-ota/docker/ipfs-cluster
-git clone -b master https://github.com/ipfs-cluster/ipfs-cluster
-sudo docker build --load -t functionland/ipfs-cluster:test147 .
+sudo docker build --load \
+    --build-arg IPFS_CLUSTER_TAG=stable \
+    -t functionland/ipfs-cluster:test147 .
 ```
 
 #### Step 3: Deploy to device
@@ -755,10 +756,11 @@ sudo systemctl restart fula
 cd /tmp/fula-ota/docker/fxsupport
 sudo docker build --load -t functionland/fxsupport:release .
 
-# Build ipfs-cluster (requires Go compilation)
+# Build ipfs-cluster (thin wrapper around upstream; no Go build, no source clone needed)
 cd /tmp/fula-ota/docker/ipfs-cluster
-git clone -b master https://github.com/ipfs-cluster/ipfs-cluster
-sudo docker build --load -t functionland/ipfs-cluster:release .
+sudo docker build --load \
+    --build-arg IPFS_CLUSTER_TAG=stable \
+    -t functionland/ipfs-cluster:release .
 
 # Build go-fula (requires Go compilation)
 cd /tmp/fula-ota/docker/go-fula

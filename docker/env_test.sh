@@ -16,8 +16,10 @@ export GO_FULA_BRANCH="main"
 export GO_FULA_IMAGE="$DOCKER_REPO/go-fula"
 export GO_FULA_DOCKER_TAG="$DEFAULT_FULA_TAG"
 
-#build ipfs-cluster
-export IPFS_CLUSTER_BRANCH="master"
+#build ipfs-cluster (thin wrapper around upstream ipfs/ipfs-cluster:<tag>)
+# IPFS_CLUSTER_UPSTREAM_TAG is the Docker Hub tag we wrap, NOT a git branch.
+# Valid values: stable, master-latest, vX.Y.Z — see hub.docker.com/r/ipfs/ipfs-cluster
+export IPFS_CLUSTER_UPSTREAM_TAG="stable"
 export IPFS_CLUSTER_IMAGE="$DOCKER_REPO/ipfs-cluster"
 export IPFS_CLUSTER_DOCKER_TAG="$TEST_TAG"
 
