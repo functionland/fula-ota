@@ -2121,7 +2121,7 @@ case $1 in
     # Files in this list MUST match the files in the change-detection loop below.
     # Adding a file to one list but not the other means changes are never detected
     # for that file (old_info will be empty, so the [ -n "$old_info" ] guard skips).
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2149,7 +2149,7 @@ case $1 in
     restart_bluetooth=false
     restart_commands=false
     restart_ipfs_cluster=false
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2175,6 +2175,12 @@ case $1 in
             # in restart() runs BEFORE this docker cp, so the running container still
             # holds the old config; restarting it forces the entrypoint to re-run
             # against the freshly-copied script.
+            restart_ipfs_cluster=true
+          elif [ "$file" = ".env.cluster" ]; then
+            # .env.cluster is loaded by docker-compose as env_file at container
+            # creation time. Once loaded, the running container's env is fixed —
+            # rewriting the file on disk does nothing until the container is
+            # recreated. Restart forces docker to reload the new env_file.
             restart_ipfs_cluster=true
           fi
           # firewall.sh changes are handled by unconditional re-apply at end of start
@@ -2284,8 +2290,11 @@ case $1 in
     fi
 
     if [ "$restart_ipfs_cluster" = true ]; then
-      echo "ipfs-cluster init script changed, restarting ipfs_cluster container" | sudo tee -a $FULA_LOG_PATH
-      sudo docker restart ipfs_cluster 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+      # Force-recreate (not just restart): docker restart preserves the container's
+      # env vars from creation time, so .env.cluster changes wouldn't take effect.
+      # --no-deps prevents kubo from being recreated alongside.
+      echo "ipfs-cluster init script or env file changed, recreating ipfs_cluster container" | sudo tee -a $FULA_LOG_PATH
+      sudo docker-compose -f "${DOCKER_DIR}/docker-compose.yml" --env-file "$ENV_FILE" up -d --no-deps --force-recreate ipfs-cluster 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
