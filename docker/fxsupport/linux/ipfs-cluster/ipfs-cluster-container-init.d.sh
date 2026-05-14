@@ -307,6 +307,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             } |
             if $trust_peer != "" then
                 .cluster.peer_addresses = ["/ip4/127.0.0.1/tcp/19096/p2p/" + $trust_peer]
+                | .consensus.crdt.trusted_peers = [$trust_peer]
             else . end
         ' "${IPFS_CLUSTER_PATH}/service.json" > "$service_temp" \
            && [ -s "$service_temp" ] \
