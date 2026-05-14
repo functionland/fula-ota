@@ -2968,6 +2968,14 @@ def monitor_docker_logs_and_restart():
 
     while restart_attempts < 4:
         logging.info("Entered into monitor while loop")
+        try:
+            post_heartbeat()
+        except Exception as e:
+            logging.debug(f"post_heartbeat raised in monitor: {e}")
+        try:
+            maybe_refresh_relays()
+        except Exception as e:
+            logging.debug(f"maybe_refresh_relays raised in monitor: {e}")
         time.sleep(450)
         get_wifi_info_and_ping()
         # Check if Docker service is running
