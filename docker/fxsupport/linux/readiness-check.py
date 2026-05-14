@@ -2907,6 +2907,18 @@ def activate_wireguard_support():
             logging.debug("WireGuard support tunnel already active")
             return
 
+        # Clear any prior start-limit-hit before attempting start. Without
+        # this, 5 consecutive failures within systemd's default 10s window
+        # (e.g., support server unreachable for ~3 min with RestartSec=30)
+        # leave the unit permanently locked — and subprocess.Popen of
+        # `systemctl start` is fire-and-forget, so the lock is invisible
+        # in readiness-check logs. reset-failed makes activation truly
+        # self-healing.
+        subprocess.run(
+            ["sudo", "systemctl", "reset-failed", "wireguard-support.service"],
+            capture_output=True, timeout=10
+        )
+
         logging.info("Activating WireGuard support tunnel...")
         subprocess.Popen(
             ["sudo", "systemctl", "start", "wireguard-support.service"],
