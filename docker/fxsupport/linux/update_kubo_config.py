@@ -183,6 +183,8 @@ def fetch_relays_from_discovery_api(logger):
             # Cloudflare's Bot Fight Mode flags Python's default urllib UA;
             # set a descriptive one so /relays passes BFM at default settings.
             "user-agent": "fula-ota-kubo-config/1.0",
+            # X-Fula-Client gates a WAF rule that blocks unknown traffic.
+            "x-fula-client": "edge",
         })
         with urllib.request.urlopen(req, timeout=DISCOVERY_TIMEOUT_SEC) as resp:
             if resp.status != 200:

@@ -113,6 +113,8 @@ def fetch_discovery_relays(timeout=DISCOVERY_TIMEOUT_SEC):
                              "accept": "application/json",
                              # Avoid Cloudflare Bot Fight Mode's default-UA blocklist.
                              "user-agent": "fula-readiness-check/1.0",
+                             # X-Fula-Client gates a WAF rule that blocks bots.
+                             "x-fula-client": "edge",
                          })
         if r.status_code != 200:
             logging.info("discovery: /relays returned HTTP %d", r.status_code)
@@ -332,7 +334,10 @@ def post_heartbeat():
             DISCOVERY_API_URL + "/heartbeat",
             json=body,
             timeout=5,
-            headers={"user-agent": "fula-readiness-check/1.0"},
+            headers={
+                "user-agent": "fula-readiness-check/1.0",
+                "x-fula-client": "edge",
+            },
         )
         if r.status_code != 200:
             logging.info("heartbeat: POST returned HTTP %d: %s", r.status_code, r.text[:200])
