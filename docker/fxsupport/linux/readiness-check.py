@@ -146,9 +146,17 @@ def get_relay_multiaddrs():
 
 def maybe_refresh_relays():
     """Once per RELAY_DRIFT_CHECK_INTERVAL_SEC, compare Workers' relay list with
-    kubo's configured StaticRelays. If they differ, restart ipfs_host so kubo
-    picks up the new list on next start (update_kubo_config.py runs as part of
-    fula.sh start and applies the override before kubo comes up)."""
+    kubo's configured StaticRelays. If they differ, rewrite the kubo config via
+    update_kubo_config.py (which fetches /relays and writes the new
+    Swarm.RelayClient.StaticRelays + Peering.Peers), then restart ipfs_host so
+    kubo picks up the new list.
+
+    Important: `docker restart ipfs_host` alone does NOT update kubo's deployed
+    config — the host-side update_kubo_config.py is what writes new StaticRelays.
+    Without running it first, kubo would just reload the same stale config and
+    the drift would be detected forever without resolving. update_kubo_config.py
+    is normally only invoked from fula.sh start, so we must invoke it explicitly
+    here for runtime drift recovery."""
     global _last_relay_drift_check
     now = time.time()
     if now - _last_relay_drift_check < RELAY_DRIFT_CHECK_INTERVAL_SEC:
@@ -163,9 +171,31 @@ def maybe_refresh_relays():
     if current == desired:
         return
     logging.info(
-        "discovery: relay list drift (current=%d, desired=%d); restarting ipfs_host to reload",
+        "discovery: relay list drift (current=%d, desired=%d); applying via update_kubo_config.py + restart",
         len(current), len(desired),
     )
+
+    # Step 1: rewrite the on-disk kubo config to include the new relay list.
+    # Skip the restart if this fails — restarting against a stale config is
+    # pointless and just causes a service blip.
+    update_script = os.path.join(FULA_PATH, "update_kubo_config.py")
+    if not os.path.exists(update_script):
+        logging.warning("discovery: %s not found; cannot apply new relay list", update_script)
+        return
+    try:
+        result = subprocess.run(
+            ["sudo", "python3", update_script],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        if result.returncode != 0:
+            logging.warning("discovery: update_kubo_config.py exited %d: %s",
+                            result.returncode, (result.stderr or "")[:200])
+            return
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logging.warning("discovery: update_kubo_config.py failed: %s", e)
+        return
+
+    # Step 2: restart kubo so it loads the freshly-written StaticRelays.
     try:
         subprocess.run(["sudo", "docker", "restart", "ipfs_host"],
                        capture_output=True, timeout=60, check=False)
@@ -2892,12 +2922,48 @@ def check_external_drive():
         return False
 
 def activate_wireguard_support():
-    """Start WireGuard support tunnel if installed and not already active."""
+    """Start WireGuard support tunnel; install on demand if missing, then verify it actually came up."""
     try:
         service_file = "/etc/systemd/system/wireguard-support.service"
         if not os.path.exists(service_file):
-            logging.debug("wireguard-support.service not installed, skipping activation")
-            return
+            # On-demand install. check_wireguard_health() only self-heals
+            # install state inside the healthy branch — a device that became
+            # unhealthy BEFORE WG was installed (e.g., kubo crashes early on
+            # first boot) would never have install.sh run, and the previous
+            # implementation here returned silently at DEBUG level (invisible
+            # at default INFO log level). That collapsed signal #2 ("WG didn't
+            # activate") to an undetectable no-op. Install on demand fixes it.
+            install_script = "/usr/bin/fula/wireguard/install.sh"
+            if not os.path.exists(install_script):
+                logging.error(
+                    f"WG service file {service_file} missing AND install.sh not found at {install_script}; "
+                    "cannot activate"
+                )
+                return
+            logging.warning(f"wireguard-support.service missing; running {install_script} on demand")
+            try:
+                install_result = subprocess.run(
+                    ["sudo", "bash", install_script],
+                    capture_output=True, text=True, timeout=180
+                )
+                if install_result.returncode != 0:
+                    logging.error(
+                        f"wireguard install.sh exited {install_result.returncode}: "
+                        f"{install_result.stderr.strip()[:200]}"
+                    )
+                    return
+            except subprocess.TimeoutExpired:
+                logging.error("wireguard install.sh timed out (>180s); cannot activate")
+                return
+            except Exception as install_err:
+                logging.error(
+                    f"wireguard install.sh raised {type(install_err).__name__}: {install_err}; cannot activate"
+                )
+                return
+            if not os.path.exists(service_file):
+                logging.error("install.sh completed but service file still missing; cannot activate")
+                return
+            logging.info("wireguard-support.service installed on demand; continuing activation")
 
         result = subprocess.run(
             ["systemctl", "is-active", "wireguard-support.service"],
@@ -2919,14 +2985,40 @@ def activate_wireguard_support():
             capture_output=True, timeout=10
         )
 
+        # Synchronous start + post-condition check. Previously this was a
+        # fire-and-forget subprocess.Popen — start.sh failures (kernel module
+        # missing, register_wireguard timeout, malformed support.conf, etc.)
+        # were silently invisible. Synchronous run waits for systemd's
+        # ExecStart to complete (bounded by the unit's TimeoutStartSec=240);
+        # the is-active check converts a silent failure into a visible ERROR.
         logging.info("Activating WireGuard support tunnel...")
-        subprocess.Popen(
-            ["sudo", "systemctl", "start", "wireguard-support.service"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+        try:
+            start_result = subprocess.run(
+                ["sudo", "systemctl", "start", "wireguard-support.service"],
+                capture_output=True, text=True, timeout=300  # > unit's 240s TimeoutStartSec
+            )
+            if start_result.returncode != 0:
+                logging.warning(
+                    f"systemctl start wireguard-support exited {start_result.returncode}: "
+                    f"{start_result.stderr.strip()[:200]}"
+                )
+        except subprocess.TimeoutExpired:
+            logging.error("systemctl start wireguard-support timed out after 300s")
+
+        check = subprocess.run(
+            ["systemctl", "is-active", "wireguard-support.service"],
+            capture_output=True, text=True, timeout=10
         )
+        active_state = check.stdout.strip()
+        if active_state == "active":
+            logging.info("WireGuard support tunnel activated successfully")
+        else:
+            logging.error(
+                f"WireGuard activation completed but unit is '{active_state}' — "
+                "start.sh likely failed; see `journalctl -u wireguard-support.service`"
+            )
     except Exception as e:
-        logging.error(f"Error activating WireGuard support: {e}")
+        logging.error(f"Error activating WireGuard support: {type(e).__name__}: {e}")
 
 
 def check_wireguard_health():

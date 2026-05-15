@@ -274,10 +274,12 @@ if [ "$CURRENT_BUILD" != "unknown" ] && [ "$CURRENT_BUILD" != "$PREV_BUILD" ]; t
     SAVED_BUILD=$(cat "$OTA_MARKER" 2>/dev/null || echo "")
     if [ "$SAVED_BUILD" != "$CURRENT_BUILD" ]; then
         log "Warning: Failed to write OTA marker, skipping reboot trigger to prevent loop"
-    elif [ -f "/home/stop_docker_copy.txt" ]; then
-        # Only trigger reboot on existing devices (stop_docker_copy.txt is created
-        # by fula.sh after docker cp — its existence means this is not a fresh install)
-        log "OTA update detected (build: ${PREV_BUILD:-initial} -> $CURRENT_BUILD), triggering host reboot for file extraction"
+    elif [ -n "$PREV_BUILD" ]; then
+        # Trigger reboot only when a previous build was recorded — i.e., this
+        # container has run before on this device, so it's an UPDATE, not a
+        # fresh install. On a fresh install, PREV_BUILD is empty and we just
+        # write the marker without rebooting.
+        log "OTA update detected (build: $PREV_BUILD -> $CURRENT_BUILD), triggering host reboot for file extraction"
         mkdir -p /home/commands
         touch /home/commands/.command_reboot
         # Wait for reboot to take effect (commands.sh triggers within seconds)
