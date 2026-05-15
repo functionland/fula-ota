@@ -2,6 +2,8 @@
 Description=Olostep Node
 After=docker.service
 Requires=docker.service
+StartLimitIntervalSec=3600
+StartLimitBurst=12
 
 [Service]
 WorkingDirectory=/home/pi/.internal/plugins/olostep-node

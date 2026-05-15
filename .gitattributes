@@ -1,0 +1,45 @@
+# Enforce LF line endings for shell scripts, Python, systemd unit files, and
+# YAML/env so that Windows-checkout contributions (with core.autocrlf=true,
+# Windows default) don't ship CRLF. systemd's execve() fails with
+# 203/EXEC: No such file or directory on a CRLF shebang like #!/bin/bash\r
+# because the kernel literally looks for /bin/bash\r as the interpreter.
+#
+# Bash itself tolerates CRLF (so `bash <script>` would work); only direct
+# execve via systemd unit files / shebangs fails. Hence the targeted list.
+
+* text=auto eol=lf
+
+*.sh           text eol=lf
+*.py           text eol=lf
+*.service      text eol=lf
+*.timer        text eol=lf
+*.socket       text eol=lf
+*.target       text eol=lf
+*.mount        text eol=lf
+*.path         text eol=lf
+
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.json         text eol=lf
+*.toml         text eol=lf
+
+*.env          text eol=lf
+.env*          text eol=lf
+
+Dockerfile*    text eol=lf
+*.dockerignore text eol=lf
+
+# Binary file types — never normalize
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.tar          binary
+*.tar.gz       binary
+*.tgz          binary
+*.zip          binary
+*.pdf          binary
+*.so           binary
+*.dll          binary
+*.exe          binary
