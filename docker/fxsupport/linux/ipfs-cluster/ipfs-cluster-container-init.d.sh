@@ -264,7 +264,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
                 "flood_publish": false
             } |
             .cluster.dial_peer_timeout = "30s" |
-            .cluster.monitor_ping_interval = "12h" |
+            .cluster.monitor_ping_interval = "5m0s" |
             .cluster.peer_watch_interval = "60s" |
             .cluster.pin_recover_interval = "8m0s" |
             .cluster.state_sync_interval = "5m0s" |
@@ -291,15 +291,15 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             } |
             .informer = {
                 "disk": {
-                    "metric_ttl": "10m",
+                    "metric_ttl": "24h0m0s",
                     "metric_type": "reposize"
                 },
                 "pinqueue": {
-                    "metric_ttl": "10m",
+                    "metric_ttl": "24h0m0s",
                     "weight_bucket_size": 100000
                 },
                 "tags": {
-                    "metric_ttl": "10m",
+                    "metric_ttl": "24h0m0s",
                     "tags": {
                         "group": "default"
                     }
