@@ -48,6 +48,23 @@ create_file_if_not_exists "${UPDATE_PLUGIN_FILE}"
 mkdir -p ${PLUGINS_DIR}
 mkdir -p ${INTERNAL_PLUGIN_DIR}
 
+# Phase 6 one-shot migration — rewrite `loyal-agent` to `blox-ai` in
+# active-plugins.txt and update-plugins.txt so users who had the prior
+# slot opted in keep that opt-in across the rename. Without this, the
+# next plugins.sh tick would see `loyal-agent`, find no plugin dir under
+# $PLUGINS_DIR/loyal-agent, silently call remove_from_active_plugins,
+# and leave the old systemd unit running. Idempotent: sed is a no-op
+# when the old name isn't present. Remove this block in Phase 22 once
+# all canary devices have rotated.
+if grep -q '^loyal-agent$' "${ACTIVE_PLUGINS_FILE}" 2>/dev/null; then
+    log_message "Phase 6 migration: renaming loyal-agent -> blox-ai in ${ACTIVE_PLUGINS_FILE}"
+    sed -i 's/^loyal-agent$/blox-ai/' "${ACTIVE_PLUGINS_FILE}" || true
+fi
+if grep -q '^loyal-agent$' "${UPDATE_PLUGIN_FILE}" 2>/dev/null; then
+    log_message "Phase 6 migration: renaming loyal-agent -> blox-ai in ${UPDATE_PLUGIN_FILE}"
+    sed -i 's/^loyal-agent$/blox-ai/' "${UPDATE_PLUGIN_FILE}" || true
+fi
+
 # Function to wait for fula_fxsupport container to start
 wait_for_fula_fxsupport() {
     local attempt=0

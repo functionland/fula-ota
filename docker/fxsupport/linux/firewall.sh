@@ -96,7 +96,7 @@ iptables -A "$CHAIN" -p tcp --dport 3500 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 172.16.0.0/12 -j ACCEPT
 
-# 14. loyal-agent plugin
+# 14. blox-ai plugin (port 8083 — previously the loyal-agent plugin slot)
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 8083 -s 172.16.0.0/12 -j ACCEPT

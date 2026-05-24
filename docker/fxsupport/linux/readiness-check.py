@@ -55,6 +55,714 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+
+# === State files + events log (Layer 1.8 substrate) =========================
+# /run/* is tmpfs (zero SD-card wear, vanishes on reboot — correct for "since
+# last boot" liveness state). /var/log/fula/events.jsonl persists across
+# reboots so reboot-loop history survives — critical for diagnosing the very
+# failure modes that cause reboots. All writes are best-effort: failures
+# log a warning and return; readiness-check.py itself must never crash from
+# a state-file write error.
+HEARTBEAT_STATE_PATH = "/run/fula-heartbeat.state"
+DISCOVERY_STATE_PATH = "/run/fula-discovery.state"
+TIME_STATE_PATH = "/run/fula-time.state"
+WIREGUARD_STATE_PATH = "/run/fula-wireguard.state"
+
+# Phase 4 — WireGuard handshake-age health thresholds (per advisor consensus):
+# - 180s floor for normal keepalive-equipped peers (Gemini)
+# - 300s for peers without persistent keepalive (Codex)
+# - 120s initial grace before assuming a never-handshook tunnel is broken
+WG_HANDSHAKE_FLOOR_SEC = 180
+WG_HANDSHAKE_NULL_KEEPALIVE_SEC = 300
+# 3-strike escalation per advisor consensus: after WG_BOUNCE_MAX_CONSEC_FAIL
+# failed bounces in a row, back off to a much longer cooldown so a
+# permanently-broken upstream doesn't generate constant churn + log spam.
+WG_BOUNCE_COOLDOWN_SEC = 300
+WG_BOUNCE_BACKOFF_SEC = 1800
+WG_BOUNCE_MAX_CONSEC_FAIL = 3
+_last_wg_bounce_attempt = 0.0
+_consec_wg_bounce_failures = 0
+# Hydration flag: read the persisted counter from /run/fula-wireguard.state
+# on the first check call after process start, so Phase 2's recovery-service
+# restart doesn't reset the 3-strike backoff (built-in advisor finding —
+# without this, a device in deep backoff has its cooldown wiped on every
+# fula-readiness-check daemon restart, defeating the backoff entirely).
+_wg_counter_hydrated = False
+# Internet-down guard: if the Phase 3 discovery probe failed within this window
+# we skip WG bounce remediation (a broken WG won't fix dead WAN).
+WG_INTERNET_GUARD_WINDOW_SEC = 600
+EVENTS_LOG_PATH = "/var/log/fula/events.jsonl"
+EVENTS_LOG_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+EVENTS_LOG_BACKUPS = 5
+
+# Rate-limit NTP remediation: if NTP is broken (e.g., outbound UDP/123 firewalled)
+# we don't want to restart systemd-timesyncd every monitor cycle (~450s).
+# 600s cooldown = at most ~144 remediation attempts/day per device.
+# Module-level init prevents NameError on the first remediation attempt.
+NTP_CORRECT_COOLDOWN_SEC = 600
+_last_ntp_correct_attempt = 0.0
+
+# Compiled at import time per Gemini's recommendation: handles the systemd
+# representation variants ("yes", "true", "1") rather than exact-matching "yes".
+_NTP_SYNC_RE = re.compile(r"NTPSynchronized=(yes|true|1)\b", re.IGNORECASE)
+
+# Capture the real subprocess exception classes at import time. Used in
+# except clauses inside helpers that also reference `subprocess.run`. When
+# tests `patch.object(readiness, "subprocess")` the module attribute becomes
+# a MagicMock, and `subprocess.TimeoutExpired` then resolves to another
+# MagicMock which can't be used in an except — Python raises TypeError
+# ("catching classes that do not inherit from BaseException"). Using the
+# captured references keeps the except clauses working under both real and
+# mocked subprocess.
+_SubprocessTimeoutExpired = subprocess.TimeoutExpired
+
+
+def _atomic_write_state(path, data):
+    """Atomically write a JSON state file via temp + rename so partial writes
+    can never be observed by a reader. Best-effort: never raises."""
+    tmp = None
+    try:
+        dirname = os.path.dirname(path)
+        if dirname:
+            try:
+                os.makedirs(dirname, exist_ok=True)
+            except OSError:
+                pass
+        tmp = "{}.tmp.{}".format(path, os.getpid())
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except OSError as e:
+        logging.warning("could not write state file %s: %s", path, e)
+        if tmp is not None:
+            try:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def _append_event(category, detail):
+    """Append a structured event to events.jsonl with size-based rotation.
+
+    Categories are short strings (e.g. "restart", "wg-activate", "heartbeat")
+    that consumers can filter on. Detail is a dict carrying whatever the
+    site wants to record. Best-effort: never raises into the caller, since
+    a log-write failure must not break the watchdog itself.
+    """
+    record = {
+        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "category": category,
+        "detail": detail,
+    }
+    try:
+        dirname = os.path.dirname(EVENTS_LOG_PATH)
+        if dirname:
+            try:
+                os.makedirs(dirname, exist_ok=True)
+            except OSError:
+                pass
+        # Rotate if oversized: events.jsonl -> .1 -> .2 -> ... -> .N (oldest dropped).
+        try:
+            if os.path.getsize(EVENTS_LOG_PATH) > EVENTS_LOG_MAX_BYTES:
+                oldest = "{}.{}".format(EVENTS_LOG_PATH, EVENTS_LOG_BACKUPS)
+                if os.path.exists(oldest):
+                    os.unlink(oldest)
+                for i in range(EVENTS_LOG_BACKUPS - 1, 0, -1):
+                    src = "{}.{}".format(EVENTS_LOG_PATH, i)
+                    dst = "{}.{}".format(EVENTS_LOG_PATH, i + 1)
+                    if os.path.exists(src):
+                        os.rename(src, dst)
+                os.rename(EVENTS_LOG_PATH, "{}.1".format(EVENTS_LOG_PATH))
+        except OSError:
+            # Rotation failure is non-fatal; we'll just keep appending to the oversized file.
+            pass
+        with open(EVENTS_LOG_PATH, "a") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError as e:
+        logging.warning("could not append event %s: %s", category, e)
+
+
+def _write_heartbeat_state(http_status, error, circuit_count, reserved_on):
+    """Snapshot the last heartbeat attempt to /run/fula-heartbeat.state so the
+    BLE diag/heartbeat command can surface it without re-running the HTTP call."""
+    _atomic_write_state(HEARTBEAT_STATE_PATH, {
+        "last_attempt_ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "http_status": http_status,
+        "error": error,
+        "last_circuit_count": circuit_count,
+        "last_reserved_on": reserved_on,
+    })
+
+
+def check_discovery_https_reachable():
+    """GET-based reachability check against discovery.fula.network/relays.
+
+    Originally drafted as HEAD, but the Cloudflare Worker doesn't route HEAD
+    for this path (returns 404). Switched to GET with stream=True so we get
+    the connection-confirms-routing signal without downloading the body.
+
+    The existing check_internet_connection() only HEADs google.com. A device on
+    a corporate WiFi that blocks *.fula.network specifically passes that check
+    while every heartbeat silently fails. This probe records whether the device
+    can actually reach Fula's API, distinct from generic internet.
+
+    Diagnostic only — does NOT trigger any remediation. The /run state file is
+    surfaced via the future BLE diag/internet command.
+
+    Returns True on 2xx, False otherwise. Best-effort: never raises.
+    """
+    state = {
+        "last_check_ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "ok": False,
+        "status_code": None,
+        "latency_ms": None,
+        "error": None,
+        "url": None,
+    }
+    if not DISCOVERY_API_URL:
+        state["error"] = "discovery_url_empty"
+        _atomic_write_state(DISCOVERY_STATE_PATH, state)
+        return False
+
+    # urljoin avoids "//relays" when DISCOVERY_API_URL has a trailing slash
+    # (per Codex review). The +"/" suffix forces urljoin to treat the base
+    # as a directory so the join appends rather than replaces the path.
+    from urllib.parse import urljoin
+    url = urljoin(DISCOVERY_API_URL.rstrip("/") + "/", "relays")
+    state["url"] = url
+
+    t0 = time.monotonic()
+    try:
+        # Empirical: Cloudflare Worker for /relays does NOT route HEAD (returns
+        # 404), but GET returns 200. Verified on lab device with the same
+        # headers, so use GET with stream=True to avoid downloading the body.
+        # allow_redirects=False per Phase 1 advisor lesson — catches captive
+        # portals that 301-redirect to a login page.
+        r = requests.get(
+            url,
+            timeout=DISCOVERY_TIMEOUT_SEC,
+            headers={
+                "user-agent": "fula-readiness-check/1.0",
+                "x-fula-client": "edge",
+                "accept": "application/json",
+            },
+            allow_redirects=False,
+            stream=True,
+        )
+        try:
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            state["status_code"] = r.status_code
+            # Strict 2xx. 3xx redirects are suspicious (captive portal pattern)
+            # and 4xx/5xx mean Fula's WAF / Worker is blocking us.
+            state["ok"] = 200 <= r.status_code < 300
+            if not state["ok"]:
+                state["error"] = "http_{}".format(r.status_code)
+        finally:
+            r.close()
+    except requests.Timeout:
+        state["error"] = "timeout"
+    except requests.ConnectionError as e:
+        state["error"] = "connection_error: " + str(e)[:100]
+    except Exception as e:
+        state["error"] = "{}: {}".format(type(e).__name__, str(e)[:100])
+
+    _atomic_write_state(DISCOVERY_STATE_PATH, state)
+    if state["ok"]:
+        # Healthy path logs at DEBUG so journalctl stays readable (Gemini's
+        # log-spam concern; runs every ~450s).
+        logging.debug("discovery HTTPS check ok (latency=%dms)",
+                      state["latency_ms"] or -1)
+    else:
+        logging.warning("discovery HTTPS unreachable: %s (status=%s)",
+                        state["error"], state["status_code"])
+    return state["ok"]
+
+
+def _read_timedatectl_synced():
+    """Return (synced: bool|None, error: str|None) from
+    `timedatectl show -p NTPSynchronized`. None on subprocess failure."""
+    try:
+        result = subprocess.run(
+            ["timedatectl", "show", "-p", "NTPSynchronized"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, _SubprocessTimeoutExpired) as e:
+        return None, "{}: {}".format(type(e).__name__, str(e)[:100])
+    if result.returncode != 0:
+        return None, "timedatectl rc={}".format(result.returncode)
+    synced = _NTP_SYNC_RE.search(result.stdout or "") is not None
+    return synced, None
+
+
+def _read_active_ntp_daemon():
+    """Return one of 'chronyd', 'systemd-timesyncd', or None if neither is
+    active. Handles `systemctl` itself being missing/timeout-ing."""
+    for name in ("chronyd", "systemd-timesyncd"):
+        try:
+            r = subprocess.run(["systemctl", "is-active", name],
+                               capture_output=True, text=True, timeout=10)
+            # Codex defensive: real subprocess.run gives a string, but mocks
+            # / pathological invocations may return None.
+            if (r.stdout or "").strip() == "active":
+                return name
+        except (OSError, _SubprocessTimeoutExpired):
+            continue
+    return None
+
+
+def _read_ntp_offset_ms(daemon):
+    """Best-effort actual NTP offset in milliseconds.
+
+    Schema-honest per Codex review: only returns a value if the running daemon's
+    own tool exposes one. RTC vs system clock delta is NOT a valid NTP offset
+    and we deliberately don't compute it. None means "we couldn't tell."
+    """
+    try:
+        if daemon == "chronyd":
+            r = subprocess.run(["chronyc", "-c", "tracking"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout:
+                # `chronyc -c tracking` CSV format on this device (chrony 4.x):
+                #   0 Reference ID (hex)
+                #   1 Reference IP/hostname
+                #   2 Stratum
+                #   3 Ref time (raw seconds since epoch — DO NOT mistake for offset)
+                #   4 System time offset (seconds, signed) <-- THE answer
+                #   5 Last offset
+                #   ... 14 fields total ending with Leap status
+                # Verified empirically on lab device — older chrony versions
+                # may omit the IP/hostname field so System time would shift
+                # to index 3; we fall back to None if parsing produces an
+                # obviously bogus value (>1 hour) which would indicate the
+                # ref-time-as-unix-timestamp leak.
+                fields = r.stdout.strip().split(",")
+                if len(fields) > 4:
+                    try:
+                        offset_s = float(fields[4])
+                        # Sanity gate: a real NTP offset >1 hour means we've
+                        # parsed the wrong field. Return None rather than lie.
+                        if abs(offset_s) < 3600:
+                            return int(offset_s * 1000)
+                    except ValueError:
+                        pass
+        elif daemon == "systemd-timesyncd":
+            r = subprocess.run(["timedatectl", "timesync-status"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout:
+                # Look for "Offset: +12.345ms" or "Offset: -100us" or "Offset: 1.2s".
+                # Some systemd builds emit "µs" (U+00B5 MICRO SIGN) instead of
+                # ASCII "us"; per Codex review, accept both.
+                m = re.search(r"Offset:\s+([+\-0-9.]+)(µs|us|ms|s)\b", r.stdout)
+                if m:
+                    val = float(m.group(1))
+                    unit = m.group(2)
+                    if unit in ("us", "µs"):
+                        return int(val / 1000)
+                    if unit == "ms":
+                        return int(val)
+                    if unit == "s":
+                        return int(val * 1000)
+    except (OSError, _SubprocessTimeoutExpired, ValueError):
+        pass
+    return None
+
+
+def check_ntp_sync():
+    """Verify systemd's NTP-sync status; auto-correct on drift.
+
+    Heartbeats are signed with `datetime.utcnow()` timestamps; if the device
+    clock drifts past the server's tolerance, signatures are silently rejected.
+    This check detects drift and attempts a single bounded remediation per
+    NTP_CORRECT_COOLDOWN_SEC (10 min), then re-checks.
+
+    State written to /run/fula-time.state — surfaced via the future BLE
+    diag/time command.
+
+    Returns True if synced (either already, or after remediation). False on
+    any failure. Best-effort: never raises into caller.
+    """
+    global _last_ntp_correct_attempt
+    state = {
+        "last_check_ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "synced": None,
+        "service": None,
+        "offset_ms": None,
+        "remediation": None,
+        "remediation_ok": None,
+        "error": None,
+    }
+
+    synced, err = _read_timedatectl_synced()
+    if err is not None:
+        state["error"] = err
+        _atomic_write_state(TIME_STATE_PATH, state)
+        logging.warning("NTP check: timedatectl failed: %s", err)
+        return False
+
+    state["synced"] = bool(synced)
+    state["service"] = _read_active_ntp_daemon()
+    if state["service"]:
+        state["offset_ms"] = _read_ntp_offset_ms(state["service"])
+
+    if state["synced"]:
+        _atomic_write_state(TIME_STATE_PATH, state)
+        logging.debug("NTP synced via %s (offset=%sms)",
+                      state["service"], state["offset_ms"])
+        return True
+
+    # Not synced: consider auto-correct
+    now = time.time()
+    if now - _last_ntp_correct_attempt < NTP_CORRECT_COOLDOWN_SEC:
+        state["remediation"] = "rate_limited"
+        _atomic_write_state(TIME_STATE_PATH, state)
+        return False
+    _last_ntp_correct_attempt = now
+
+    # Choose remediation based on which daemon is the system's source of truth.
+    # If neither chronyd nor timesyncd is active, default to restarting
+    # timesyncd (the Ubuntu/Armbian default for our target image).
+    fix_rc = None
+    try:
+        if state["service"] == "chronyd":
+            fix = subprocess.run(["chronyc", "-a", "makestep"],
+                                 capture_output=True, text=True, timeout=15)
+            state["remediation"] = "chronyc.makestep"
+            fix_rc = fix.returncode
+        else:
+            fix = subprocess.run(["systemctl", "restart", "systemd-timesyncd"],
+                                 capture_output=True, text=True, timeout=30)
+            state["remediation"] = "systemd-timesyncd.restart"
+            fix_rc = fix.returncode
+            if state["service"] is None:
+                # Record what we actually tried, not what we found
+                state["service"] = "systemd-timesyncd"
+        state["remediation_ok"] = fix_rc == 0
+    except (OSError, _SubprocessTimeoutExpired) as e:
+        state["remediation_ok"] = False
+        state["error"] = "remediation_failed: {}: {}".format(
+            type(e).__name__, str(e)[:100])
+
+    _append_event("ntp-correct", {
+        "service": state["service"],
+        "remediation": state["remediation"],
+        "rc": fix_rc,
+    })
+
+    # Brief settle, then re-check. systemd-timesyncd typically picks a server
+    # and adjusts within 1-2 seconds; chronyc makestep is immediate.
+    try:
+        time.sleep(2)
+        new_synced, _ = _read_timedatectl_synced()
+        if new_synced is not None:
+            state["synced"] = bool(new_synced)
+    except Exception:
+        pass
+
+    # Built-in advisor caught: severe drift (e.g., clock skewed years off)
+    # can leave chronyd in a state where `chronyc makestep` returns rc=0 but
+    # the clock doesn't actually move — chronyd needs to be restarted to
+    # rebuild its picture of the time. Manual lab repro: `date -s '2020-01-01'`
+    # then makestep, then re-check: still unsynced. Restarting chronyd fixed
+    # it. So: if chronyc remediation reported rc=0 but the re-check still
+    # shows unsynced, fall back to a full daemon restart.
+    if (state["service"] == "chronyd"
+            and state["remediation_ok"]
+            and not state["synced"]):
+        try:
+            fix2 = subprocess.run(
+                ["systemctl", "restart", "chronyd"],
+                capture_output=True, text=True, timeout=30,
+            )
+            state["remediation"] = "chronyc.makestep+chronyd.restart"
+            state["remediation_ok"] = fix2.returncode == 0
+            _append_event("ntp-correct-escalate", {
+                "service": "chronyd",
+                "remediation": "restart",
+                "rc": fix2.returncode,
+            })
+            try:
+                time.sleep(3)
+                new_synced, _ = _read_timedatectl_synced()
+                if new_synced is not None:
+                    state["synced"] = bool(new_synced)
+            except Exception:
+                pass
+        except (OSError, _SubprocessTimeoutExpired) as e:
+            state["error"] = "chronyd_restart_failed: {}: {}".format(
+                type(e).__name__, str(e)[:100])
+
+    _atomic_write_state(TIME_STATE_PATH, state)
+    if state["synced"]:
+        logging.info("NTP sync restored via %s", state["remediation"])
+    else:
+        logging.warning("NTP not synced; remediation=%s rc_ok=%s",
+                        state["remediation"], state["remediation_ok"])
+    return bool(state["synced"])
+
+
+def _internet_likely_down():
+    """Read /run/fula-discovery.state (Phase 3). Returns True only if the
+    file exists, was written within WG_INTERNET_GUARD_WINDOW_SEC, AND says
+    ok=false. Missing file → False (assume internet OK). Used as a guard so
+    WG bounce remediation is skipped when WAN itself is broken — bouncing
+    WG can't fix dead internet, and the churn just wastes CPU/log space."""
+    try:
+        with open(DISCOVERY_STATE_PATH) as f:
+            ds = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if ds.get("ok") is True:
+        return False
+    ts = ds.get("last_check_ts", "")
+    try:
+        ts_dt = datetime.fromisoformat(ts.rstrip("Z"))
+    except (ValueError, TypeError):
+        return False
+    age = (datetime.utcnow() - ts_dt).total_seconds()
+    return 0 <= age <= WG_INTERNET_GUARD_WINDOW_SEC
+
+
+def _read_wireguard_status():
+    """Invoke the shell `status.sh` and parse the JSON. Returns (dict, error_str|None).
+    The JSON shape includes: installed, registered, active, endpoint,
+    assigned_ip, peer_id_registered, last_handshake_age_sec, rx_bytes,
+    tx_bytes, persistent_keepalive_sec.  Any failure returns ({}, error)."""
+    try:
+        r = subprocess.run(
+            ["bash", "/usr/bin/fula/wireguard/status.sh"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, _SubprocessTimeoutExpired) as e:
+        return {}, "status_sh_failed: {}: {}".format(type(e).__name__, str(e)[:100])
+    if r.returncode != 0:
+        return {}, "status_sh rc={}".format(r.returncode)
+    try:
+        return json.loads(r.stdout or "{}"), None
+    except json.JSONDecodeError as e:
+        return {}, "status_sh_parse_error: {}".format(str(e)[:100])
+
+
+def check_wireguard_handshake_age():
+    """Watch the WG support tunnel's actual protocol-level liveness, not just
+    `systemctl is-active` (which lies for Type=oneshot + RemainAfterExit=yes
+    after the underlying tunnel drops). Reads wireguard/status.sh for ground
+    truth, decides if a bounce is needed, and rate-limits remediation with a
+    3-strike escalation per advisor consensus.
+
+    State written to /run/fula-wireguard.state. Best-effort: never raises."""
+    global _last_wg_bounce_attempt, _consec_wg_bounce_failures, _wg_counter_hydrated
+
+    # First-call-after-process-start hydration: rebuild the backoff counter
+    # from /run/fula-wireguard.state if a prior daemon instance persisted one.
+    # Without this, Phase 2's OnFailure recovery (which restarts this daemon)
+    # would silently wipe the 3-strike backoff, defeating the cooldown
+    # escalation that's the entire point of consec_failures.
+    if not _wg_counter_hydrated:
+        _wg_counter_hydrated = True
+        try:
+            with open(WIREGUARD_STATE_PATH) as _f:
+                _prior = json.load(_f)
+            _cf = _prior.get("consec_failures")
+            if isinstance(_cf, int) and 0 <= _cf <= 100:
+                _consec_wg_bounce_failures = _cf
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            pass  # missing or malformed → start fresh (host probably rebooted)
+
+    state = {
+        "last_check_ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "installed": None,
+        "registered": None,
+        "active": None,
+        "endpoint": None,
+        "last_handshake_age_sec": None,
+        "rx_bytes": None,
+        "tx_bytes": None,
+        "persistent_keepalive_sec": None,
+        "remediation": None,
+        "remediation_ok": None,
+        "remediation_stderr": None,
+        "consec_failures": _consec_wg_bounce_failures,
+        "error": None,
+    }
+
+    parsed, err = _read_wireguard_status()
+    if err is not None:
+        state["error"] = err
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return False
+
+    for key in ("installed", "registered", "active", "endpoint",
+                "last_handshake_age_sec", "rx_bytes", "tx_bytes",
+                "persistent_keepalive_sec"):
+        if key in parsed:
+            state[key] = parsed[key]
+
+    # Clock-skew defense (Gemini): negative age means the clock moved
+    # backwards after the handshake. Don't bounce — the NTP check (Phase 3)
+    # will eventually fix the clock; meanwhile the WG state is honest.
+    age = state["last_handshake_age_sec"]
+    if isinstance(age, (int, float)) and age < 0:
+        state["error"] = "clock_skew_negative_age"
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return True
+
+    # Nothing to remediate if not installed/registered/active
+    if not (state["installed"] and state["registered"] and state["active"]):
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return bool(state["active"])
+
+    # Initial-handshake grace (Gemini): if the tunnel is up but has never
+    # handshook yet (status.sh reports None because epoch=0), give it time.
+    # Slow first handshakes on high-latency links are normal.
+    if age is None:
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return True
+
+    # Pick threshold based on keepalive presence
+    keepalive = state["persistent_keepalive_sec"]
+    if not keepalive:  # None or 0
+        threshold = WG_HANDSHAKE_NULL_KEEPALIVE_SEC
+    else:
+        threshold = max(3 * keepalive, WG_HANDSHAKE_FLOOR_SEC)
+
+    if age <= threshold:
+        # Healthy. Reset escalation counter only when the tunnel demonstrates
+        # genuine freshness — within one keepalive interval (or 60s if
+        # keepalive is null). Per Codex post-implementation review: don't
+        # loosen this until canary data shows real recovery's being missed.
+        # The conservative semantic ("backoff only resets when we SEE a
+        # truly fresh handshake") prevents the counter from clearing on
+        # marginal-but-not-stale data.
+        fresh_window = keepalive if keepalive else 60
+        if age <= fresh_window:
+            _consec_wg_bounce_failures = 0
+            state["consec_failures"] = 0
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return True
+
+    # Stale. Consider remediation.
+    now = time.time()
+
+    # Internet-down guard (Gemini): bouncing WG can't fix dead WAN.
+    if _internet_likely_down():
+        state["remediation"] = "skipped_no_internet"
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return False
+
+    cooldown = (WG_BOUNCE_BACKOFF_SEC
+                if _consec_wg_bounce_failures >= WG_BOUNCE_MAX_CONSEC_FAIL
+                else WG_BOUNCE_COOLDOWN_SEC)
+    if now - _last_wg_bounce_attempt < cooldown:
+        state["remediation"] = ("rate_limited_backoff" if cooldown == WG_BOUNCE_BACKOFF_SEC
+                                else "rate_limited")
+        _atomic_write_state(WIREGUARD_STATE_PATH, state)
+        return False
+    _last_wg_bounce_attempt = now
+
+    logging.warning("WG handshake stale (age=%ds threshold=%ds); bouncing tunnel",
+                    age, threshold)
+
+    down_rc = None
+    down_err = None
+    up_rc = None
+    up_err = None
+    try:
+        down = subprocess.run(["wg-quick", "down", "support"],
+                              capture_output=True, text=True, timeout=30)
+        down_rc = down.returncode
+        if down_rc != 0:
+            down_err = (down.stderr or "").strip()[:200]
+    except (OSError, _SubprocessTimeoutExpired) as e:
+        down_err = "{}: {}".format(type(e).__name__, str(e)[:100])
+
+    try:
+        up = subprocess.run(["wg-quick", "up", "support"],
+                            capture_output=True, text=True, timeout=60)
+        up_rc = up.returncode
+        if up_rc != 0:
+            up_err = (up.stderr or "").strip()[:200]
+    except (OSError, _SubprocessTimeoutExpired) as e:
+        up_err = "{}: {}".format(type(e).__name__, str(e)[:100])
+
+    state["remediation"] = "wg-quick.down+up"
+    state["remediation_stderr"] = "down: {} up: {}".format(
+        down_err or "ok", up_err or "ok")
+
+    # Per Codex post-implementation review: `up_rc == 0` only proves the
+    # interface came up, NOT that the peer path recovered. If we treat
+    # bounce-attempt-success as escalation-counter-reset, a tunnel that
+    # successfully brings up its interface every cycle but immediately
+    # stalls (because the underlying network problem hasn't gone away)
+    # would reset the counter on every bounce, defeating the 3-strike
+    # backoff. So: command success = "bounce_attempt_ok"; counter reset
+    # depends on the post-bounce re-read showing a fresh handshake.
+    bounce_attempt_ok = (up_rc == 0)
+
+    # Re-read after a brief settle to capture post-bounce state. This is
+    # where we learn if the bounce actually worked: a fresh post-bounce
+    # handshake age (within the fresh_window) is the real success signal.
+    post_bounce_active = state["active"]
+    post_bounce_age = age  # default: assume nothing changed
+    try:
+        time.sleep(2)
+        parsed2, err2 = _read_wireguard_status()
+        if err2 is None:
+            if "active" in parsed2:
+                post_bounce_active = parsed2["active"]
+            new_age = parsed2.get("last_handshake_age_sec")
+            if new_age is not None:
+                post_bounce_age = new_age
+    except Exception:
+        pass
+
+    state["active"] = post_bounce_active
+    state["last_handshake_age_sec"] = post_bounce_age
+
+    # Confirm-or-deny recovery from the re-read
+    fresh_window = keepalive if keepalive else 60
+    bounce_recovered = (
+        bounce_attempt_ok
+        and post_bounce_active
+        and isinstance(post_bounce_age, (int, float))
+        and 0 <= post_bounce_age <= fresh_window
+    )
+    state["remediation_ok"] = bounce_recovered
+
+    # Counter reset semantics: reset only on confirmed recovery (real fresh
+    # handshake post-bounce). bounce_attempt_ok-without-recovery counts as
+    # a failure for backoff accounting.
+    if bounce_recovered:
+        _consec_wg_bounce_failures = 0
+    else:
+        _consec_wg_bounce_failures += 1
+    state["consec_failures"] = _consec_wg_bounce_failures
+
+    _append_event("wg-bounce", {
+        "age_sec": age,
+        "threshold_sec": threshold,
+        "down_rc": down_rc,
+        "up_rc": up_rc,
+        "bounce_attempt_ok": bounce_attempt_ok,
+        "bounce_recovered": bounce_recovered,
+        "post_bounce_age_sec": post_bounce_age,
+        "consec_failures": _consec_wg_bounce_failures,
+    })
+
+    _atomic_write_state(WIREGUARD_STATE_PATH, state)
+    if bounce_recovered:
+        logging.info("WG bounce succeeded (post-bounce handshake age=%ds; counter reset)",
+                     post_bounce_age)
+    elif bounce_attempt_ok:
+        logging.warning(
+            "WG bounce attempt OK but no fresh handshake yet (post_age=%s, "
+            "consec_failures=%d); will count as failure for backoff",
+            post_bounce_age, _consec_wg_bounce_failures)
+    else:
+        logging.warning("WG bounce failed: %s (consec_failures=%d)",
+                        state["remediation_stderr"], _consec_wg_bounce_failures)
+    return bounce_recovered
+
 # Global variables to control LED flashing
 led_flash_thread = None
 led_flash_stop_event = None
@@ -304,8 +1012,10 @@ def post_heartbeat():
     global _last_heartbeat
     now = time.time()
     if now - _last_heartbeat < HEARTBEAT_INTERVAL_SEC:
-        return
+        return  # rate-limited; leave existing state file untouched
     if not DISCOVERY_API_URL:
+        _write_heartbeat_state(http_status=None, error="discovery_url_empty",
+                               circuit_count=0, reserved_on=None)
         return
 
     key, peer_id = _load_kubo_ed25519_key()
@@ -316,6 +1026,8 @@ def post_heartbeat():
         # rate-limiting via _last_heartbeat would suppress the message. Just
         # log at debug level.
         logging.debug("heartbeat: skipping (no signing key)")
+        _write_heartbeat_state(http_status=None, error="no_signing_key",
+                               circuit_count=0, reserved_on=None)
         _last_heartbeat = now
         return
 
@@ -328,6 +1040,8 @@ def post_heartbeat():
         # established). Rate-limit retry to one minute — checking earlier
         # rarely changes the outcome since circuit reservation handshakes
         # take 10–30 seconds anyway.
+        _write_heartbeat_state(http_status=None, error="no_circuits",
+                               circuit_count=0, reserved_on=reserved_on)
         _last_heartbeat = now
         return
 
@@ -371,8 +1085,20 @@ def post_heartbeat():
         )
         if r.status_code != 200:
             logging.info("heartbeat: POST returned HTTP %d: %s", r.status_code, r.text[:200])
+        _write_heartbeat_state(
+            http_status=r.status_code,
+            error=None if r.status_code == 200 else "http_{}".format(r.status_code),
+            circuit_count=len(circuit_addrs),
+            reserved_on=reserved_on,
+        )
     except Exception as e:
         logging.info("heartbeat: POST failed: %s", e)
+        _write_heartbeat_state(
+            http_status=None,
+            error="{}: {}".format(type(e).__name__, str(e)[:100]),
+            circuit_count=len(circuit_addrs),
+            reserved_on=reserved_on,
+        )
     _last_heartbeat = now
 
 
@@ -412,13 +1138,25 @@ def safe_restart_fula(**kwargs):
     """Restart fula.service, clearing any start-limit failures first."""
     subprocess.run(["sudo", "systemctl", "reset-failed", "fula.service"],
                    capture_output=True, timeout=20)
-    return subprocess.run(["sudo", "systemctl", "restart", "fula.service"], **kwargs)
+    result = subprocess.run(["sudo", "systemctl", "restart", "fula.service"], **kwargs)
+    _append_event("restart", {
+        "unit": "fula.service",
+        "action": "restart",
+        "returncode": getattr(result, "returncode", None),
+    })
+    return result
 
 def safe_start_fula(**kwargs):
     """Start fula.service, clearing any start-limit failures first."""
     subprocess.run(["sudo", "systemctl", "reset-failed", "fula.service"],
                    capture_output=True, timeout=20)
-    return subprocess.run(["sudo", "systemctl", "start", "fula.service"], **kwargs)
+    result = subprocess.run(["sudo", "systemctl", "start", "fula.service"], **kwargs)
+    _append_event("restart", {
+        "unit": "fula.service",
+        "action": "start",
+        "returncode": getattr(result, "returncode", None),
+    })
+    return result
 
 
 def has_yaml_invalid_chars(content):
@@ -3012,13 +3750,16 @@ def activate_wireguard_support():
         active_state = check.stdout.strip()
         if active_state == "active":
             logging.info("WireGuard support tunnel activated successfully")
+            _append_event("wg-activate", {"result": "active"})
         else:
             logging.error(
                 f"WireGuard activation completed but unit is '{active_state}' — "
                 "start.sh likely failed; see `journalctl -u wireguard-support.service`"
             )
+            _append_event("wg-activate", {"result": "failed", "unit_state": active_state})
     except Exception as e:
         logging.error(f"Error activating WireGuard support: {type(e).__name__}: {e}")
+        _append_event("wg-activate", {"result": "exception", "error": "{}: {}".format(type(e).__name__, str(e)[:100])})
 
 
 def check_wireguard_health():
@@ -3048,6 +3789,25 @@ def check_wireguard_health():
 
 
 def monitor_docker_logs_and_restart():
+    # Phase 3 diagnostic gates: run BEFORE the generic-internet early-return so
+    # /run/fula-discovery.state and /run/fula-time.state stay fresh even when
+    # google.com is unreachable. Per Codex post-implementation review: without
+    # this ordering, the BLE diag layer can't distinguish "no internet at all"
+    # from "Google blocked but Fula reachable" or "clock bad". Both checks are
+    # best-effort and never raise into the caller.
+    try:
+        check_discovery_https_reachable()
+    except Exception as e:
+        logging.debug(f"check_discovery_https_reachable raised: {e}")
+    try:
+        check_ntp_sync()
+    except Exception as e:
+        logging.debug(f"check_ntp_sync raised: {e}")
+    try:
+        check_wireguard_handshake_age()
+    except Exception as e:
+        logging.debug(f"check_wireguard_handshake_age raised: {e}")
+
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")
         subprocess.run(["sudo", "python", LED_PATH, "yellow", "5"], capture_output=True, timeout=20)
@@ -3080,6 +3840,22 @@ def monitor_docker_logs_and_restart():
             maybe_refresh_relays()
         except Exception as e:
             logging.debug(f"maybe_refresh_relays raised in monitor: {e}")
+        # Phase 3 checks also run inside the while loop so they refresh on
+        # every monitor cycle (~450s) — the placement above only handled the
+        # cold-entry path. /run/fula-*.state freshness lets the BLE diag layer
+        # detect a wedged watchdog vs current state.
+        try:
+            check_discovery_https_reachable()
+        except Exception as e:
+            logging.debug(f"check_discovery_https_reachable raised in monitor: {e}")
+        try:
+            check_ntp_sync()
+        except Exception as e:
+            logging.debug(f"check_ntp_sync raised in monitor: {e}")
+        try:
+            check_wireguard_handshake_age()
+        except Exception as e:
+            logging.debug(f"check_wireguard_handshake_age raised in monitor: {e}")
         time.sleep(450)
         get_wifi_info_and_ping()
         # Check if Docker service is running

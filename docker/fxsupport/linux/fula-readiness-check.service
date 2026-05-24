@@ -3,6 +3,9 @@ Description=Fula Readiness Check Service
 After=docker.service fula.service
 StartLimitIntervalSec=300
 StartLimitBurst=10
+# When the start-limit lockout fires (10 crashes in 5 min), the recover unit
+# resets-failed and restarts us. See readiness-check-recover.py for policy.
+OnFailure=fula-readiness-check-recover.service
 
 [Service]
 Type=simple
@@ -10,6 +13,15 @@ User=root
 ExecStart=/usr/bin/python /usr/bin/fula/readiness-check.py
 Restart=on-failure
 RestartSec=15s
+# systemd v255+: exponential backoff multiplies RestartSec by 2x each step
+# capped at RestartMaxDelaySec. With 5 steps from 15s the delay grows
+# 15 -> 30 -> 60 -> 120 -> 240 -> plateau at RestartMaxDelaySec (600s).
+# This turns transient issues (Docker not warmed up, kernel module load
+# race) into harmless delayed retries that almost never hit the lockout.
+# True deterministic crashes still trip StartLimitBurst eventually, which
+# is where the recover unit takes over.
+RestartSteps=5
+RestartMaxDelaySec=10min
 
 [Install]
 WantedBy=multi-user.target

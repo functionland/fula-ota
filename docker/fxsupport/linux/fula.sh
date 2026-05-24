@@ -537,6 +537,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/repairfs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file repairfs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/check-mount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file check-mount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/readiness-check.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check.py" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/readiness-check-recover.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check-recover.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/update_kubo_config.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update_kubo_config.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/automount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/version $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file version" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -572,6 +573,7 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/commands.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/uniondrive.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/fula-readiness-check.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/fula-readiness-check-recover.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-readiness-check-recover.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/automount@.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount@.service" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/fula-plugins.service $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file fula-plugins.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
@@ -582,6 +584,9 @@ function install() {
   sudo mv ${FULA_PATH}/commands.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying commands.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/uniondrive.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying uniondrive.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/fula-readiness-check.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  if [ -f "${FULA_PATH}/fula-readiness-check-recover.service" ]; then
+    sudo mv ${FULA_PATH}/fula-readiness-check-recover.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-readiness-check-recover.service" | sudo tee -a $FULA_LOG_PATH; } || true
+  fi
   sudo mv ${FULA_PATH}/automount@.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying automount@.service" | sudo tee -a $FULA_LOG_PATH; } || true
   sudo mv ${FULA_PATH}/fula-plugins.service $SYSTEMD_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying fula-plugins.service" | sudo tee -a $FULA_LOG_PATH; } || true
 
@@ -1486,6 +1491,12 @@ function restart() {
   mkdir -p ${HOME_DIR}/.internal/ipfs_data || true
   mkdir -p ${HOME_DIR}/.internal/ipfs_data_local || true
   mkdir -p ${HOME_DIR}/.internal/fula-gateway || true
+  # Phase 7: persistent log dir for readiness-check events + Phase 10 ai
+  # audit log. Phase 1's readiness-check creates this lazily on first
+  # event, but we want it to exist BEFORE the blox-ai container starts
+  # so its bind-mount target resolves cleanly. Conservative perms.
+  sudo mkdir -p /var/log/fula 2>/dev/null || true
+  sudo chmod 0775 /var/log/fula 2>/dev/null || true
 
   if [ -f "$HW_CHECK_SC" ]; then
     if python $HW_CHECK_SC > /tmp/hw_test.log 2>&1; then
@@ -2224,6 +2235,15 @@ case $1 in
     if copy_service_file "${FULA_PATH}/fula-readiness-check.service" "$SYSTEMD_PATH/fula-readiness-check.service" "fula-readiness-check"; then
       systemd_reload_needed=true
       restart_readiness_check=true
+    fi
+
+    # Check and update fula-readiness-check-recover.service (Phase 2 recovery unit).
+    # NOT enabled with `systemctl enable` — triggered only via OnFailure= from
+    # the main unit. Just needs to exist in $SYSTEMD_PATH for systemd to find it.
+    if [ -f "${FULA_PATH}/fula-readiness-check-recover.service" ]; then
+      if copy_service_file "${FULA_PATH}/fula-readiness-check-recover.service" "$SYSTEMD_PATH/fula-readiness-check-recover.service" "fula-readiness-check-recover"; then
+        systemd_reload_needed=true
+      fi
     fi
 
     # Check and update wireguard-support.service
