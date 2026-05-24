@@ -22,6 +22,39 @@ MODEL_DIR="/uniondrive/blox-ai/model"
 MODEL_FILE="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
 LOG_FILE="$MODEL_DIR/wget.log"
 SERVICE_NAME="blox-ai.service"
+
+# ---------------------------------------------------------------------------
+# Phase 18: manifest-driven URL + SHA override (rollback path).
+#
+# If /etc/fula/ai-manifest.json exists and parses, model_manifest.py picks
+# either the manifest's `current` or `rollback` entry (based on
+# rollback_required) and prints shell-eval'able overrides. On missing or
+# malformed manifest the helper falls back to the hardcoded values above,
+# so this block is safe to keep enabled even on devices that have never
+# received a manifest.
+#
+# To trigger a fleet rollback: publish a new ai-manifest.json with
+# rollback_required: true. Devices pick it up on the next plugin restart.
+# To verify the active source on a device: look for "MANIFEST_SOURCE=" in
+# the install.log.
+# ---------------------------------------------------------------------------
+PLUGIN_DIR_FOR_MANIFEST="$(cd "$(dirname "$0")/.." && pwd)"
+MANIFEST_HELPER="$PLUGIN_DIR_FOR_MANIFEST/model_manifest.py"
+if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
+    if MANIFEST_EVAL=$(python3 "$MANIFEST_HELPER" \
+            --fallback-url "$DOWNLOAD_URL" \
+            --fallback-sha256 "$MODEL_SHA256" 2>/dev/null); then
+        eval "$MANIFEST_EVAL"
+        DOWNLOAD_URL="$MODEL_URL"
+        # MODEL_SHA256, MODEL_VERSION, MODEL_SIZE_BYTES, MANIFEST_SOURCE
+        # are now set from the helper's output.
+        echo "Phase 18 manifest source: ${MANIFEST_SOURCE:-unknown}"
+        echo "  active model_version: ${MODEL_VERSION:-unknown}"
+        if [ "${MANIFEST_SOURCE:-}" = "manifest_rollback" ]; then
+            echo "  ROLLBACK ACTIVE — manifest signalled rollback_required=true"
+        fi
+    fi
+fi
 # ~2.5 GB lower bound for the W8A8 Qwen 3B model. Actual file is ~2.8-3.1 GB
 # depending on quantization options chosen at conversion. Tight enough to
 # catch incomplete downloads, loose enough to tolerate small variations.

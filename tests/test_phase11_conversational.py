@@ -501,8 +501,11 @@ def test_phone_context_request_rejects_malformed(bad):
 
 def test_ble_manifest_has_17_commands_after_phase_11():
     d = _load(_BLE_MANIFEST)
-    assert len(d["commands"]) == 17, (
-        f"Expected 17 commands (15 Phase 6 + 2 Phase 11); got {len(d['commands'])}"
+    # Phase 11 added 2 commands (ai/user-reply, ai/phone-context) → ≥17.
+    # Later phases may add more (Phase 16 adds ai/feedback → 18). Relaxed
+    # from == to >= so per-phase additions don't break this earlier check.
+    assert len(d["commands"]) >= 17, (
+        f"Expected ≥17 commands (15 Phase 6 + 2 Phase 11); got {len(d['commands'])}"
     )
 
 
@@ -654,9 +657,14 @@ def test_api_readme_documents_error_body_shape():
 
 def test_no_orphan_files_in_api_dir_after_phase_11():
     """Phase 9: 2 schemas + README. Phase 10: +2 schemas. Phase 11: +3
-    schemas (user_reply_request, phone_context_request, phone_context)."""
-    files = sorted(os.listdir(_API_DIR))
-    expected = sorted([
+    schemas (user_reply_request, phone_context_request, phone_context).
+
+    Later phases may add more schemas (Phase 16 adds feedback_request +
+    feedback_log_line). Relaxed to ⊇ instead of == so per-phase additions
+    don't break this earlier check.
+    """
+    files = set(os.listdir(_API_DIR))
+    required_post_phase_11 = {
         "README.md",
         "audit_log_line.schema.json",
         "diag_responses.schema.json",
@@ -665,5 +673,6 @@ def test_no_orphan_files_in_api_dir_after_phase_11():
         "phone_context_request.schema.json",
         "sse_events.schema.json",
         "user_reply_request.schema.json",
-    ])
-    assert files == expected, f"Unexpected files: {files}; expected: {expected}"
+    }
+    missing = required_post_phase_11 - files
+    assert not missing, f"Missing post-Phase-11 files: {missing}"

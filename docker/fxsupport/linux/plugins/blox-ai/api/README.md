@@ -321,3 +321,201 @@ UX to actually call `/troubleshoot/phone-context` and render
 `user_question` events as chat bubbles with inputs. Same versioning
 treatment if new events land (schema_version + $id bump per the
 closed-schema discipline).
+
+## Phase 16 additions (current)
+
+New schema files:
+- `feedback_request.schema.json` — request body for `POST /feedback`.
+  Shape: `{session_id, rating: -1|0|1, comment?}`. The BLE proxy at
+  `ai/feedback` (added to `ble_commands.json`) routes here.
+- `feedback_log_line.schema.json` — line shape for
+  `/var/log/fula/ai-feedback.jsonl`. Container writes one line per
+  /feedback request.
+
+### Feedback contract (cross-repo container MUST implement)
+
+**1. POST /feedback handler.**
+- Body validates against `feedback_request.schema.json`. 400 with
+  `body_invalid` on failure.
+- Container looks up the session by `session_id`. If the session is
+  still in the in-memory dict, populate `verdict_summary` (from the
+  session's last verdict event) and `actions_taken` (compact refs
+  joined to ai-actions.jsonl by `action_id`).
+- If the session has been evicted (TTL, LRU, container restart):
+  STILL accept the feedback. Write `verdict_summary: ""` and
+  `actions_taken: []`. Reason: BLE retries and slow modal-confirm
+  taps are real; we'd rather log a session-detached rating than lose
+  the user's signal.
+- 200 with empty body on success.
+
+**2. Append-only log.**
+- Open `/var/log/fula/ai-feedback.jsonl` with `O_APPEND`. Never
+  truncate or seek (same discipline as ai-actions.jsonl).
+- Sanitize `comment` for log injection: strip/escape CR/LF before
+  write. Truncate at 2000 bytes (schema cap).
+- Rotate at 10 MB matching ai-pending-actions.jsonl (rare entries
+  — typically one per AI session).
+
+**3. anonymized_transcript_uploaded discipline.**
+- Default `false` on every write.
+- Set `true` ONLY when the Phase 21 transcript upload flow has
+  completed successfully (separate code path; the app, NOT the
+  plugin, uploads to `https://ai-training.fx.land/transcripts`).
+- A second /feedback call for the same session_id (e.g. user
+  flipped from skip to thumbs-down) appends a NEW line — feedback
+  is event-sourced, not state. Reading the log: the latest line
+  per session_id wins.
+
+**4. What this is NOT.**
+- NOT a central upload channel. /feedback writes only to local
+  `/var/log/fula/ai-feedback.jsonl`. The opt-in transcript upload
+  is a SEPARATE Phase 21 flow with its own per-session consent and
+  anonymization.
+- NOT linked to phone_context. The audit log line has no
+  phone_context field (matching ai-actions.jsonl's discipline).
+- NOT tier-3 gated. No security_code, no HMAC approval token —
+  /feedback is read-only-equivalent from the system's perspective
+  (writes a log line, takes no action).
+
+## Phase 17 additions (current)
+
+Fast-iteration runbook reload — change a recipe in `runbook.md` on
+the host, signal SIGHUP to the container, container re-reads the
+bind-mounted file WITHOUT a full restart (skips the 10–30 s NPU
+model re-warm).
+
+New host-side files:
+- `runbook_frontmatter.py` — stdlib-only parser for the runbook's
+  `---` YAML-ish header. Shared source of truth between the host
+  wrapper and the container's SIGHUP handler (vendor or git-submodule
+  from fula-ota in the container's repo).
+- `reload_runbook.sh` — validates the runbook parses cleanly, then
+  `docker kill --signal=SIGHUP blox-ai`. Refuses to signal if the
+  file is malformed — better to keep the container on the OLD runbook
+  than swap it to a broken one.
+
+### SIGHUP handler contract (cross-repo container MUST implement)
+
+**1. Install a SIGHUP handler at container start.**
+- Python: `signal.signal(signal.SIGHUP, _on_sighup)` from the main
+  thread before the model loads. Handler MUST be re-entrant safe; it
+  fires asynchronously on the next bytecode instruction.
+
+**2. On SIGHUP:**
+- Re-read `/usr/bin/fula/ai/runbook.md` (the mounted path).
+- Parse via the same `runbook_frontmatter.parse_file()` shape.
+- Refuse the swap and log a warning if:
+  - File is missing or malformed (`RunbookFrontmatterError`).
+  - `schema_version` differs from the currently-loaded runbook's
+    `schema_version`. Schema bumps are BREAKING — the prompt format
+    or recipe grammar changed in ways the in-memory model context
+    may not handle. Operator must do a full container restart.
+  - `runbook_version` is NOT greater than the loaded runbook's
+    version. Replay protection: prevents an OTA race or operator
+    error from downgrading to an older runbook silently.
+- On accepted swap: atomically swap the in-memory runbook text used
+  by future /troubleshoot turns. In-flight sessions keep their
+  already-injected runbook context (the swap takes effect on the
+  next /troubleshoot call). Append a `runbook_reload` event to
+  `/var/log/fula/events.jsonl` with the old + new runbook_version.
+
+**3. Telemetry.**
+- Log the SIGHUP receipt + outcome (accepted | refused_malformed |
+  refused_schema | refused_downgrade) to container stdout/stderr
+  AND to events.jsonl. A developer pulling events.jsonl via
+  `diag/events` MUST be able to see whether their runbook push
+  landed.
+
+### Why not a restart-on-runbook-change?
+
+Restarting the container takes 10–30 s on RK3588: the NPU has to
+re-load the 3 GB Qwen model and re-warm RKLLM state. SIGHUP is
+near-instant. The trade-off: runbook changes don't get a fresh
+model context, only fresh prompt text — but that's fine for the
+runbook iteration loop (Phase 3.8a "the runbook IS the fast iteration
+loop"), since the runbook is injected as system prompt text on each
+/troubleshoot turn anyway. Changes to the model itself still require
+a full container restart (Phase 18's manifest-driven swap).
+
+## Phase 18 additions (current)
+
+Model rollback path — the developer can flip a fleet to a known-good
+prior model version by publishing a new manifest. No per-device
+coordination needed. Devices pick up the rollback on the next plugin
+restart (Watchtower will pick up an OTA-bumped manifest on its normal
+schedule; for emergencies, an operator can `sudo systemctl restart
+blox-ai.service` after pushing the manifest by hand).
+
+New files:
+- `api/ai_manifest.schema.json` — manifest shape. Both `current` AND
+  `rollback` are required. If you can't roll back, you shouldn't roll
+  forward.
+- `model_manifest.py` — stdlib-only loader. Returns the active entry
+  (current vs rollback based on `rollback_required`) as shell-eval'able
+  `KEY=VALUE` lines. Falls back to hardcoded URL+SHA on any
+  malformed-manifest path so a corrupted manifest can't brick a
+  device.
+
+Modified files:
+- `custom/download_model.sh` — pre-amble block calls `model_manifest.py`
+  and overrides `DOWNLOAD_URL` + `MODEL_SHA256` from the manifest when
+  one exists. The hardcoded values stay as the fallback.
+
+### Manifest authoring + publish flow
+
+**1. Author a manifest.**
+```json
+{
+  "schema_version": 1,
+  "current":  {"model_version": "2026-06-12",
+               "url": "https://functionyard.fx.land/qwen-3b-2026-06-12.rkllm",
+               "sha256": "<64-hex>", "size_bytes": 3100000000},
+  "rollback": {"model_version": "2026-05-15",
+               "url": "https://functionyard.fx.land/qwen-3b-2026-05-15.rkllm",
+               "sha256": "<64-hex>", "size_bytes": 3050000000},
+  "rollback_required": false,
+  "manifest_version": 4,
+  "published_at": "2026-06-12T10:00:00Z"
+}
+```
+
+**2. Publish to the CDN** at the agreed manifest URL (TODO: pin the
+URL in a follow-up; the device path is `/etc/fula/ai-manifest.json`,
+populated by OTA or by a `wget`-and-symlink hook in `fula.sh`).
+
+**3. To trigger a rollback**: publish a new manifest with the same
+shape but `rollback_required: true`. Devices will pick up `rollback`
+on their next plugin restart. To un-rollback: publish again with
+`rollback_required: false`. Once the offending `current` is fixed
+(or replaced with a new build that subsumes the rollback), publish
+a manifest that promotes a new entry to `current` and demotes the
+old `current` to `rollback`.
+
+### Atomic-swap discipline (cross-repo container + plugin)
+
+- Download into `<MODEL_DIR>/<basename>.partial`, fsync, rename to the
+  final filename. NEVER overwrite a verified-cached file in place.
+- Keep the prior verified model file on disk until the new one is
+  SHA-verified AND has been loaded successfully at least once. The
+  rollback path depends on `rollback`'s file being present locally.
+- Don't `rm -f` the rollback entry's file at any point in
+  `download_model.sh`. (The Phase 8 user-override pattern that deletes
+  `deepseek-*.rkllm` after Qwen succeeds is fine — Deepseek isn't part
+  of the rollback graph. But once Phase 18 ships, NEVER delete a file
+  named in the active manifest's `current` OR `rollback`.)
+
+### What the helper does NOT do (intentionally)
+
+- **Does NOT auto-restart the container** when a manifest change is
+  detected. Operator triggers the restart via the existing
+  `systemctl restart blox-ai.service` path. The next start picks up
+  the new active entry naturally.
+- **Does NOT verify the published manifest's signature.** v1 trusts
+  the HTTPS source. Future versions can add a detached signature
+  (`manifest.sig` next to `manifest.json`) verified against a baked-in
+  Ed25519 pubkey. Left out of v1 to keep the rollback path simple
+  enough to ship and validate on lab.
+- **Does NOT fetch the manifest from a URL itself.** It reads
+  `/etc/fula/ai-manifest.json`. The OTA / device-update path is
+  responsible for populating that file. (For an MVP, a `wget` line
+  in `install.sh` would suffice — keep it simple.)
