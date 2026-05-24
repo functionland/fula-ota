@@ -71,6 +71,12 @@ mkdir -p /uniondrive/blox-ai/model
 
 # Copy service file
 cp "${PLUGIN_EXEC_DIR}/blox-ai.service" "/etc/systemd/system/"
+# Phase 14 — install isolation-mode timer + service. Timer runs the
+# self-diagnostic every 6h (plan Layer 3.5); criteria check inside
+# isolation_mode.py is the actual gate.
+cp "${PLUGIN_EXEC_DIR}/blox-ai-isolation.service" "/etc/systemd/system/" 2>/dev/null || true
+cp "${PLUGIN_EXEC_DIR}/blox-ai-isolation.timer" "/etc/systemd/system/" 2>/dev/null || true
+cp "${PLUGIN_EXEC_DIR}/isolation_mode.py" "$BLOX_AI_DIR/" 2>/dev/null || true
 sync
 sleep 1
 # Copy docker-compose file
@@ -151,6 +157,13 @@ sleep 1
 
 # Enable the service
 systemctl enable blox-ai.service
+# Phase 14 — enable + start the isolation timer (the service runs only
+# when the timer fires + criteria are met; enabling the unit itself does
+# nothing). Skip silently if files missing on a partial install.
+if [ -f /etc/systemd/system/blox-ai-isolation.timer ]; then
+  systemctl enable blox-ai-isolation.timer 2>/dev/null || true
+  systemctl start blox-ai-isolation.timer 2>/dev/null || true
+fi
 
 # Run the download and setup script in the background using nohup and &
 nohup bash "${PLUGIN_EXEC_DIR}/custom/download_model.sh" &

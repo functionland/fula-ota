@@ -67,6 +67,17 @@ HEARTBEAT_STATE_PATH = "/run/fula-heartbeat.state"
 DISCOVERY_STATE_PATH = "/run/fula-discovery.state"
 TIME_STATE_PATH = "/run/fula-time.state"
 WIREGUARD_STATE_PATH = "/run/fula-wireguard.state"
+# Phase 13 — Layer 1.5 / 1.6 / 1.7 state files
+CONTAINERS_STATE_PATH = "/run/fula-containers.state"
+POWER_STATE_PATH = "/run/fula-power.state"
+
+# Phase 13 — Layer 1.7 Kubo/Cluster API hang escalation.
+# Gated behind KUBO_HANG_ESCALATION=1 (set via fula-readiness-check.service
+# Environment= on canary devices). Default OFF — existing fula stack handles
+# normal kubo restarts; escalation is the wedged-but-alive case.
+_KUBO_HANG_ESCALATION_ENABLED = os.environ.get("KUBO_HANG_ESCALATION", "") == "1"
+_KUBO_HANG_ESCALATION_STREAK_THRESHOLD = 3
+_api_timeout_streak = {"kubo": 0, "cluster": 0}
 
 # Phase 4 — WireGuard handshake-age health thresholds (per advisor consensus):
 # - 180s floor for normal keepalive-equipped peers (Gemini)
@@ -3788,6 +3799,239 @@ def check_wireguard_health():
         logging.error(f"Error checking WireGuard health: {e}")
 
 
+def check_container_oom():
+    """Phase 13 Layer 1.5 — write /run/fula-containers.state matching Phase 9
+    diag_responses.containers schema. On OOMKilled=true append a
+    container_oom event for forensic record.
+
+    Schema (from Phase 9):
+      {containers: [{name, state, oom_killed, restart_count, image, started_at}]}
+    """
+    candidates = ["fula_go", "ipfs_host", "ipfs_cluster", "fula_fxsupport",
+                  "fula_updater", "fula_pinning", "fula_gateway", "ipfs_local",
+                  "blox-ai"]
+    out = []
+    for name in candidates:
+        try:
+            res = subprocess.run(
+                ["sudo", "docker", "inspect", "--format",
+                 "{{.State.Status}}|{{.State.OOMKilled}}|{{.RestartCount}}|{{.Config.Image}}|{{.State.StartedAt}}",
+                 name],
+                capture_output=True, text=True, timeout=10,
+            )
+        except _SubprocessTimeoutExpired:
+            continue
+        except OSError:
+            continue
+        if res.returncode != 0:
+            # Container doesn't exist on this device — skip.
+            continue
+        parts = (res.stdout or "").strip().split("|")
+        if len(parts) < 5:
+            continue
+        state, oom, restart_count, image, started_at = parts[0], parts[1].lower() == "true", parts[2], parts[3], parts[4]
+        try:
+            restart_count_int = int(restart_count)
+        except ValueError:
+            restart_count_int = 0
+        # Phase 9 schema enum: running/restarting/exited/paused/dead/created.
+        # Docker may return others (e.g. removing); coerce unknowns to dead so
+        # the schema doesn't reject the whole state file.
+        if state not in ("running", "restarting", "exited", "paused", "dead", "created"):
+            state = "dead"
+        entry = {
+            "name": name,
+            "state": state,
+            "oom_killed": oom,
+            "restart_count": restart_count_int,
+            "image": image,
+            "started_at": started_at,
+        }
+        out.append(entry)
+        if oom:
+            logging.error("container %s was OOM-killed (restart_count=%d)", name, restart_count_int)
+            try:
+                _append_event("container_oom", {"name": name, "restart_count": restart_count_int, "image": image})
+            except Exception:
+                pass
+    _atomic_write_state(CONTAINERS_STATE_PATH, {"containers": out})
+
+
+def _read_first_line(path):
+    """Read a single line from a sysfs file. Best-effort; returns None on
+    any error (file missing, permission denied)."""
+    try:
+        with open(path, "r") as f:
+            return f.readline().strip()
+    except OSError:
+        return None
+
+
+def _glob_paths(pattern):
+    """Tiny wrapper so tests can patch glob without importing in the module
+    body; we already import glob in local_command_server.py and elsewhere."""
+    import glob as _g
+    return _g.glob(pattern)
+
+
+def check_power_health():
+    """Phase 13 Layer 1.6 — sysfs + dmesg + uptime → /run/fula-power.state.
+
+    Schema (Phase 9 diag/power): {undervoltage_events_24h?, recent_reboots?,
+    max_temp_c?, soc_voltage_ratio?, uptime_s}.
+    """
+    state = {}
+
+    # 1. Undervoltage / brownout / thermal events from dmesg, last 24h.
+    try:
+        res = subprocess.run(
+            ["sudo", "dmesg", "--ctime", "--since", "24 hours ago"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if res.returncode == 0:
+            count = 0
+            for line in (res.stdout or "").splitlines():
+                if re.search(r"under.?voltage|brownout|thermal|throttle", line, re.IGNORECASE):
+                    count += 1
+            state["undervoltage_events_24h"] = count
+    except _SubprocessTimeoutExpired:
+        pass
+    except OSError:
+        pass
+
+    # 2. Recent reboots — count from `last -x reboot | head -5`.
+    try:
+        res = subprocess.run(
+            ["last", "-x", "reboot"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if res.returncode == 0:
+            # Count non-empty reboot lines (last 5 max)
+            lines = [l for l in (res.stdout or "").splitlines()[:5] if "reboot" in l.lower()]
+            state["recent_reboots"] = len(lines)
+    except _SubprocessTimeoutExpired:
+        pass
+    except OSError:
+        pass
+
+    # 3. Thermal — max across all thermal zones (millicelsius → celsius).
+    temps = []
+    for path in _glob_paths("/sys/class/thermal/thermal_zone*/temp"):
+        v = _read_first_line(path)
+        if v is None:
+            continue
+        try:
+            temps.append(int(v) / 1000.0)
+        except ValueError:
+            continue
+    if temps:
+        state["max_temp_c"] = round(max(temps), 1)
+
+    # 4. SoC voltage rail ratio — actual/min for first regulator that has both.
+    for reg in _glob_paths("/sys/class/regulator/regulator.*"):
+        cur = _read_first_line(reg + "/microvolts")
+        mn = _read_first_line(reg + "/min_microvolts")
+        if cur and mn:
+            try:
+                cur_i = int(cur); mn_i = int(mn)
+                if mn_i > 0:
+                    state["soc_voltage_ratio"] = round(cur_i / mn_i, 3)
+                    break
+            except ValueError:
+                continue
+
+    # 5. Uptime — always present (required by Phase 9 schema).
+    try:
+        with open("/proc/uptime", "r") as f:
+            state["uptime_s"] = int(float(f.readline().split()[0]))
+    except (OSError, ValueError, IndexError):
+        # If we can't read /proc/uptime, write 0 — never omit the required field.
+        state["uptime_s"] = 0
+
+    _atomic_write_state(POWER_STATE_PATH, state)
+
+
+def _record_api_timeout(component):
+    """Phase 13 Layer 1.7 — track consecutive API timeouts. component is
+    'kubo' or 'cluster'. Returns True if escalation should fire (counter
+    just crossed threshold AND escalation is enabled)."""
+    if component not in _api_timeout_streak:
+        return False
+    _api_timeout_streak[component] += 1
+    streak = _api_timeout_streak[component]
+    if streak >= _KUBO_HANG_ESCALATION_STREAK_THRESHOLD and _KUBO_HANG_ESCALATION_ENABLED:
+        return True
+    return False
+
+
+def _record_api_success(component):
+    """Reset the streak counter on first success. Idempotent."""
+    if component in _api_timeout_streak:
+        _api_timeout_streak[component] = 0
+
+
+def _escalate_kubo_hang(component):
+    """Phase 13 Layer 1.7 — escalation ladder: ipfs shutdown → SIGTERM →
+    SIGKILL. component is 'kubo' (container=ipfs_host) or 'cluster'
+    (container=ipfs_cluster). Audit-logged."""
+    container_map = {"kubo": "ipfs_host", "cluster": "ipfs_cluster"}
+    container = container_map.get(component)
+    if not container:
+        return
+    logging.error("Phase 13 escalation: %s API wedged for %d cycles; escalating %s",
+                  component, _api_timeout_streak[component], container)
+    try:
+        _append_event("api_hang_escalation_start", {
+            "component": component, "container": container,
+            "streak": _api_timeout_streak[component],
+        })
+    except Exception:
+        pass
+
+    # Step 1: graceful ipfs shutdown via exec (only meaningful for kubo).
+    if component == "kubo":
+        try:
+            subprocess.run(
+                ["sudo", "docker", "exec", container, "ipfs", "shutdown"],
+                capture_output=True, text=True, timeout=10,
+            )
+            time.sleep(2)
+        except _SubprocessTimeoutExpired:
+            logging.warning("ipfs shutdown timed out for %s", container)
+        except OSError:
+            pass
+
+    # Step 2: SIGTERM via docker stop with 15s grace.
+    try:
+        subprocess.run(
+            ["sudo", "docker", "stop", "-t", "15", container],
+            capture_output=True, text=True, timeout=25,
+        )
+    except _SubprocessTimeoutExpired:
+        # Step 3: SIGKILL.
+        logging.warning("docker stop -t15 timed out for %s; SIGKILL", container)
+        try:
+            subprocess.run(
+                ["sudo", "docker", "kill", "--signal=SIGKILL", container],
+                capture_output=True, text=True, timeout=10,
+            )
+        except _SubprocessTimeoutExpired:
+            logging.error("docker kill SIGKILL timed out for %s", container)
+        except OSError:
+            pass
+    except OSError:
+        pass
+
+    try:
+        _append_event("api_hang_escalation_done", {
+            "component": component, "container": container,
+        })
+    except Exception:
+        pass
+    # Reset streak — escalation either fixed it or proved it's dead.
+    _record_api_success(component)
+
+
 def monitor_docker_logs_and_restart():
     # Phase 3 diagnostic gates: run BEFORE the generic-internet early-return so
     # /run/fula-discovery.state and /run/fula-time.state stay fresh even when
@@ -3807,6 +4051,17 @@ def monitor_docker_logs_and_restart():
         check_wireguard_handshake_age()
     except Exception as e:
         logging.debug(f"check_wireguard_handshake_age raised: {e}")
+    # Phase 13 — Layer 1.5 + 1.6 additions (run at cold entry so state files
+    # are fresh even when google.com is unreachable, same pattern as the
+    # Phase 3 checks above).
+    try:
+        check_container_oom()
+    except Exception as e:
+        logging.debug(f"check_container_oom raised: {e}")
+    try:
+        check_power_health()
+    except Exception as e:
+        logging.debug(f"check_power_health raised: {e}")
 
     if not check_internet_connection():
         logging.error("No internet connection. Skipping Docker log monitoring and restart.")

@@ -1,0 +1,19 @@
+[Unit]
+Description=Blox AI isolated-mode self-diagnostic
+After=fula.service blox-ai.service
+Wants=blox-ai.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/pi/.internal/plugins/blox-ai/isolation_mode.py
+User=root
+StandardOutput=journal
+StandardError=journal
+# 90s is enough headroom for the model to run a brief self-diagnostic
+# (Qwen 3B + ~5-10 tool calls, each capped at the container's per-tool
+# timeout). Don't run forever and accidentally collide with the next
+# 6h timer tick.
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target

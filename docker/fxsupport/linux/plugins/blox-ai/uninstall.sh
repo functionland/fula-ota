@@ -53,6 +53,14 @@ fi
 sync
 sleep 1
 
+# Phase 14 — stop + disable the isolation timer (before removing the unit
+# file; otherwise a fired timer mid-uninstall would start a removed unit).
+if systemctl list-unit-files 2>/dev/null | grep -q blox-ai-isolation.timer; then
+    systemctl stop blox-ai-isolation.timer 2>/dev/null || true
+    systemctl disable blox-ai-isolation.timer 2>/dev/null || true
+fi
+rm -f /etc/systemd/system/blox-ai-isolation.timer /etc/systemd/system/blox-ai-isolation.service 2>/dev/null || true
+
 # Disable and remove the systemd service
 if systemctl list-unit-files | grep -q blox-ai.service; then
     echo "Disabling and removing Blox AI systemd service..."
