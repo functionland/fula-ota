@@ -190,8 +190,134 @@ on the device, restart the blox-ai container (or just edit and let the
 next tier-3 read pick it up). The phone app's tier-3 confirmation
 dialog accepts any 4-digit code, so the user sets a code they remember.
 
-## Phase 11+ extensions
+## Phase 11 additions (current)
 
-Phase 11 will add `user_question` + `user_reply_received` for the
-multi-turn conversational flow. Same `schema_version` bump treatment
-(v3 + $id .v3.) per the closed-schema discipline.
+`sse_events.schema.json` bumped to `schema_version: 3` and `$id` to
+`...v3.schema.json`. Additions:
+- `session_started` event variant — ALWAYS the first event on a new
+  /troubleshoot SSE stream when no session_id was provided. Carries
+  `session_id` + `ttl_seconds`.
+- `user_question` event variant — model asks user a clarifying
+  question. SSE stream PAUSES until /troubleshoot/user-reply lands.
+- `user_reply_received` event variant — container acks the reply.
+
+New schema files:
+- `user_reply_request.schema.json` — request body for
+  `POST /troubleshoot/user-reply`. `{session_id, question_id, reply_text}`.
+- `phone_context_request.schema.json` — request body for
+  `POST /troubleshoot/phone-context`. `{session_id, phone_context}`.
+- `phone_context.schema.json` — the phone-context envelope itself
+  (shared with the Phase 12 app-layer `phoneLogger.ts`).
+
+### Phase 11 executor / session contract
+
+**1. Session state (in-memory only).**
+- Container holds a dict keyed by `session_id`. Each entry: model
+  context, pending question_id (if any), TTL deadline, last activity
+  timestamp.
+- Max 50 concurrent sessions (memory-bounded for 7.7 GB device with
+  3 GB Qwen model already resident).
+- TTL: 30 min, SLIDING — refreshed on each valid /user-reply or
+  /phone-context call (Codex pre-impl HIGH).
+- LRU eviction when at cap.
+- LOST on container restart — matches Phase 10's per-container-start
+  approval-token rotation discipline. Client UX: 404 on next call →
+  "session expired; start over" prompt.
+
+**2. POST /troubleshoot.**
+- If no session_id in request: generate new UUID, emit
+  `session_started` event as first SSE message.
+- If session_id provided: look up; 404 if expired/unknown; resume
+  context.
+- Stream continues until model emits final `verdict` + zero-or-more
+  `recommended_action` events, OR until a `user_question` pauses it.
+
+**3. POST /troubleshoot/user-reply.**
+- 404 if session_id expired/unknown.
+- Validates question_id matches the most recent unanswered
+  user_question for that session. Mismatch → 400.
+- Appends reply_text to model context. Refreshes TTL.
+- Emits `user_reply_received` event on the open SSE stream.
+- Resumes model reasoning. Returns 200 + empty body.
+
+**3a. Consecutive user_question events (built-in advisor post-impl catch).**
+If the model emits a second `user_question` while the FIRST is still
+unanswered (despite the runbook telling it not to), the container MUST
+**reject the second event** at emit time — drop it from the SSE stream
+and log a warning. Do NOT replace the pending question: the app's
+chat-bubble state machine is built around one-pending-question-per-
+session and would break on a swap. Two pending questions in the
+session_state dict would also create ambiguity about which question_id
+a /user-reply call answers.
+
+**3b. Lifecycle edge cases (Codex post-impl MED-HIGH).**
+- **Repeated /user-reply with same question_id**: idempotent. Container
+  returns 200 + emits a second `user_reply_received` event (matches
+  the first). Reply text is appended only on first call; subsequent
+  calls are no-ops. Reason: BLE retries are real; client may resend
+  the same reply if the SSE ack didn't reach them.
+- **/user-reply with a question_id that doesn't match the pending one**:
+  400 `question_id_mismatch`. Could be a stale reply from a long-
+  ago question, or a buggy client.
+- **/user-reply when no question is pending**: 400
+  `question_id_mismatch` (same code; the spec is "must match the
+  currently-pending question_id" which is empty if none pending).
+- **/phone-context arriving while a user_question is pending**: accept
+  it. phone-context is orthogonal context data — not an answer to the
+  question. Container ingests it, refreshes TTL, returns 200. Model
+  still waits for the actual reply via /user-reply before resuming.
+- **Repeated /phone-context calls in the same session**: each call
+  REPLACES the previous phone_context (the model only reasons over
+  the most recent snapshot — phone state changes fast).
+
+**4. POST /troubleshoot/phone-context.**
+- 404 if session_id expired/unknown.
+- Validates phone_context against phone_context.schema.json. 400 if
+  invalid.
+- Ingests as virtual tool result in model context. **phone_context is
+  NOT emitted on SSE** — Codex pre-impl Q8 catch: `tool_result` has
+  no `tool` field and `additionalProperties: false`, so the plan's
+  wording "virtual tool_result with tool: 'phone_context'" can't go
+  on the wire. Internally the container stuffs `[Phone context
+  attached: ...]` into the next prompt segment.
+- Refreshes TTL. Returns 200.
+
+### Phase 11 error body shape
+
+For 4xx responses from /troubleshoot, /troubleshoot/user-reply, and
+/troubleshoot/phone-context, return:
+```json
+{"error": "<code>", "detail": "<short human-readable>"}
+```
+Codes: `session_not_found` (404), `question_id_mismatch` (400),
+`phone_context_invalid` (400), `body_invalid` (400),
+`session_cap_reached` (503 — 50 concurrent slots full).
+
+### Phase 11 PRIVACY contract
+
+phone_context contains wifi_ssid, BSSIDs (in recent_network_changes),
+IP-bearing error strings (in recent_connection_attempts). Per plan
++ Codex pre-impl MEDIUM-HIGH:
+
+- phone_context NEVER leaves the blox. No central upload channel.
+- Container MUST NOT log raw phone_context to `/var/log/fula/`
+  (ai-actions.jsonl, events.jsonl, or container stdout/stderr).
+- Validation errors that echo input fields MUST sanitize SSID, BSSID,
+  IP addresses before emit (e.g. log `phone_context.netinfo.wifi_ssid:
+  <redacted>` not the actual value).
+- phone_context discarded on session end (in-memory only — when the
+  session entry is evicted from the dict, the data is gone).
+- The audit log line schema deliberately has NO field for
+  phone_context (test enforces).
+
+This is a UX/privacy contract, not a security boundary — a compromised
+container can still read the file via the running process. The contract
+prevents accidental disclosure via logs + central channels.
+
+## Phase 12+ extensions
+
+Phase 12 will wire the app-side `phoneLogger.ts` + Diagnostics screen
+UX to actually call `/troubleshoot/phone-context` and render
+`user_question` events as chat bubbles with inputs. Same versioning
+treatment if new events land (schema_version + $id bump per the
+closed-schema discipline).

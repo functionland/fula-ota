@@ -386,11 +386,11 @@ def test_release_placeholder_gate_workflow_exists():
 def test_phase_6_manifest_still_valid_after_phase_8_swap():
     """Phase 8 doesn't touch ble_commands.json but the test suite must
     keep passing. Sanity-import the Phase 6 test file."""
-    # Just check the file exists and is the same Phase 6 manifest
     manifest_path = os.path.join(_PLUGIN_DIR, "ble_commands.json")
     assert os.path.isfile(manifest_path)
     import json
     with open(manifest_path) as f:
         d = json.load(f)
     assert d["plugin_id"] == "blox-ai"
-    assert len(d["commands"]) == 15
+    # Phase 6 baseline ≥ 15; Phase 11 took it to 17.
+    assert len(d["commands"]) >= 15

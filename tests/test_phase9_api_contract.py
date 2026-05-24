@@ -284,50 +284,46 @@ def test_runbook_has_phase_9_tool_call_protocol_section(sse_schema):
     assert "## Tool-call protocol" in body, (
         "Phase 9 must add the tool-call protocol section to the runbook"
     )
-    # The protocol section must reference every event type the model
-    # is allowed to emit (per the sse_events schema's oneOf branches)
-    valid_types = set()
-    for ref in sse_schema["oneOf"]:
-        def_name = ref["$ref"].split("/")[-1]
-        valid_types.add(sse_schema["$defs"][def_name]["properties"]["type"]["const"])
-
-    # Protocol section excerpt should mention each type the model emits
-    # (thought, tool_call, tool_result, verdict, recommended_action, error)
-    protocol_idx = body.find("## Tool-call protocol")
-    next_section_idx = body.find("---", protocol_idx)
-    protocol_text = body[protocol_idx:next_section_idx]
-    for t in valid_types:
-        assert f'"{t}"' in protocol_text, (
-            f"runbook protocol section doesn't show how to emit {t} events"
-        )
-
-
-def test_runbook_does_not_reference_phase_11_event_types_in_phase_9_section():
-    """Phase 9 ships 6 event types. Phase 10 adds execution_result (in
-    its own '## Post-recommendation flow' section). Phase 11 adds
-    user_question / user_reply_received. Don't leak Phase 11 events into
-    EITHER section — would mislead the model. (Phase 10's execution_result
-    is now permitted in the Post-recommendation section per Phase 10
-    implementation.)"""
-    with open(_RUNBOOK_PATH, encoding="utf-8") as f:
-        body = f.read()
-    # Bound the Tool-call protocol section by the NEXT ## heading, since
-    # consecutive ## sections (Tool-call → Post-recommendation) share
-    # the same horizontal rule below them.
+    # The protocol section must reference the v1 (Phase 9) event types
+    # the model emits. Later-phase event types are documented in their
+    # own runbook sections (Phase 10: execution_result, Phase 11:
+    # session_started + user_question + user_reply_received).
+    phase_9_emit_types = {
+        "thought", "tool_call", "tool_result", "verdict",
+        "recommended_action", "error",
+    }
+    # Bound by next ## heading (Phase 10 added "Post-recommendation
+    # flow" + Phase 11 added more — they share the same ---).
     protocol_idx = body.find("## Tool-call protocol")
     next_heading_idx = body.find("\n## ", protocol_idx + 1)
     protocol_text = body[protocol_idx:next_heading_idx]
-    # Phase 11 events forbidden anywhere in the runbook
-    for forbidden in ("user_question", "user_reply_received"):
-        assert forbidden not in body, (
-            f"runbook mentions {forbidden} which is a Phase 11 event"
+    for t in phase_9_emit_types:
+        assert f'"{t}"' in protocol_text, (
+            f"Phase 9 runbook protocol section doesn't show how to emit {t} events"
         )
-    # Phase 10's execution_result is allowed in its own section but
-    # should NOT leak into the Phase 9 Tool-call protocol section.
-    assert "execution_result" not in protocol_text, (
-        "execution_result belongs in the Phase 10 Post-recommendation flow "
-        "section, not the Phase 9 Tool-call protocol section"
-    )
+
+
+def test_runbook_does_not_leak_later_phase_events_into_phase_9_section():
+    """Phase 9 ships 6 event types in the '## Tool-call protocol' section.
+    Phase 10 adds execution_result (in '## Post-recommendation flow').
+    Phase 11 adds user_question + user_reply_received + session_started
+    (in '## Asking clarifying questions' + '## Phone-side context').
+    Later-phase event types are allowed in their own sections but MUST
+    NOT leak into the Phase 9 Tool-call protocol section."""
+    with open(_RUNBOOK_PATH, encoding="utf-8") as f:
+        body = f.read()
+    protocol_idx = body.find("## Tool-call protocol")
+    next_heading_idx = body.find("\n## ", protocol_idx + 1)
+    protocol_text = body[protocol_idx:next_heading_idx]
+    for forbidden in (
+        "execution_result",        # Phase 10
+        "user_question",            # Phase 11
+        "user_reply_received",      # Phase 11
+        "session_started",          # Phase 11
+    ):
+        assert forbidden not in protocol_text, (
+            f"{forbidden} leaked into the Phase 9 Tool-call protocol section"
+        )
 
 
 def test_runbook_protocol_tool_list_matches_ble_manifest():
@@ -373,20 +369,17 @@ def test_install_sh_copies_api_dir():
 
 def test_no_orphan_schema_files_in_api_dir():
     """Guard against leaving abandoned schema files behind during iteration.
-    Phase 9 shipped 2 schemas + 1 README. Phase 10 adds 2 more schemas
-    (execute_action_request, audit_log_line). Phase-specific orphan
-    guards live in each phase's test file."""
-    files = sorted(os.listdir(_API_DIR))
-    expected_files_after_phase_10 = sorted([
+    Phase 9: 2 schemas + 1 README. Phase 10: +2 schemas. Phase 11: +3
+    schemas. Phase-specific exact-set guards live in each phase's
+    test file; this test guards the Phase 9 BASELINE files still present."""
+    files = set(os.listdir(_API_DIR))
+    phase_9_baseline = {
         "README.md",
         "diag_responses.schema.json",
         "sse_events.schema.json",
-        "execute_action_request.schema.json",
-        "audit_log_line.schema.json",
-    ])
-    assert files == expected_files_after_phase_10, (
-        f"Unexpected files in api/ dir: {files}; expected: {expected_files_after_phase_10}"
-    )
+    }
+    missing = phase_9_baseline - files
+    assert not missing, f"Phase 9 baseline files missing from api/: {missing}"
 
 
 def test_api_readme_documents_phase_boundary():

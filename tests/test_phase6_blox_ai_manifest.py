@@ -45,15 +45,17 @@ def test_manifest_is_valid_json():
     assert isinstance(data.get("commands"), list)
 
 
-def test_manifest_command_count_is_15():
-    # 15 = 4 ai/* (status, cancel, pending, execute) + 11 diag/*.
-    # ai/troubleshoot ("stream" type) is deferred to Phase 12.
+def test_manifest_command_count_at_least_15_phase_6_baseline():
+    """Phase 6 shipped 15 commands. Later phases may add (Phase 11 added
+    ai/user-reply + ai/phone-context → 17). Any future REMOVAL trips this
+    test. Phase-specific exact-count assertions live in each phase's
+    test file (e.g. test_ble_manifest_has_17_commands_after_phase_11).
+    """
     with open(_MANIFEST_PATH) as f:
         data = json.load(f)
-    assert len(data["commands"]) == 15, (
-        f"Expected 15 commands (4 ai/* + 11 diag/*); got {len(data['commands'])}. "
-        "If you added ai/troubleshoot back, also update the scanner's "
-        "_VALID_PLUGIN_COMMAND_TYPES set."
+    assert len(data["commands"]) >= 15, (
+        f"Phase 6 baseline is 15 commands (4 ai/* + 11 diag/*); got "
+        f"{len(data['commands'])} — a command was removed?"
     )
 
 
@@ -224,7 +226,12 @@ def test_reload_plugins_is_idempotent(tmp_path):
     snapshot_b = sorted(s.plugin_commands.keys())
 
     assert snapshot_a == snapshot_b, "reload diverged from initial scan"
-    assert count == 15
+    # Count should match actual manifest size — additive across phases
+    # (Phase 6: 15; Phase 11: 17). Compare against the manifest length
+    # rather than a hardcoded number.
+    with open(_MANIFEST_PATH) as f:
+        manifest_count = len(json.load(f)["commands"])
+    assert count == manifest_count
 
     # Now simulate the uninstall: remove the manifest, reload, every
     # blox-ai command must be gone.

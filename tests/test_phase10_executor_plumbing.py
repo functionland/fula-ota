@@ -54,17 +54,21 @@ def _validate(payload, schema):
 # SSE schema v2 — execution_result added; v1 events still valid
 # ---------------------------------------------------------------------------
 
-def test_sse_schema_bumped_to_v2():
+def test_sse_schema_has_phase_10_execution_result_variant():
+    """Phase 10 bumped to v2 by adding execution_result. Phase 11
+    bumped to v3 by adding session_started + user_question +
+    user_reply_received. Test that Phase 10's contribution (execution_result)
+    is present regardless of further version bumps."""
     d = _load(_SSE_SCHEMA)
-    assert d["schema_version"] == 2
-    assert d["$id"].endswith("sse_events.v2.schema.json")
-    # The 6 v1 event types are still listed
+    assert d["schema_version"] >= 2
     type_consts = set()
     for ref in d["oneOf"]:
         def_name = ref["$ref"].split("/")[-1]
         type_consts.add(d["$defs"][def_name]["properties"]["type"]["const"])
-    assert {"thought", "tool_call", "tool_result", "verdict",
-            "recommended_action", "error", "execution_result"} == type_consts
+    phase_10_required = {"thought", "tool_call", "tool_result", "verdict",
+                          "recommended_action", "error", "execution_result"}
+    missing = phase_10_required - type_consts
+    assert not missing, f"Phase 10 variants missing from sse_events: {missing}"
 
 
 def test_execution_result_event_validates():
@@ -545,13 +549,14 @@ def test_execute_action_token_field_minlength_64():
     assert req["properties"]["approval_token"]["maxLength"] == 2048
 
 
-def test_no_orphan_files_in_api_dir_after_phase_10():
-    """Phase 9 had 2 schemas + README. Phase 10 adds 2 more schemas."""
-    files = sorted(os.listdir(_API_DIR))
-    assert files == [
-        "README.md",
+def test_phase_10_baseline_files_still_in_api_dir():
+    """Phase 10 added 2 schemas to api/. Phase 11 added more. This
+    guards Phase 10's BASELINE files still present (exact-set guard
+    for Phase 11 lives in test_phase11_conversational.py)."""
+    files = set(os.listdir(_API_DIR))
+    phase_10_added = {
         "audit_log_line.schema.json",
-        "diag_responses.schema.json",
         "execute_action_request.schema.json",
-        "sse_events.schema.json",
-    ], f"Unexpected files: {files}"
+    }
+    missing = phase_10_added - files
+    assert not missing, f"Phase 10 files missing from api/: {missing}"

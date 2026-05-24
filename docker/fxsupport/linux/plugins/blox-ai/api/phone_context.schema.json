@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/phone_context.v1.schema.json",
+  "title": "Blox AI phone-context envelope",
+  "description": "Phase 11 contract. Shape of the phone-side context the app gathers and sends to the container via POST /troubleshoot/phone-context. Shared between apps/box (Phase 12 phoneLogger.ts) and the container's session-state ingest. PRIVACY: contains wifi_ssid, BSSIDs, and IP-bearing error strings; per plan + Codex pre-impl MEDIUM-HIGH the data stays on the user's blox (no central channel). Container MUST NOT log raw phone_context to audit log; truncate/redact validation errors. All fields tightly capped via maxLength + maxItems for size-bound + log-injection mitigation.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["app_version", "os", "os_version"],
+  "properties": {
+    "app_version":   { "type": "string", "minLength": 1, "maxLength": 32 },
+    "os":            { "enum": ["android", "ios"] },
+    "os_version":    { "type": "string", "minLength": 1, "maxLength": 32 },
+    "device_model":  { "type": "string", "maxLength": 64 },
+    "netinfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "is_connected":           { "type": "boolean" },
+        "is_internet_reachable":  { "type": ["boolean", "null"] },
+        "type":                   { "enum": ["wifi", "cellular", "ethernet", "none", "bluetooth", "unknown", "wimax", "vpn"] },
+        "wifi_ssid":              { "type": "string", "maxLength": 64 },
+        "wifi_strength":          { "type": "number", "minimum": -120, "maximum": 0, "description": "RSSI in dBm" },
+        "cellular_generation":    { "enum": ["2g", "3g", "4g", "5g", "unknown"] }
+      }
+    },
+    "recent_connection_attempts": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "Last 20 connection attempts (ring buffer in app). Older attempts are dropped client-side. Container MUST NOT log this array verbatim.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts", "transport", "success"],
+        "properties": {
+          "ts":              { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$" },
+          "transport":       { "enum": ["libp2p", "ble", "hotspot"] },
+          "target_blox_id":  { "type": "string", "maxLength": 128 },
+          "success":         { "type": "boolean" },
+          "error":           { "type": "string", "maxLength": 500, "description": "Container MUST sanitize before any logging (errno strings may contain IP addresses)." },
+          "duration_ms":     { "type": "integer", "minimum": 0, "maximum": 600000 }
+        }
+      }
+    },
+    "last_successful_blox_interaction_ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$"
+    },
+    "recent_network_changes": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts"],
+        "properties": {
+          "ts":   { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$" },
+          "from": { "type": "string", "maxLength": 64 },
+          "to":   { "type": "string", "maxLength": 64 }
+        }
+      }
+    },
+    "recent_app_errors": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts", "error_summary"],
+        "properties": {
+          "ts":             { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$" },
+          "screen":         { "type": "string", "maxLength": 64 },
+          "error_summary":  { "type": "string", "maxLength": 500 }
+        }
+      }
+    }
+  }
+}

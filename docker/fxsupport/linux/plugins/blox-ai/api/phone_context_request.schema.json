@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/phone_context_request.v1.schema.json",
+  "title": "Blox AI POST /troubleshoot/phone-context request body",
+  "description": "Phase 11 contract. The app submits this body via the BLE proxy when the user taps 'Share my phone's context' in the Diagnostics screen. Container looks up session by session_id (404 if expired/unknown), ingests phone_context into the model's prompt context as a virtual tool_result (INTERNAL — no SSE event emitted for this; Codex pre-impl Q8 catch — emitting on SSE would require expanding tool_result schema's closed shape with a `tool` field). Refreshes TTL on success.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "phone_context"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "phone_context": {
+      "$ref": "phone_context.v1.schema.json",
+      "description": "See phone_context.schema.json. Container MUST validate against that schema before ingest."
+    }
+  }
+}
