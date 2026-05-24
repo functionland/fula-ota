@@ -89,6 +89,7 @@
         "security_code_invalid",
         "security_code_file_missing",
         "executor_busy",
+        "recommendation_not_found",
         "internal_error",
         ""
       ],
@@ -164,6 +165,7 @@
               "security_code_invalid",
               "security_code_file_missing",
               "executor_busy",
+              "recommendation_not_found",
               "internal_error"
             ]
           }
