@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/sse_events.v2.schema.json",
+  "title": "Blox AI /troubleshoot + /execute-action SSE event envelope",
+  "description": "Phase 9 + Phase 10 contract. Every event emitted by the Blox AI container's POST /troubleshoot AND POST /execute-action SSE streams MUST match exactly one of the variants below. The container is the primary enforcer (validates before emit); the fula-ota BLE proxy passes through but the executor additionally validates `recommended_action` and `/execute-action` requests against action_whitelist.json. Phase 10 adds the `execution_result` variant. Phase 11 will add user_question/user_reply_received.",
+  "schema_version": 2,
+  "oneOf": [
+    { "$ref": "#/$defs/thought" },
+    { "$ref": "#/$defs/tool_call" },
+    { "$ref": "#/$defs/tool_result" },
+    { "$ref": "#/$defs/verdict" },
+    { "$ref": "#/$defs/recommended_action" },
+    { "$ref": "#/$defs/execution_result" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "thought": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "payload"],
+      "properties": {
+        "type":    { "const": "thought" },
+        "payload": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "payload", "call_id"],
+      "properties": {
+        "type":    { "const": "tool_call" },
+        "call_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool", "args"],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "description": "Must be one of the diag/* names registered in ble_commands.json. Phase 11 will add ai/user-reply etc.",
+              "enum": [
+                "diag/internet",
+                "diag/relay",
+                "diag/time",
+                "diag/power",
+                "diag/storage",
+                "diag/containers",
+                "diag/wireguard",
+                "diag/heartbeat",
+                "diag/events",
+                "diag/readiness",
+                "diag/summary"
+              ]
+            },
+            "args": { "type": "object" }
+          }
+        }
+      }
+    },
+    "tool_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "call_id", "ok", "payload"],
+      "properties": {
+        "type":    { "const": "tool_result" },
+        "call_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ok":      { "type": "boolean" },
+        "error":   { "type": "string", "maxLength": 2000 },
+        "payload": {
+          "description": "Tool-specific response. Tight typing (oneOf per tool) is deferred per Phase 9 advisor consensus — `any` keeps drift surface small while the container implementation settles."
+        }
+      },
+      "if":   { "properties": { "ok": { "const": false } }, "required": ["ok"] },
+      "then": { "required": ["error"] },
+      "else": { "not": { "required": ["error"] } }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "const": "verdict" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "severity"],
+          "properties": {
+            "summary":    { "type": "string", "minLength": 1, "maxLength": 500 },
+            "severity":   { "enum": ["green", "yellow", "red"] },
+            "root_cause": { "type": "string", "maxLength": 200 }
+          }
+        }
+      }
+    },
+    "recommended_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action_id", "action_name", "args", "reasoning", "confidence", "tier", "approval_token"],
+      "properties": {
+        "type":            { "const": "recommended_action" },
+        "action_id":       { "type": "string", "minLength": 1, "maxLength": 128 },
+        "action_name":     {
+          "type": "string",
+          "description": "Must be a key in action_whitelist.json tier_2_idempotent.actions or tier_3_destructive.actions. Phase 10 executor enforces (proxy does not).",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "args":            { "type": "object" },
+        "reasoning":       { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "confidence":      { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "tier":            { "enum": [2, 3] },
+        "approval_token":  { "type": "string", "minLength": 64, "maxLength": 2048, "description": "Phase 10 v2: bumped from 16/256 to 64/2048 to match execute_action_request.schema.json. Codex post-impl HIGH catch — a token sized 30 chars would validate on emit but get rejected at execute, breaking the contract." },
+        "expected_duration_s": { "type": "number", "minimum": 0, "maximum": 600 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "code", "message", "recoverable"],
+      "properties": {
+        "type":        { "const": "error" },
+        "code":        { "type": "string", "minLength": 1, "maxLength": 64 },
+        "message":     { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "recoverable": { "type": "boolean" }
+      }
+    },
+    "execution_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action_id", "success", "duration_ms"],
+      "description": "Emitted by POST /execute-action after the executor finishes (success or failure). action_id matches the recommended_action that produced the approval_token. The shape is intentionally separate from `error` because tier-2/3 action failures are reportable runtime state, not an error in the SSE protocol itself.",
+      "properties": {
+        "type":            { "const": "execution_result" },
+        "action_id":       { "type": "string", "minLength": 1, "maxLength": 128 },
+        "success":         { "type": "boolean" },
+        "exit_code":       { "type": "integer", "minimum": -255, "maximum": 255 },
+        "stdout_excerpt":  { "type": "string", "maxLength": 2048, "description": "Truncate to <= 2048 bytes in the container (Gemini pre-impl HIGH: log-injection + disk-exhaustion mitigation)." },
+        "stderr_excerpt":  { "type": "string", "maxLength": 2048 },
+        "duration_ms":     { "type": "integer", "minimum": 0 },
+        "follow_up":       { "type": "string", "maxLength": 1000, "description": "Optional next-step the model can read on its next turn (e.g. 'service restarted; re-run diag/summary to confirm')." }
+      }
+    }
+  }
+}

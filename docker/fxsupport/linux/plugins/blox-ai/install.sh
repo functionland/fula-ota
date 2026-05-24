@@ -83,6 +83,8 @@ cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
 # trying to mount missing files.
 cp "${PLUGIN_EXEC_DIR}/runbook.md" "$BLOX_AI_DIR/"
 cp "${PLUGIN_EXEC_DIR}/action_whitelist.json" "$BLOX_AI_DIR/"
+# Phase 9: API contract schemas — bind-mounted into container at /etc/fula/blox-ai/api/
+cp -r "${PLUGIN_EXEC_DIR}/api" "$BLOX_AI_DIR/"
 sync
 sleep 1
 
@@ -92,6 +94,23 @@ sleep 1
 # created it via os.makedirs.
 mkdir -p /var/log/fula
 chmod 0775 /var/log/fula 2>/dev/null || true
+
+# Phase 10 defense-in-depth: ensure /etc/fula/blox-ai/security-code +
+# /run/fula-ai exist as the RIGHT TYPE before the container starts.
+# Primary creation is in fula.sh boot block; this is a backstop in case
+# install.sh runs first on a fresh device. Same docker-compose
+# single-file-bind footgun handling as fula.sh.
+mkdir -p /etc/fula/blox-ai
+chmod 0700 /etc/fula/blox-ai 2>/dev/null || true
+if [ -e /etc/fula/blox-ai/security-code ] && [ ! -f /etc/fula/blox-ai/security-code ]; then
+  rm -rf /etc/fula/blox-ai/security-code 2>/dev/null || true
+fi
+if [ ! -f /etc/fula/blox-ai/security-code ]; then
+  echo "1234" > /etc/fula/blox-ai/security-code 2>/dev/null || true
+  chmod 0600 /etc/fula/blox-ai/security-code 2>/dev/null || true
+fi
+mkdir -p /run/fula-ai
+chmod 0700 /run/fula-ai 2>/dev/null || true
 
 # Stage the BLE command manifest so the core scanner (local_command_server.py)
 # can register ai/* and diag/* commands. Touch the reload flag so the next

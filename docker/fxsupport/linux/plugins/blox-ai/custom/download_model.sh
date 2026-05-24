@@ -74,6 +74,11 @@ if [ -f "$MODEL_FILE" ]; then
         rm -f "$MODEL_FILE"
     elif verify_sha "$MODEL_FILE" "$MODEL_SHA256"; then
         echo "Cached model file exists, size OK, SHA verified. Starting service."
+        # Free disk: drop any prior Deepseek 7B model now that Qwen is verified.
+        # User override of Codex/Gemini "preserve" recommendation — practical
+        # disk reclamation matters more than the theoretical rollback path
+        # that doesn't actually exist until Phase 18.
+        rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
         systemctl restart "$SERVICE_NAME"
         echo "Blox AI started from cached model."
         exit 0
@@ -109,17 +114,13 @@ while true; do
                 echo "SHA verified."
                 break
             else
-                # Codex post-review Q2 compromise: rename to .corrupt.<ts>
-                # instead of either keeping the file (confuses next scan)
-                # or deleting (loses forensic evidence + downloads again
-                # from CDN, same bytes). The renamed file is out of the
-                # cache-acceptance path AND preserved for analysis. A
-                # later admin cleanup can sweep .corrupt.* files.
-                TS=$(date -u +%Y%m%dT%H%M%SZ)
-                CORRUPT_PATH="${MODEL_FILE}.corrupt.${TS}"
+                # User override of the .corrupt.<ts> quarantine pattern:
+                # a corrupt .rkllm blob has no forensic value (it's an
+                # opaque tensor file; we can't introspect it). Just
+                # delete and free the disk. Next install re-downloads.
                 echo "SHA mismatch after download — refusing to start service."
-                echo "Renaming bad file to $CORRUPT_PATH (preserved for forensic; next install will re-download)."
-                mv -f "$MODEL_FILE" "$CORRUPT_PATH" 2>/dev/null || rm -f "$MODEL_FILE"
+                echo "Deleting bad file ($MODEL_FILE); next install will re-download."
+                rm -f "$MODEL_FILE"
                 exit 1
             fi
         else
@@ -138,15 +139,14 @@ while true; do
     fi
 done
 
-# Note (per Codex post-review HIGH, Gemini disagreed MEDIUM): the prior
-# Deepseek model at /uniondrive/blox-ai/model/deepseek-llm-7b-chat-*.rkllm
-# is intentionally NOT deleted here. Per built-in advisor: "preserved for
-# rollback" overstates what's achievable today — there's no path to
-# revert to Deepseek without editing 4 files. More accurate framing:
-# preserved to avoid 7 GB of re-download bandwidth if a future fix
-# re-points to it. Phase 18 ships the manifest-based rollback that makes
-# rollback truly fast. Disk pressure today: user's call to address
-# with an explicit cleanup step.
+# User override of Codex/Gemini "preserve" stance: free the ~7 GB of
+# disk the prior Deepseek 7B model was using. Only happens AFTER the new
+# Qwen download succeeded + SHA verified (the if/else above), so a
+# failed Qwen download never deletes the working Deepseek file.
+# Most devices won't have this file (loyal-agent slot was unused for
+# most users); the rm is a no-op there. Glob is constrained to the
+# specific model dir.
+rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
 
 echo "Starting $SERVICE_NAME..."
 systemctl restart "$SERVICE_NAME"

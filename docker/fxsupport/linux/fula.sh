@@ -1498,6 +1498,46 @@ function restart() {
   sudo mkdir -p /var/log/fula 2>/dev/null || true
   sudo chmod 0775 /var/log/fula 2>/dev/null || true
 
+  # Phase 10: blox-ai executor mount targets.
+  # /run/fula-ai is the tmpfs for the HMAC approval-token secret the
+  # container generates at start. Created here at 0700 root-only so the
+  # container's bind-mount target exists. Per Codex pre-review HIGH:
+  # narrow scope (subdir of /run, not all of /run writable).
+  sudo mkdir -p /run/fula-ai 2>/dev/null || true
+  sudo chmod 0700 /run/fula-ai 2>/dev/null || true
+  # /etc/fula/blox-ai/security-code is the tier-3 confirmation code.
+  # Default '1234' shipped here so tier-3 actions work out of the box;
+  # device admin can `sudo nano /etc/fula/blox-ai/security-code` to
+  # rotate without an OTA. ONLY CREATED IF ABSENT so user changes are
+  # preserved across reboots + plugin reinstalls + OTA updates.
+  # 0600 root:root — the container only ever reads, mounted :ro in
+  # docker-compose. NOTE: the default '1234' provides essentially no
+  # security on its own — it stops accidental destructive taps and a
+  # confused-deputy attack from a paired-but-malicious phone client.
+  # USER SHOULD ROTATE IMMEDIATELY AFTER INSTALL for any real tier-3
+  # protection (sudo nano /etc/fula/blox-ai/security-code). Documented
+  # in api/README.md. Codex + Gemini post-impl HIGH: make this comment
+  # one notch stronger so future maintainers don't normalize '1234'.
+  sudo mkdir -p /etc/fula/blox-ai 2>/dev/null || true
+  sudo chmod 0700 /etc/fula/blox-ai 2>/dev/null || true
+  # Defensive: if /etc/fula/blox-ai/security-code exists but is NOT a
+  # regular file, remove it. Docker-compose with create_host_path:true
+  # (default) silently creates the path as a directory when a single-
+  # file bind source is missing at container start. If blox-ai service
+  # races fula.sh on first boot and Docker wins, the path becomes a
+  # directory; without this guard the subsequent `if [ ! -f ... ]`
+  # would return true (file doesn't exist as a file) and then
+  # `echo > <dir>` would fail with "Is a directory" — leaving tier-3
+  # broken forever. Built-in advisor catch.
+  if [ -e /etc/fula/blox-ai/security-code ] && [ ! -f /etc/fula/blox-ai/security-code ]; then
+    echo "Phase 10 defense: /etc/fula/blox-ai/security-code is not a regular file; removing for re-creation"
+    sudo rm -rf /etc/fula/blox-ai/security-code 2>/dev/null || true
+  fi
+  if [ ! -f /etc/fula/blox-ai/security-code ]; then
+    echo "1234" | sudo tee /etc/fula/blox-ai/security-code >/dev/null 2>&1 || true
+    sudo chmod 0600 /etc/fula/blox-ai/security-code 2>/dev/null || true
+  fi
+
   if [ -f "$HW_CHECK_SC" ]; then
     if python $HW_CHECK_SC > /tmp/hw_test.log 2>&1; then
       echo "Hardware check passed" | sudo tee -a $FULA_LOG_PATH

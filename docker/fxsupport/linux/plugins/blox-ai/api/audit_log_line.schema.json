@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/audit_log_line.v1.schema.json",
+  "title": "Blox AI /var/log/fula/ai-actions.jsonl line shape",
+  "description": "Phase 10 contract. Container appends one JSON object per line to /var/log/fula/ai-actions.jsonl for EVERY /execute-action request, including validation failures. Persistent across reboots so reboot-loop forensics survive. Per Gemini pre-impl HIGH: container has only O_APPEND access (no truncate/delete) to prevent a compromised executor from cleaning up its tracks. Rotate at 50 MB matching Phase 1's events.jsonl convention.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ts",
+    "request_id",
+    "action_id",
+    "action",
+    "args",
+    "tier",
+    "approval_token_valid",
+    "security_code_required",
+    "executed",
+    "approver_transport",
+    "duration_ms",
+    "executor_version",
+    "whitelist_hash"
+  ],
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$",
+      "description": "When the executor finished processing (success, failure, or rejection)."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Per-request UUID, distinct from action_id. Allows correlating the audit line with container logs + SSE delivery."
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Matches the action_id from the recommended_action SSE event."
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Action name from action_whitelist.json (e.g. 'restart_fula', 'docker.restart')."
+    },
+    "args": {
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": { "pattern": "^[a-zA-Z0-9_-]{1,64}$" },
+      "description": "Action args as submitted. Container MUST sanitize for log-injection (escape/forbid CR/LF) and reject canonical-JSON serialization > 1024 bytes. Per Gemini + Codex post-impl HIGH: structural limits at schema time (maxProperties:20, propertyNames pattern) as defense-in-depth before container's runtime sanitization."
+    },
+    "tier": {
+      "enum": [1, 2, 3]
+    },
+    "approval_token_valid": {
+      "type": "boolean"
+    },
+    "token_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$",
+      "description": "Token's expires_at field (from approval_token decode). Optional — present only when token was decodable."
+    },
+    "security_code_required": {
+      "type": "boolean",
+      "description": "True for tier-3 actions, false otherwise."
+    },
+    "security_code_valid": {
+      "type": ["boolean", "null"],
+      "description": "Null when not required, true/false when checked. NEVER log the actual code value."
+    },
+    "executed": {
+      "type": "boolean",
+      "description": "True iff the executor ran subprocess.run for the action. False for any rejection (whitelist, args, token, security_code)."
+    },
+    "rejected_reason": {
+      "type": "string",
+      "maxLength": 200,
+      "enum": [
+        "action_not_in_whitelist",
+        "args_constraint_violation",
+        "approval_token_invalid",
+        "approval_token_expired",
+        "approval_token_replayed",
+        "security_code_required_but_missing",
+        "security_code_invalid",
+        "security_code_file_missing",
+        "executor_busy",
+        "internal_error",
+        ""
+      ],
+      "description": "Empty string when executed=true. One of the enum values when executed=false. Codex pre-impl MEDIUM-HIGH for forensic completeness."
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Only present when executed=true.",
+      "properties": {
+        "success":   { "type": "boolean" },
+        "exit_code": { "type": "integer", "minimum": -255, "maximum": 255 },
+        "follow_up": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "stdout_excerpt": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "Truncated to 2048 bytes (Gemini HIGH: log-injection + disk-exhaustion mitigation)."
+    },
+    "stderr_excerpt": {
+      "type": "string",
+      "maxLength": 2048
+    },
+    "approver_transport": {
+      "enum": ["ble", "libp2p", "isolated_stage"]
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total request time end-to-end, including validation and execution. 0 for instant rejections."
+    },
+    "error": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Human-readable description of any failure (validation or execution). Don't include secrets or full tokens."
+    },
+    "executor_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Container's executor module version (e.g. '0.1.0' or git short-sha). Codex pre-impl MEDIUM-HIGH: drift detection across container upgrades."
+    },
+    "whitelist_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "sha256 of action_whitelist.json at execute time (HEX). Lets a forensic review correlate an audit line with the EXACT whitelist that was active. Codex pre-impl MEDIUM-HIGH."
+    }
+  },
+  "allOf": [
+    {
+      "description": "Codex post-impl MEDIUM-HIGH: conditional invariant — executed=true MUST have empty rejected_reason AND a result block AND no error.",
+      "if":   { "properties": { "executed": { "const": true } }, "required": ["executed"] },
+      "then": {
+        "required": ["result"],
+        "properties": { "rejected_reason": { "const": "" } }
+      }
+    },
+    {
+      "description": "Codex post-impl MEDIUM-HIGH: executed=false MUST have non-empty rejected_reason AND no result block.",
+      "if":   { "properties": { "executed": { "const": false } }, "required": ["executed"] },
+      "then": {
+        "not": { "required": ["result"] },
+        "properties": {
+          "rejected_reason": {
+            "enum": [
+              "action_not_in_whitelist",
+              "args_constraint_violation",
+              "approval_token_invalid",
+              "approval_token_expired",
+              "approval_token_replayed",
+              "security_code_required_but_missing",
+              "security_code_invalid",
+              "security_code_file_missing",
+              "executor_busy",
+              "internal_error"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "description": "tier=2 must NOT have security_code_valid=true (no code needed for tier 2). It can be null (not required) or false (executor sanity check).",
+      "if":   { "properties": { "tier": { "const": 2 } }, "required": ["tier"] },
+      "then": { "properties": { "security_code_valid": { "not": { "const": true } } } }
+    }
+  ]
+}

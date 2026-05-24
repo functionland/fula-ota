@@ -37,6 +37,23 @@ services:
       - ./runbook.md:/usr/bin/fula/ai/runbook.md:ro
       # Action trust boundary (Phase 7); Phase 10 executor reads this on container start
       - ./action_whitelist.json:/etc/fula/action_whitelist.json:ro
+      # API contract schemas (Phase 9): SSE event shapes + diag/* response shapes.
+      # Container validates outgoing events against sse_events.schema.json before
+      # emit (catches LLM tool-call hallucinations). diag/* response handlers
+      # validate against diag_responses.schema.json before returning.
+      - ./api:/etc/fula/blox-ai/api:ro
+      # Phase 10 executor: HMAC approval-token tmpfs. NARROW subdir (not all
+      # of /run :rw — Codex Phase 7 post-review). Writable because container
+      # generates the secret at start. Per-container-start rotation
+      # (advisor consensus HIGH) means invalidating in-flight approvals
+      # on restart, which is the correct failure mode for destructive ops.
+      - /run/fula-ai:/run/fula-ai:rw
+      # Phase 10 executor: tier-3 security code config file. Single-file
+      # bind, read-only — container only reads, never writes. fula.sh
+      # creates this file at boot with default '1234'. User can edit
+      # to set per-device code; container reads on each tier-3 request
+      # (no caching) so rotation takes effect immediately.
+      - /etc/fula/blox-ai/security-code:/etc/fula/blox-ai/security-code:ro
     command: --target_platform ${TARGET_PLATFORM} --rkllm_model_path ${RKLLM_MODEL_PATH}
     ports:
       - "8083:8083"

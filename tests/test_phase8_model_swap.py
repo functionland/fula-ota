@@ -219,21 +219,26 @@ def test_download_model_verifies_sha_after_download():
 
 def test_no_deepseek_references_in_active_paths():
     """Phase 8 must remove all Deepseek references from the active code
-    paths. Mentioning Deepseek in a comment explaining the swap is fine;
-    a Deepseek path in a `pgrep`, MODEL_FILE, or DOWNLOAD_URL is a bug
-    waiting to happen."""
+    paths EXCEPT the user-mandated cleanup rm (which targets the file by
+    glob, intentionally). Comments explaining the swap are fine; a
+    Deepseek MODEL_FILE / DOWNLOAD_URL / pgrep pattern is a bug."""
+    # The cleanup glob is the only legitimate Deepseek reference in
+    # active code — the rm fires only after Qwen verifies (test_download
+    # _model_deletes_old_deepseek_after_qwen_verified guards placement).
+    allowed_active_pattern = 'rm -f "$MODEL_DIR"/deepseek-*.rkllm'
     for path in (_DOWNLOAD_PATH, _START_PATH):
         with open(path) as f:
             body = f.read()
-        # Strip comment-only lines before checking
+        # Strip comments + the user-mandated rm cleanup line
         non_comment = "\n".join(
             line for line in body.splitlines()
             if not re.match(r"^\s*#", line)
+               and allowed_active_pattern not in line
         )
-        # No deepseek substring in non-comment code
         assert "deepseek" not in non_comment.lower(), (
-            f"{os.path.basename(path)} still has 'deepseek' in active code: "
-            f"check MODEL_FILE / DOWNLOAD_URL / pgrep pattern"
+            f"{os.path.basename(path)} has unexpected 'deepseek' in active "
+            f"code (other than the cleanup rm): check MODEL_FILE / "
+            f"DOWNLOAD_URL / pgrep pattern"
         )
 
 
@@ -254,18 +259,29 @@ def test_pgrep_pattern_uses_model_basename_not_hardcoded_name():
 # Old Deepseek file is NOT auto-deleted (Codex HIGH > Gemini MEDIUM)
 # ---------------------------------------------------------------------------
 
-def test_download_model_does_not_delete_old_deepseek_file():
-    """Codex post-review HIGH: leave the old Deepseek file alone before
-    Phase 18 formalizes rollback. Gemini MEDIUM disagreed (delete-after-
-    success). We follow Codex — safer default, matches the plan's
-    existing 'preserve /uniondrive/loyal-agent model data' stance."""
+def test_download_model_deletes_old_deepseek_after_qwen_verified():
+    """USER OVERRIDE of Codex HIGH / Gemini MEDIUM: practical disk
+    reclamation matters more than a theoretical rollback path that
+    doesn't exist until Phase 18. Most devices never installed loyal-
+    agent so the rm is a no-op; the few that did benefit from freeing
+    ~7 GB.
+
+    The rm must happen ONLY after Qwen is verified — a failed Qwen
+    download must never delete the working Deepseek file."""
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
-    # No `rm` line targeting the Deepseek filename
-    deepseek_rm = re.search(r"rm.*deepseek", body, re.IGNORECASE)
-    assert deepseek_rm is None, (
-        f"download_model.sh tries to delete Deepseek file: {deepseek_rm.group()}. "
-        "Phase 8 preserves the old model for rollback (Codex post-review)."
+    # Glob-scoped rm targeting the model dir, not the whole filesystem
+    assert 'rm -f "$MODEL_DIR"/deepseek-*.rkllm' in body, (
+        "download_model.sh must rm deepseek-*.rkllm after Qwen verified"
+    )
+    # Must not appear BEFORE the verification success — otherwise a failed
+    # Qwen download would delete the Deepseek file too. Check that the rm
+    # call appears after the "SHA verified" success marker.
+    rm_idx = body.find('rm -f "$MODEL_DIR"/deepseek-')
+    verified_idx = body.find('SHA verified')
+    assert rm_idx > verified_idx, (
+        "Deepseek rm must come AFTER 'SHA verified' success marker so a "
+        "failed Qwen download doesn't wipe the working Deepseek file."
     )
 
 
@@ -321,20 +337,28 @@ def test_start_sh_verifies_sha_not_only_size():
     assert "__SET_BEFORE_RELEASE__" in body or 'MODEL_SHA256=""' in body or '-n "$MODEL_SHA256"' in body
 
 
-def test_download_model_renames_corrupt_post_download_to_quarantine():
-    """Codex Q2 compromise (between Gemini delete-both-paths HIGH and
-    Codex original keep-as-is MEDIUM-HIGH): rename post-download
-    mismatch to `.corrupt.<ts>` so the file is out of the cache-
-    acceptance path AND preserved for forensic analysis. A later
-    admin cleanup can sweep .corrupt.* files."""
+def test_download_model_deletes_corrupt_post_download():
+    """USER OVERRIDE: a corrupt .rkllm has no forensic value (opaque
+    tensor file; can't introspect). Just delete and free the disk.
+    Next install re-downloads from CDN."""
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
-    # The .corrupt.<timestamp> rename pattern
-    assert "${MODEL_FILE}.corrupt." in body or 'MODEL_FILE}.corrupt.' in body or 'corrupt.${TS}' in body
-    # Uses mv to rename (not just rm); falls back to rm if mv fails
-    assert "mv -f" in body
-    # Generates a timestamp
-    assert 'date -u +' in body or 'date -u "+' in body
+    # Post-download mismatch path must rm $MODEL_FILE
+    assert 'SHA mismatch after download' in body
+    # No `.corrupt.<ts>` rename pattern should remain
+    assert "${MODEL_FILE}.corrupt." not in body, (
+        "Post-download mismatch must rm, not rename to .corrupt.<ts> (user override)"
+    )
+    assert "CORRUPT_PATH" not in body, (
+        "Quarantine pattern fully removed; user override prefers rm"
+    )
+    # The rm of the bad file must be on the mismatch path. Find the
+    # mismatch echo and confirm rm $MODEL_FILE follows it.
+    mismatch_idx = body.find("SHA mismatch after download")
+    rm_idx = body.find('rm -f "$MODEL_FILE"', mismatch_idx)
+    assert rm_idx > mismatch_idx, (
+        "rm of $MODEL_FILE must follow the post-download mismatch branch"
+    )
 
 
 def test_release_placeholder_gate_workflow_exists():
