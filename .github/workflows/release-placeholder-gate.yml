@@ -34,8 +34,15 @@ jobs:
         uses: actions/checkout@v4
       - name: Refuse to release while __SET_BEFORE_RELEASE__ is unresolved
         run: |
-          if grep -rn "__SET_BEFORE_RELEASE__" docker/fxsupport/linux/plugins/blox-ai/ 2>/dev/null; then
-            echo "::error::Phase 8 placeholder still present in blox-ai plugin."
+          # Match the literal placeholder-assignment pattern (`="__SET_BEFORE_RELEASE__"`)
+          # NOT bare mentions of the string. The guard code in install.sh /
+          # download_model.sh / start.sh references the literal as a
+          # comparison target (`*"__SET_BEFORE_RELEASE__"*` and similar),
+          # and CHANGELOG.md mentions it historically. Those are fine.
+          # What's NOT fine is `DOWNLOAD_URL="__SET_BEFORE_RELEASE__"` —
+          # an unfilled value being shipped to devices.
+          if grep -rn '="__SET_BEFORE_RELEASE__"' docker/fxsupport/linux/plugins/blox-ai/ 2>/dev/null; then
+            echo "::error::Phase 8 placeholder VALUE still present in blox-ai plugin."
             echo "::error::download_model.sh requires DOWNLOAD_URL and MODEL_SHA256"
             echo "::error::to be populated by the sibling functionland/blox-ai PR"
             echo "::error::(which produces the actual quantized model + SHA)."
@@ -43,4 +50,4 @@ jobs:
             echo "::error::up in a 'service enabled, model never downloads' state."
             exit 1
           fi
-          echo "No placeholder strings found in blox-ai plugin. Release gate passes."
+          echo "No placeholder-value assignments found in blox-ai plugin. Release gate passes."
