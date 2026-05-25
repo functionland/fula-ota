@@ -166,16 +166,25 @@ def test_install_sh_hoists_placeholder_check_before_service_enable():
     )
 
 
-def test_download_model_currently_has_placeholder_sha():
-    """Phase 8 ships with placeholders pending the sibling
-    functionland/blox-ai PR. CI MUST catch and reject any release tag
-    that hasn't replaced these. A separate release-gate check should
-    grep for __SET_BEFORE_RELEASE__ across the repo."""
+def test_download_model_has_real_sha256():
+    """v1 release: the placeholder has been replaced with the verified
+    SHA-256 of the assembled chunks. The exact value is the SHA of the
+    c01zaut/Qwen2.5-3B-Instruct-rk3588-1.1.1 W8A8 RKLLM as it lives on
+    the lab device (verified against the chunked upload on
+    functionland/blox-ai release tag `model-qwen-2.5-3b-w8a8-v1`).
+
+    Update this expected value only when bumping to a new base model."""
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
-    # This is INTENTIONAL — Phase 8 ships unresolved; release gate fills.
-    assert 'MODEL_SHA256="__SET_BEFORE_RELEASE__"' in body, (
-        "Phase 8 ships SHA placeholder until cross-repo model upload lands"
+    assert 'MODEL_SHA256="__SET_BEFORE_RELEASE__"' not in body, (
+        "Placeholder must NOT survive into release — fill in real SHA"
+    )
+    # The assembled-chunk SHA pinned in the file
+    assert ('MODEL_SHA256="b7cf8b1c10140ac380535a52602d2ecc862aa9'
+            '6a84e3cf5d8267b6e54cca2607"') in body, (
+        "MODEL_SHA256 must match the SHA of the assembled chunks "
+        "published on functionland/blox-ai release "
+        "`model-qwen-2.5-3b-w8a8-v1`"
     )
 
 
@@ -242,17 +251,22 @@ def test_no_deepseek_references_in_active_paths():
         )
 
 
-def test_pgrep_pattern_uses_model_basename_not_hardcoded_name():
-    """Codex's specific catch from pre-review: avoid `pgrep -f
-    "wget.*deepseek..."` because swapping models leaves a stale grep
-    pattern. Use $MODEL_BASENAME instead."""
+def test_no_hardcoded_deepseek_wget_pattern():
+    """v1 release: the model is now downloaded in chunks (assembled +
+    SHA-verified) via foreground wget per chunk, so the prior
+    background-wget + pgrep wait pattern is gone. The original Codex
+    catch — avoid hardcoded "wget.*deepseek" patterns that leave stale
+    grep references after a model swap — still applies; assert the old
+    Deepseek pattern is not lurking anywhere in the script."""
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
-    assert "pgrep -f \"wget.*${MODEL_BASENAME}\"" in body, (
-        "pgrep pattern must be derived from MODEL_BASENAME, not hardcoded"
-    )
-    # The OLD hardcoded pattern must be gone
     assert "wget.*deepseek" not in body
+    # New design: a CHUNK_URLS array drives the per-chunk wget loop.
+    assert "CHUNK_URLS=(" in body, (
+        "v1 chunked download must declare a CHUNK_URLS bash array"
+    )
+    # And the loop iterates the array (foreground wget, not background).
+    assert 'for url in "${CHUNK_URLS[@]}"' in body
 
 
 # ---------------------------------------------------------------------------

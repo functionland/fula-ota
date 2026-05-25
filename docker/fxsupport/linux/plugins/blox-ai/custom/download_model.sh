@@ -2,21 +2,23 @@
 
 set -e
 
-# Phase 8: Qwen 2.5-3B-Instruct RKLLM W8A8.
+# Phase 8: Qwen 2.5-3B-Instruct RKLLM W8A8 — base model for Blox AI v1.
 #
-# DOWNLOAD_URL and MODEL_SHA256 are PLACEHOLDERS until the sibling
-# functionland/blox-ai PR quantizes the model and uploads to CDN. The
-# placeholder guard below makes install fail-fast if either is still a
-# placeholder — CI can also grep for __SET_BEFORE_RELEASE__ to catch a
-# bad merge.
+# Hosted as a GitHub Release on functionland/blox-ai, tag
+# `model-qwen-2.5-3b-w8a8-v1`. The 3.74 GB model is split into two
+# chunks because GitHub Release assets are capped at 2 GiB per file.
+# Chunks are concatenated in array order (chunk-aa, chunk-ab) then
+# SHA-verified as a single file against MODEL_SHA256 below.
 #
-# When the model lands:
-#   1. Compute sha256 of the published file:  sha256sum qwen2.5-3b-instruct-rk3588-w8a8.rkllm
-#   2. Replace MODEL_SHA256 below with the result.
-#   3. Confirm DOWNLOAD_URL matches the CDN-published URL.
-#   4. Bump info.json version.
-DOWNLOAD_URL="https://functionyard.fx.land/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
-MODEL_SHA256="__SET_BEFORE_RELEASE__"
+# DOWNLOAD_URL stays as the FIRST chunk URL so the install.sh
+# placeholder-check + Phase 18 manifest-helper fallback path (which
+# expects a single URL string) still works.
+CHUNK_URLS=(
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-ab"
+)
+DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
+MODEL_SHA256="b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607"
 
 MODEL_DIR="/uniondrive/blox-ai/model"
 MODEL_FILE="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
@@ -46,6 +48,12 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
             --fallback-sha256 "$MODEL_SHA256" 2>/dev/null); then
         eval "$MANIFEST_EVAL"
         DOWNLOAD_URL="$MODEL_URL"
+        # Manifest schema v1 carries a single URL per entry, not a
+        # chunk list. Treat manifest-overridden downloads as single-file
+        # so the chunked-assembly path below collapses to one wget+SHA.
+        # When the schema bumps to support chunked URLs, update this
+        # block to read the chunks array from the helper instead.
+        CHUNK_URLS=("$MODEL_URL")
         # MODEL_SHA256, MODEL_VERSION, MODEL_SIZE_BYTES, MANIFEST_SOURCE
         # are now set from the helper's output.
         echo "Phase 18 manifest source: ${MANIFEST_SOURCE:-unknown}"
@@ -123,52 +131,75 @@ else
     echo "Model file does not exist."
 fi
 
-# Start downloading in the background
-nohup wget -b -N -P "$MODEL_DIR" "$DOWNLOAD_URL" &> "$LOG_FILE" &
-WGET_PID=$!
-
-# Wait for the file to finish downloading. Per Codex post-review: build the
-# pgrep pattern from MODEL_BASENAME so swapping models doesn't leave a
-# stale grep pattern referencing the old model name.
-echo "Waiting for the file to be fully downloaded..."
+# ---------------------------------------------------------------------------
+# Download all chunks sequentially, assemble, then SHA-verify the assembled
+# file. Per-chunk SHAs aren't enforced — the assembled-file SHA below is the
+# single integrity boundary, so a corrupted chunk shows up as an assembled-
+# file mismatch and triggers the same delete+retry cycle as a corrupted
+# single-file download.
+# ---------------------------------------------------------------------------
+echo "Downloading ${#CHUNK_URLS[@]} chunk(s)..."
 RETRY_COUNT=0
 while true; do
-    if pgrep -f "wget.*${MODEL_BASENAME}" > /dev/null; then
-        echo "Download in progress..."
-        sleep 10
-    else
-        FILE_SIZE=0
-        if [ -f "$MODEL_FILE" ]; then
-            FILE_SIZE=$(stat -c%s "$MODEL_FILE")
+    # Clean any partial state from a prior failed cycle. Done at the top
+    # of every cycle so a fresh attempt always starts from a known state.
+    rm -f "$MODEL_DIR"/chunk-* "$MODEL_FILE"
+
+    DOWNLOAD_OK=true
+    CHUNK_PATHS=()
+    for url in "${CHUNK_URLS[@]}"; do
+        chunk_path="$MODEL_DIR/$(basename "$url")"
+        CHUNK_PATHS+=("$chunk_path")
+        # --tries: built-in wget retry for transient connection drops.
+        # --waitretry: backoff between retries.
+        # --timeout: per-connection timeout (read/connect).
+        # No --continue: each cycle restarts cleanly per the rm above.
+        if ! wget --tries=3 --waitretry=10 --timeout=60 \
+                  -O "$chunk_path" "$url" >> "$LOG_FILE" 2>&1; then
+            echo "Chunk download failed: $url"
+            DOWNLOAD_OK=false
+            break
         fi
-        if [ -f "$MODEL_FILE" ] && [ "$FILE_SIZE" -ge "$SIZE_LIMIT" ]; then
-            echo "File downloaded; size OK. Verifying SHA-256..."
-            if verify_sha "$MODEL_FILE" "$MODEL_SHA256"; then
-                echo "SHA verified."
-                break
-            else
+    done
+
+    if $DOWNLOAD_OK; then
+        # Concatenate in URL order. cat handles arbitrary chunk count;
+        # explicit "${CHUNK_PATHS[@]}" expansion avoids glob ordering
+        # surprises if extra chunk-* files somehow exist in the dir.
+        if cat "${CHUNK_PATHS[@]}" > "$MODEL_FILE"; then
+            FILE_SIZE=$(stat -c%s "$MODEL_FILE")
+            if [ "$FILE_SIZE" -ge "$SIZE_LIMIT" ]; then
+                echo "File downloaded; size OK. Verifying SHA-256..."
+                if verify_sha "$MODEL_FILE" "$MODEL_SHA256"; then
+                    echo "SHA verified."
+                    # Free disk: drop chunk files now that the assembled
+                    # file is verified. Chunks are no longer needed.
+                    rm -f "$MODEL_DIR"/chunk-*
+                    break
+                fi
                 # User override of the .corrupt.<ts> quarantine pattern:
                 # a corrupt .rkllm blob has no forensic value (it's an
                 # opaque tensor file; we can't introspect it). Just
-                # delete and free the disk. Next install re-downloads.
+                # delete and free the disk. Next cycle re-downloads.
                 echo "SHA mismatch after download — refusing to start service."
-                echo "Deleting bad file ($MODEL_FILE); next install will re-download."
-                rm -f "$MODEL_FILE"
-                exit 1
+            else
+                echo "Assembled file too small ($FILE_SIZE bytes < $SIZE_LIMIT)"
             fi
         else
-            echo "Download failed or incomplete."
-            if [ $RETRY_COUNT -lt 3 ]; then
-                echo "Retrying..."
-                kill "$WGET_PID" 2>/dev/null
-                nohup wget -b -N -P "$MODEL_DIR" "$DOWNLOAD_URL" &> "$LOG_FILE" &
-                WGET_PID=$!
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-            else
-                echo "Max retries reached. Exiting."
-                exit 1
-            fi
+            echo "Failed to assemble chunks into $MODEL_FILE"
         fi
+    fi
+
+    # This cycle failed; clean up + retry the FULL chunk set.
+    echo "Deleting bad files; will retry full download."
+    rm -f "$MODEL_DIR"/chunk-*
+    rm -f "$MODEL_FILE"
+    if [ $RETRY_COUNT -lt 3 ]; then
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo "Retrying (attempt $RETRY_COUNT/3)..."
+    else
+        echo "Max retries reached. Exiting."
+        exit 1
     fi
 done
 
