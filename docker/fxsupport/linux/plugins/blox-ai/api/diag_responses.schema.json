@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/diag_responses.v1.schema.json",
+  "title": "Blox AI diag/* endpoint response shapes",
+  "description": "Phase 9 contract. Each GET /diag/<name> endpoint returns a JSON body conforming to one of the schemas below. The container enforces on response; fula-ota proxy passes through. Subsystem enum + severity enum (green|yellow|red) are reused from sse_events.schema.json for cross-shape consistency (Codex pre-review).",
+  "schema_version": 1,
+  "$defs": {
+    "severity": { "enum": ["green", "yellow", "red"] },
+    "iso8601_datetime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$",
+      "description": "ISO 8601 / RFC 3339 timestamp. The `pattern` is the enforcement (validators with format checker disabled still reject bad strings); `format: date-time` is for tooling annotation."
+    },
+    "subsystem_name": {
+      "enum": [
+        "internet",
+        "relay",
+        "time",
+        "power",
+        "storage",
+        "containers",
+        "wireguard",
+        "heartbeat"
+      ]
+    },
+    "internet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dns_ok", "https_google_ok", "https_discovery_ok"],
+      "properties": {
+        "dns_ok":               { "type": "boolean" },
+        "https_google_ok":      { "type": "boolean" },
+        "https_discovery_ok":   { "type": "boolean" },
+        "latency_ms_avg":       { "type": "number", "minimum": 0 },
+        "captive_portal_likely": { "type": "boolean" },
+        "checked_at":           { "$ref": "#/$defs/iso8601_datetime" }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relays", "reservation_count"],
+      "properties": {
+        "relays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["addr"],
+            "properties": {
+              "addr":                     { "type": "string", "minLength": 1 },
+              "dns_name":                 { "type": "string" },
+              "swarm_connect_ok":         { "type": "boolean" },
+              "has_circuit_reservation":  { "type": "boolean" },
+              "latency_ms":               { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "reservation_count": { "type": "integer", "minimum": 0 },
+        "checked_at":        { "$ref": "#/$defs/iso8601_datetime" }
+      }
+    },
+    "time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["synced"],
+      "properties": {
+        "synced":        { "type": "boolean" },
+        "offset_ms":     { "type": "number" },
+        "service":       { "enum": ["chronyd", "systemd-timesyncd", "none", "unknown"] },
+        "last_sync_ts":  { "$ref": "#/$defs/iso8601_datetime" }
+      }
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uptime_s"],
+      "properties": {
+        "undervoltage_events_24h": { "type": "integer", "minimum": 0 },
+        "recent_reboots":          { "type": "integer", "minimum": 0 },
+        "max_temp_c":              { "type": "number" },
+        "soc_voltage_ratio":       { "type": "number", "minimum": 0 },
+        "uptime_s":                { "type": "integer", "minimum": 0 }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["df", "ext4_errors_count", "dmesg_io_errors_1h"],
+      "properties": {
+        "df": {
+          "type": "object",
+          "description": "df -hT keyed by mount; values are free-form JSON for the container's choice of fields"
+        },
+        "ext4_errors_count":  { "type": "integer", "minimum": 0 },
+        "dmesg_io_errors_1h": { "type": "integer", "minimum": 0 },
+        "smartctl_health":    { "enum": ["PASSED", "FAILED", "unknown"] }
+      }
+    },
+    "containers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["containers"],
+      "properties": {
+        "containers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "state"],
+            "properties": {
+              "name":          { "type": "string", "minLength": 1 },
+              "state":         { "enum": ["running", "restarting", "exited", "paused", "dead", "created"] },
+              "oom_killed":    { "type": "boolean" },
+              "restart_count": { "type": "integer", "minimum": 0 },
+              "image":         { "type": "string" },
+              "started_at":    { "$ref": "#/$defs/iso8601_datetime" }
+            }
+          }
+        }
+      }
+    },
+    "wireguard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installed", "registered", "active"],
+      "properties": {
+        "installed":                  { "type": "boolean" },
+        "registered":                 { "type": "boolean" },
+        "active":                     { "type": "boolean" },
+        "last_handshake_age_sec":     { "type": "integer" },
+        "rx_bytes":                   { "type": "integer", "minimum": 0 },
+        "tx_bytes":                   { "type": "integer", "minimum": 0 },
+        "persistent_keepalive_sec":   { "type": "integer", "minimum": 0 }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last_attempt_ts"],
+      "properties": {
+        "last_attempt_ts":     { "$ref": "#/$defs/iso8601_datetime" },
+        "http_status":         { "type": "integer", "minimum": 0 },
+        "error":               { "type": "string", "maxLength": 1000 },
+        "last_circuit_count":  { "type": "integer", "minimum": 0 },
+        "last_reserved_on":    { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ts", "category", "detail"],
+            "properties": {
+              "ts":       { "$ref": "#/$defs/iso8601_datetime" },
+              "category": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "detail":   { "type": "string", "maxLength": 2000 }
+            }
+          }
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recent_log"],
+      "properties": {
+        "recent_log":      { "type": "string" },
+        "last_failure_ts": { "$ref": "#/$defs/iso8601_datetime" },
+        "recover_state":   { "type": "object" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "subsystems", "generated_at"],
+      "properties": {
+        "overall":      { "$ref": "#/$defs/severity" },
+        "generated_at": { "$ref": "#/$defs/iso8601_datetime" },
+        "subsystems": {
+          "type": "object",
+          "description": "Keys are constrained to the subsystem_name enum (Codex pre-review HIGH — prevents drift between summary and the per-subsystem diag/* responses).",
+          "propertyNames": { "$ref": "#/$defs/subsystem_name" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status"],
+            "properties": {
+              "status":      { "$ref": "#/$defs/severity" },
+              "key_metrics": {
+                "type": "object",
+                "description": "Subsystem-specific summary metrics. Free-form — container chooses the most-relevant 2-3 keys for triage."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

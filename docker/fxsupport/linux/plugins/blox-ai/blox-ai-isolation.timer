@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic isolation-mode trigger for Blox AI (every 6h)
+
+[Timer]
+# 6h cadence matches the plan's "no libp2p AND no BLE for >6h" idleness
+# threshold; running more often than the threshold itself would do nothing
+# useful (criteria couldn't have changed). Persistent=true catches up
+# missed runs after device offline periods.
+OnBootSec=15min
+OnUnitActiveSec=6h
+Persistent=true
+Unit=blox-ai-isolation.service
+
+[Install]
+WantedBy=timers.target

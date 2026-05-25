@@ -190,9 +190,9 @@ Optional plugins extend device functionality. Each plugin includes `install.sh`,
 | Plugin | Purpose | Requirements |
 |--------|---------|-------------|
 | **streamr-node** | Runs a Streamr node to earn $DATA token rewards | Port 32200 forwarding |
-| **loyal-agent** | Local AI agent using NPU (deepseek-llm-7b-chat model) | 32GB RAM, 10GB storage, ARM64 only |
+| **blox-ai** | On-device troubleshooting AI assistant (NPU-accelerated; previously the `loyal-agent` slot) | 4GB RAM, 5GB storage, RK3588 (ARM64 + NPU) |
 
-Active plugins are tracked in `/home/pi/active-plugins.txt`. The PC installer excludes hardware-specific plugins (e.g. `loyal-agent`).
+Active plugins are tracked in `/home/pi/active-plugins.txt`. The PC installer excludes hardware-specific plugins (e.g. `blox-ai`).
 
 ### Command Handler
 
@@ -349,7 +349,7 @@ fula-ota/
         bluetooth.py            # BLE setup and command handling
         local_command_server.py # TCP command server
         control_led.py          # LED control for device status
-        plugins/                # Plugin system (loyal-agent, streamr-node)
+        plugins/                # Plugin system (blox-ai, streamr-node)
         ...
     fula-pinning/
       Dockerfile                # Go build stage + alpine runtime

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "_notes": [
+    "The trust boundary for AI-initiated repair actions. Bind-mounted into the blox-ai container as /etc/fula/action_whitelist.json:ro.",
+    "Phase 10 ships the executor that ENFORCES this whitelist. Phase 7 just defines the boundary.",
+    "Action names align with the dispatch keys in docker/fxsupport/linux/local_command_server.py wherever possible (per advisor consensus) so the executor does not need a translation table. Entries with `maps_to_core: true` are dispatched by writing to /home/pi/commands/.command_<name> flag files (commands.sh / local_command_server.py picks them up). Entries with `maps_to_core: false` are container-side (parameterized actions whose vocabulary core does not have a single entry for).",
+    "AI may never invoke an action name not in tier_1_read / tier_2_idempotent / tier_3_destructive. Fail-closed at the executor."
+  ],
+
+  "tier_1_read": {
+    "_notes": "Side-effect-free probes. AI runs without approval. diag/* is the namespace shipped in Phase 6's ble_commands.json.",
+    "actions": [
+      "diag/*",
+      "journalctl.read",
+      "file.read"
+    ]
+  },
+
+  "tier_2_idempotent": {
+    "_notes": "Idempotent repairs the user approves with a single tap (no security code).",
+    "actions": {
+      "restart_fula":         {"maps_to_core": true,  "description": "systemctl restart fula.service"},
+      "restart_uniondrive":   {"maps_to_core": true,  "description": "systemctl restart uniondrive.service (also wireguard)"},
+      "docker.restart":       {"maps_to_core": false, "description": "Restart one container in the fula stack. Arg-constrained."},
+      "systemctl.restart":    {"maps_to_core": false, "description": "Restart one host unit from the canonical fula set. Arg-constrained."},
+      "systemctl.reset-failed": {"maps_to_core": false, "description": "Clear systemd start-limit lockout for one fula unit. Arg-constrained."},
+      "wireguard.bounce":     {"maps_to_core": false, "description": "wg-quick down support && wg-quick up support"},
+      "ntp.resync":           {"maps_to_core": false, "description": "Force chrony makestep / timesyncd restart per detected daemon"}
+    }
+  },
+
+  "tier_3_destructive": {
+    "_notes": "Destructive or hard-to-reverse. User must enter security code + press-and-hold (Phase 12 UX).",
+    "actions": {
+      "reset":           {"maps_to_core": true,  "description": "Full system reset — deletes config and reboots. NOT a plain reboot."},
+      "partition":       {"maps_to_core": true,  "description": "Expand uniondrive partition (typically only useful at provisioning)."},
+      "node_delete":     {"maps_to_core": true,  "description": "Purge chain DB (forces re-sync; minutes to hours)."},
+      "ipfs_delete":     {"maps_to_core": true,  "description": "Purge IPFS datastore (LOSES locally-pinned content)."},
+      "force_update":    {"maps_to_core": true,  "description": "Force OTA pull + restart of fula stack."}
+    }
+  },
+
+  "argument_constraints": {
+    "_notes": "Even if action_name is whitelisted, the args must match. Fail-closed at executor. NOT applicable to maps_to_core actions — those take no args and dispatch via flag files.",
+
+    "docker.restart": {
+      "container": [
+        "ipfs_host",
+        "ipfs_cluster",
+        "ipfs_local",
+        "fula_go",
+        "fula_pinning",
+        "fula_gateway",
+        "fula_fxsupport",
+        "fula_updater"
+      ]
+    },
+
+    "systemctl.restart": {
+      "unit": [
+        "fula.service",
+        "uniondrive.service",
+        "wireguard-support.service",
+        "fula-readiness-check.service",
+        "commands.service",
+        "fula-plugins.service",
+        "firewall.service"
+      ]
+    },
+
+    "systemctl.reset-failed": {
+      "_notes": "Includes fula-readiness-check-recover.service (not in systemctl.restart above) because recover.service is Type=oneshot — restarting a oneshot is meaningless, but reset-failed clears the start-limit lockout the recover unit can hit. See Phase 2 work.",
+      "unit": [
+        "fula.service",
+        "uniondrive.service",
+        "fula-readiness-check.service",
+        "fula-readiness-check-recover.service",
+        "wireguard-support.service",
+        "commands.service",
+        "fula-plugins.service",
+        "firewall.service"
+      ]
+    }
+  }
+}

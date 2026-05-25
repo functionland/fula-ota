@@ -1,0 +1,59 @@
+# SECURITY NOTE (Phase 7): the docker.sock mount below gives this container
+# host-root-equivalent power (any docker API call from inside the container
+# can spawn privileged containers, mount the host fs, etc.). Phase 10
+# implements the API-level approval gate (HMAC token + tier-3 security code)
+# that contains this. Until Phase 10 lands, treat blox-ai as opt-in only —
+# the plugin install requires user action. `:ro` on a unix socket is NOT a
+# meaningful security boundary (Codex post-review).
+#
+# DEFERRED TO PHASE 10: the HMAC approval secret needs a writable host-side
+# location. Gemini post-review HIGH recommended adding `- /run/fula-ai:/run/fula-ai:rw`
+# now; Codex post-review HIGH disagreed (defer + use the narrowest possible
+# mount — single-file bind, or `:ro` if host writes the secret and container
+# only reads). Followed Codex's least-surface principle for Phase 7; the
+# Phase 10 author MUST design this mount (single-file bind preferred) when
+# implementing the executor. Do not broaden /run to writable.
+services:
+  blox-ai:
+    image: functionland/blox-ai:latest
+    container_name: blox-ai
+    security_opt:
+      - systempaths=unconfined
+      - no-new-privileges:true
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - TARGET_PLATFORM=rk3588
+      - RKLLM_MODEL_PATH=/uniondrive/model/qwen2.5-3b-instruct-rk3588-w8a8.rkllm
+    volumes:
+      - /uniondrive/blox-ai:/uniondrive
+      # /run is tmpfs holding Layer 1.8 state files written by readiness-check.py
+      - /run:/run:ro
+      # /var/log/fula holds events.jsonl (read) + ai-actions.jsonl (write, Phase 10)
+      - /var/log/fula:/var/log/fula
+      # docker.sock — see SECURITY NOTE above
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Runbook the model loads at session start (Phase 7)
+      - ./runbook.md:/usr/bin/fula/ai/runbook.md:ro
+      # Action trust boundary (Phase 7); Phase 10 executor reads this on container start
+      - ./action_whitelist.json:/etc/fula/action_whitelist.json:ro
+      # API contract schemas (Phase 9): SSE event shapes + diag/* response shapes.
+      # Container validates outgoing events against sse_events.schema.json before
+      # emit (catches LLM tool-call hallucinations). diag/* response handlers
+      # validate against diag_responses.schema.json before returning.
+      - ./api:/etc/fula/blox-ai/api:ro
+      # Phase 10 executor: HMAC approval-token tmpfs. NARROW subdir (not all
+      # of /run :rw — Codex Phase 7 post-review). Writable because container
+      # generates the secret at start. Per-container-start rotation
+      # (advisor consensus HIGH) means invalidating in-flight approvals
+      # on restart, which is the correct failure mode for destructive ops.
+      - /run/fula-ai:/run/fula-ai:rw
+      # Phase 10 executor: tier-3 security code config file. Single-file
+      # bind, read-only — container only reads, never writes. fula.sh
+      # creates this file at boot with default '1234'. User can edit
+      # to set per-device code; container reads on each tier-3 request
+      # (no caching) so rotation takes effect immediately.
+      - /etc/fula/blox-ai/security-code:/etc/fula/blox-ai/security-code:ro
+    command: --target_platform ${TARGET_PLATFORM} --rkllm_model_path ${RKLLM_MODEL_PATH}
+    ports:
+      - "8083:8083"

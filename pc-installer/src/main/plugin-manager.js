@@ -5,8 +5,11 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
-// Plugins that require specific hardware (excluded on PC)
-const PC_EXCLUDED_PLUGINS = ['loyal-agent'];
+// Plugins that require specific hardware (excluded on PC).
+// `blox-ai` is the renamed `loyal-agent` slot (RK3588 NPU only);
+// the old name stays in the list so devices that haven't OTA'd to the
+// renamed slot still see the original plugin excluded on PC.
+const PC_EXCLUDED_PLUGINS = ['blox-ai', 'loyal-agent'];
 
 class PluginManager extends EventEmitter {
   constructor(dockerManager, configStore, logger) {

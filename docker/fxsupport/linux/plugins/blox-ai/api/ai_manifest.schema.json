@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/ai_manifest.v1.schema.json",
+  "title": "Blox AI model manifest (/etc/fula/ai-manifest.json)",
+  "description": "Phase 18 contract. CDN-published manifest that controls which model version a device runs. download_model.sh fetches this on each plugin (re)start and selects either `current` or `rollback` based on `rollback_required`. Lets the developer ship a one-line manifest update to flip a fleet back to a known-good model version without re-pushing the plugin or coordinating with each device. Both `current` and `rollback` are required so a rollback is always possible — refusing to ship a manifest with `rollback: null` is a deliberate operational discipline (if you can't roll back, you shouldn't roll forward).",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "current", "rollback", "rollback_required"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Bumped on breaking changes to manifest shape. Plugin refuses to parse manifests with unknown schema_version."
+    },
+    "current": {
+      "$ref": "#/$defs/ModelEntry",
+      "description": "The model version the fleet SHOULD be running when rollback_required=false."
+    },
+    "rollback": {
+      "$ref": "#/$defs/ModelEntry",
+      "description": "The known-good prior version. Selected on every plugin restart when rollback_required=true. Operationally, this is the model the developer would point to if `current` turns out to misbehave in production. SHOULD be different from `current` (a manifest with current==rollback is technically valid but operationally pointless — log a warning at load time)."
+    },
+    "rollback_required": {
+      "type": "boolean",
+      "description": "When true, the next plugin restart picks `rollback`. The plugin does NOT auto-restart on manifest change — operator (or a future OTA hook) triggers the restart. Once published as true, devices migrate to rollback over the natural cadence of plugin restarts."
+    },
+    "manifest_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional monotone counter for cache-busting + drift detection. Not enforced by the schema's required list (forward compat with CDN tooling that adds it later)."
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$",
+      "description": "Optional. When the manifest was published. Useful for forensic 'what was the active version at time T?' queries."
+    }
+  },
+  "$defs": {
+    "ModelEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_version", "url", "sha256", "size_bytes"],
+      "properties": {
+        "model_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Opaque version string. Convention: ISO-like date or semver. Used in the local cache filename so different versions can coexist on disk during a swap."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "HTTPS-only. The CDN MUST serve the model file at this URL with a stable byte-for-byte response across restarts (so the SHA below stays valid)."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Lowercase hex SHA-256 of the model file at `url`. Plugin refuses to swap to a downloaded file whose SHA doesn't match."
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1000000000,
+          "maximum": 20000000000,
+          "description": "Expected file size in bytes (≥1 GB, ≤20 GB). Used as an early-fail check before the slow SHA computation on slow links."
+        },
+        "rkllm_version": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Optional. RKLLM toolkit version that produced this .rkllm file. Plugin can warn (not refuse) when the container's expected RKLLM version doesn't match."
+        }
+      }
+    }
+  }
+}

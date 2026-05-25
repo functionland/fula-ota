@@ -13,3 +13,5 @@ docker/windows-amd64/cert
 docker/fula-gateway/fula-local-gateway/.cargo/config.toml
 docker/fula-pinning/fula-pinning
 pc-installer/package-lock.json
+/tests/__pycache__
+/docker/fxsupport/linux/plugins/blox-ai/__pycache__

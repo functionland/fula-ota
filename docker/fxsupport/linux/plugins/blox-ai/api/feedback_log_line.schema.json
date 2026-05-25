@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/feedback_log_line.v1.schema.json",
+  "title": "Blox AI /var/log/fula/ai-feedback.jsonl line shape",
+  "description": "Phase 16 contract. Container appends one JSON object per line to /var/log/fula/ai-feedback.jsonl on every /feedback request. Rotates at 10 MB matching ai-pending-actions.jsonl convention (entries are rare — once per AI session). Persistent across reboots so the developer can pull via the existing diag/feedback / log-fetch BLE path during support.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ts",
+    "session_id",
+    "user_rating",
+    "verdict_summary",
+    "actions_taken",
+    "anonymized_transcript_uploaded"
+  ],
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$",
+      "description": "When the feedback was received by the container."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "user_rating": {
+      "enum": [-1, 0, 1]
+    },
+    "verdict_summary": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "verdict.payload.summary from the session's final verdict event. Empty string when the session was evicted before feedback arrived (in-memory only; lost across container restart)."
+    },
+    "actions_taken": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action_id", "action", "tier", "executed"],
+        "properties": {
+          "action_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "action":    {"type": "string", "minLength": 1, "maxLength": 64},
+          "tier":      {"enum": [1, 2, 3]},
+          "executed":  {"type": "boolean"}
+        }
+      },
+      "description": "Compact references to what ran during the session. Joined to ai-actions.jsonl via action_id when fuller forensics are needed. Empty array when no actions executed (verdict-only sessions, or feedback after session eviction)."
+    },
+    "comment": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "User's freeform comment. CR/LF stripped before write. Absent when user didn't type one."
+    },
+    "anonymized_transcript_uploaded": {
+      "type": "boolean",
+      "description": "Set true ONLY when the user opted-in to the Phase 21 transcript upload AND the upload completed successfully. Default false. Lets a developer reading this log distinguish 'user gave feedback locally' from 'user also shared transcript' without consulting another data source."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Recover fula-readiness-check after start-limit lockout
+# Triggered via OnFailure= from fula-readiness-check.service when the main
+# unit hits StartLimitBurst (10 crashes in 5 min) and enters the failed state.
+# The Python driver handles all policy (sleep, reset-failed, restart, persistent
+# reboot budget, sentinel debounce) so this unit stays a thin systemd hook.
+ConditionPathExists=/usr/bin/fula/readiness-check-recover.py
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python /usr/bin/fula/readiness-check-recover.py
+# Bounded so a wedged recovery script can't hold systemd hostage. The driver
+# does one sleep of 30s plus a few subprocess calls; 180s is generous.
+TimeoutStartSec=180

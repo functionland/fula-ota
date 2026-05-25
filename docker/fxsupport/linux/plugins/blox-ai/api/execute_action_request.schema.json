@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/execute_action_request.v1.schema.json",
+  "title": "Blox AI POST /execute-action request body",
+  "description": "Phase 10 contract. The phone app submits this body via the BLE proxy when the user taps Approve on a `recommended_action` event. Container validates: action_id matches a known recommended_action, approval_token verifies + isn't expired + isn't replayed, security_code matches /etc/fula/blox-ai/security-code (only required for tier-3 actions per action_whitelist.json).",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action_id", "approval_token"],
+  "properties": {
+    "action_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Matches the action_id from the `recommended_action` SSE event the user approved."
+    },
+    "approval_token": {
+      "type": "string",
+      "description": "Opaque token issued by the container with the recommended_action event. Shape: base64url(json({action_id, expires_at, nonce, hmac})). Container verifies HMAC + expires_at + nonce uniqueness (in-memory LRU per container restart). Schema treats as opaque + bounded.",
+      "minLength": 64,
+      "maxLength": 2048
+    },
+    "security_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Required for tier-3 destructive actions. Container compares against contents of /etc/fula/blox-ai/security-code (root-only file, default '1234' shipped by fula.sh). User can edit the file to set a per-device code. If file is missing/empty, tier-3 actions are REJECTED."
+    }
+  }
+}

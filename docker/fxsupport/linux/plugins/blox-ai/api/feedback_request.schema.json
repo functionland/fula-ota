@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/feedback_request.v1.schema.json",
+  "title": "Blox AI POST /feedback request body",
+  "description": "Phase 16 contract. The app submits this body via the BLE proxy (ai/feedback) when the user dismisses an AI session. Container appends one line to /var/log/fula/ai-feedback.jsonl per feedback_log_line.schema.json. Feedback is local-only — no central upload happens here. The Phase C opt-in transcript upload is a SEPARATE flow (POST direct from app to https://ai-training.fx.land/transcripts) and is gated by anonymization + per-session explicit consent.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "rating"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "From the session_started event of the corresponding /troubleshoot stream. Container looks up the session to pull verdict + actions taken; if the session has been evicted from the in-memory dict (TTL or LRU), container still accepts the feedback but writes verdict_summary='' and actions_taken=[] (don't lose the user's rating)."
+    },
+    "rating": {
+      "enum": [-1, 0, 1],
+      "description": "1 = thumbs up (helpful), -1 = thumbs down (not helpful), 0 = explicit skip. Required so 'modal dismissed by tap-outside' is distinguishable from a deliberate skip (the app sends 0 only when the user tapped Skip)."
+    },
+    "comment": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Optional freeform text. Container MUST sanitize for log injection (escape/forbid CR/LF) before appending to the JSONL. NEVER auto-uploaded — only persists in /var/log/fula/ai-feedback.jsonl."
+    }
+  }
+}

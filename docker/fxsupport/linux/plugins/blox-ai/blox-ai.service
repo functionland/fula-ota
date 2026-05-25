@@ -1,0 +1,16 @@
+[Unit]
+Description=Blox AI
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=3600
+StartLimitBurst=12
+
+[Service]
+WorkingDirectory=/home/pi/.internal/plugins/blox-ai
+ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml down
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.functionland.dev/fula/blox-ai/user_reply_request.v1.schema.json",
+  "title": "Blox AI POST /troubleshoot/user-reply request body",
+  "description": "Phase 11 contract. The app submits this body via the BLE proxy when the user answers a `user_question` event. Container looks up session by session_id (404 if expired/unknown), validates question_id matches the most recent unanswered user_question for that session, appends reply_text to model context, refreshes TTL, then resumes the model's reasoning on the open SSE stream.",
+  "schema_version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "question_id", "reply_text"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "From the `session_started` event of the original /troubleshoot call."
+    },
+    "question_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "From the `user_question` event being answered."
+    },
+    "reply_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Freeform user text. For expected_response_type=boolean the app sends 'yes'/'no'; for choice it sends the selected option's exact string. Container does NOT enforce match against expected_response_type — that's a UX-side concern."
+    }
+  }
+}
