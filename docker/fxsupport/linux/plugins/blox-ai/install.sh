@@ -15,6 +15,14 @@ BLOX_AI_DIR="$INTERNAL_DIR/plugins/$PLUGIN_NAME"
 PLUGIN_EXEC_DIR="/usr/bin/fula/plugins/${PLUGIN_NAME}"
 COMMANDS_DIR="/home/$USER/commands"
 
+# Container's bloxai user is uid 1000 (Dockerfile pins it). Match host's
+# pi user (also uid 1000 on RK3588 fula-ota images) for read/write across
+# bind mounts. Literal "1000:1000" fallback covers a hypothetical fleet
+# member where the `pi` user lookup fails (shouldn't happen on fula-ota
+# but defensive — Gemini v2 advisor catch).
+PLUGIN_OWNER="pi:pi"
+id -u pi >/dev/null 2>&1 || PLUGIN_OWNER="1000:1000"
+
 # ---------------------------------------------------------------------------
 # Phase 6 migration shim — clean up the prior `loyal-agent` plugin slot.
 # Idempotent; safe to run when no loyal-agent unit/dir exists. The /uniondrive
@@ -82,7 +90,111 @@ sleep 1
 # Copy docker-compose file
 
 cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$BLOX_AI_DIR/"
-cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
+
+# .env: preserve device-side customizations across OTAs.
+#
+# The naive `cp` overwrites every OTA, wiping per-device overrides
+# (canary's BLOX_AI_IMAGE_TAG=test, admin's custom BLOX_AI_MODEL_PATH,
+# emergency rollback's BLOX_AI_IMAGE_TAG=rollback-2026-05-26). Instead:
+# fresh install gets the shipped file; existing devices keep their .env
+# and only have NEW keys we ship appended.
+#
+# Hardening (advisor catches):
+#   - Literal key match (no regex injection)
+#   - Strict key validation: ^[A-Za-z_][A-Za-z0-9_]*$
+#   - CRLF / `export X=y` / leading whitespace normalized before lookup
+#     in BOTH shipped and existing files (so device's `export X=y`
+#     isn't seen as missing)
+#   - `|| [ -n "$key$val" ]` catches last line without trailing newline
+#   - Log key names only — never values (some keys hold paths/secrets)
+#   - DOCKER_GID NOT in FORCE_UPDATE_KEYS because the dedicated
+#     dynamic-detection block below sed-updates it from getent.
+FORCE_UPDATE_KEYS=""   # empty by default; add keys here only with cause
+
+if [ ! -f "$BLOX_AI_DIR/.env" ]; then
+  cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
+  echo "[blox-ai install] shipped fresh .env"
+elif [ -f "${PLUGIN_EXEC_DIR}/.env" ]; then
+  echo "[blox-ai install] preserving existing .env, merging new keys"
+  TMPSHIP=$(mktemp)
+  TMPDEV=$(mktemp)
+  trap 'rm -f "$TMPSHIP" "$TMPDEV"' EXIT
+  sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+    "${PLUGIN_EXEC_DIR}/.env" > "$TMPSHIP"
+  sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+    "$BLOX_AI_DIR/.env" > "$TMPDEV"
+
+  # `|| [ -n "$key$val" ]` catches files without trailing newline
+  # so the last line isn't dropped.
+  while IFS='=' read -r key val || [ -n "$key$val" ]; do
+    case "$key" in ''|\#*) continue ;; esac
+    key=$(printf '%s' "$key" | sed 's/[[:space:]]\+$//')
+    # Validate as POSIX shell identifier
+    case "$key" in
+      [A-Za-z_]*) : ;;
+      *) echo "[blox-ai install] skipping invalid key: $key"; continue ;;
+    esac
+    case "$key" in
+      *[!A-Za-z0-9_]*) echo "[blox-ai install] skipping invalid key: $key"; continue ;;
+    esac
+
+    for fk in $FORCE_UPDATE_KEYS; do
+      if [ "$key" = "$fk" ]; then
+        if grep -q "^${key}=" "$TMPDEV"; then
+          # Escape val for sed RHS (& | \ are sed-special).
+          val_esc=$(printf '%s\n' "$val" | sed -e 's/[&|\\]/\\&/g')
+          sed -i "s|^${key}=.*|${key}=${val_esc}|" "$BLOX_AI_DIR/.env"
+          echo "[blox-ai install] force-updated key: ${key}"
+        else
+          [ -s "$BLOX_AI_DIR/.env" ] && \
+            [ -n "$(tail -c1 "$BLOX_AI_DIR/.env")" ] && \
+            echo "" >> "$BLOX_AI_DIR/.env"
+          echo "${key}=${val}" >> "$BLOX_AI_DIR/.env"
+          echo "[blox-ai install] appended force-update key: ${key}"
+        fi
+        continue 2
+      fi
+    done
+
+    if ! grep -q "^${key}=" "$TMPDEV"; then
+      [ -s "$BLOX_AI_DIR/.env" ] && \
+        [ -n "$(tail -c1 "$BLOX_AI_DIR/.env")" ] && \
+        echo "" >> "$BLOX_AI_DIR/.env"
+      echo "${key}=${val}" >> "$BLOX_AI_DIR/.env"
+      echo "[blox-ai install] appended new key: ${key}"
+    fi
+  done < "$TMPSHIP"
+fi
+
+# Append host-specific DOCKER_GID so the container can read /var/run/docker.sock.
+# The sock is owned by root:<docker_gid> on the host; the container's bloxai
+# user (uid 1000) needs to be added to that GID via group_add in compose.
+# Detect dynamically because the docker group GID varies by distro install
+# path (Armbian/Ubuntu apt install often produces 990, but compose-installed
+# docker can pick 999 or 1001). Without this, docker-py inside the container
+# gets PermissionError(13) and diag/containers returns running_count=0.
+#
+# Idempotent: we grep for the key first so reinstalls don't append duplicates,
+# and overwrite the line if the host's docker_gid changed (rare, but the
+# previous append would otherwise leave a stale value that breaks compose).
+DOCKER_GID=$(getent group docker 2>/dev/null | cut -d: -f3 || true)
+if [ -n "$DOCKER_GID" ]; then
+  # Ensure .env ends with a newline before appending (otherwise the new
+  # line concatenates onto the previous one — e.g. the shipped .env from
+  # the image not ending in \n produced a malformed line
+  # `BLOX_AI_MODEL_PATH=...rkllmDOCKER_GID=990` that broke env parsing).
+  if [ -s "$BLOX_AI_DIR/.env" ] && [ -n "$(tail -c1 "$BLOX_AI_DIR/.env")" ]; then
+    echo "" >> "$BLOX_AI_DIR/.env"
+  fi
+  if grep -q '^DOCKER_GID=' "$BLOX_AI_DIR/.env" 2>/dev/null; then
+    sed -i "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID}|" "$BLOX_AI_DIR/.env"
+  else
+    echo "DOCKER_GID=${DOCKER_GID}" >> "$BLOX_AI_DIR/.env"
+  fi
+  echo "wired DOCKER_GID=${DOCKER_GID} into ${BLOX_AI_DIR}/.env"
+else
+  echo "WARNING: could not detect host docker group GID; diag/containers will fail"
+fi
 # Phase 7: copy runbook + action_whitelist so the docker-compose `./`
 # bind-mount source files exist at the WorkingDirectory the systemd unit
 # uses ($BLOX_AI_DIR). Without these, the container start would fail
@@ -94,12 +206,20 @@ cp -r "${PLUGIN_EXEC_DIR}/api" "$BLOX_AI_DIR/"
 sync
 sleep 1
 
-# Ensure /var/log/fula exists for the container's mount target. Conservative
-# perms per Codex post-review (0775 not 0777 — only root + container's gid
-# needs write). Idempotent: a no-op if Phase 1's readiness-check already
-# created it via os.makedirs.
+# Ensure /var/log/fula exists for the container's mount target.
+# Owner uid:gid 1000:1000 because that's the container's bloxai user
+# (Dockerfile pins it) AND the host's pi user — so the container can
+# write events.jsonl / ai-actions.jsonl / ai-feedback.jsonl directly.
+# Without chown, the dir is root:root and the non-root container hits
+# Permission denied on every audit-log write (lab-verified bug).
+# Idempotent: a no-op if Phase 1's readiness-check already created it.
 mkdir -p /var/log/fula
-chmod 0775 /var/log/fula 2>/dev/null || true
+chown "$PLUGIN_OWNER" /var/log/fula 2>/dev/null || true
+chmod 0755 /var/log/fula 2>/dev/null || true
+# Chown existing files too — readiness-check.py may have created events.jsonl
+# as root via the systemd unit, and that root-owned file blocks the bloxai
+# container from appending even though the parent dir is writable.
+chown "$PLUGIN_OWNER" /var/log/fula/* 2>/dev/null || true
 
 # Phase 10 defense-in-depth: ensure /etc/fula/blox-ai/security-code +
 # /run/fula-ai exist as the RIGHT TYPE before the container starts.
@@ -116,6 +236,7 @@ if [ ! -f /etc/fula/blox-ai/security-code ]; then
   chmod 0600 /etc/fula/blox-ai/security-code 2>/dev/null || true
 fi
 mkdir -p /run/fula-ai
+chown "$PLUGIN_OWNER" /run/fula-ai 2>/dev/null || true
 chmod 0700 /run/fula-ai 2>/dev/null || true
 
 # Stage the BLE command manifest so the core scanner (local_command_server.py)

@@ -2,26 +2,33 @@
 
 set -e
 
-# Phase 8: Qwen 2.5-3B-Instruct RKLLM W8A8 — base model for Blox AI v1.
+# Qwen 2.5-1.5B-Instruct RKLLM W8A8 — production model for Blox AI.
 #
-# Hosted as a GitHub Release on functionland/blox-ai, tag
-# `model-qwen-2.5-3b-w8a8-v1`. The 3.74 GB model is split into two
-# chunks because GitHub Release assets are capped at 2 GiB per file.
-# Chunks are concatenated in array order (chunk-aa, chunk-ab) then
-# SHA-verified as a single file against MODEL_SHA256 below.
+# Switched from 3B W8A8 (~3.74 GB, ~3 GB shmem at load) to 1.5B W8A8
+# (~1.89 GB, ~1.9 GB shmem at load) to halve the RAM footprint. The
+# 3B variant OOM-killed during cold start on tight-RAM scenarios
+# (7.7 GB total RAM, ~3 GB headroom after Fula stack — model needed
+# all of it in one shot). The 1.5B variant fits comfortably.
 #
-# DOWNLOAD_URL stays as the FIRST chunk URL so the install.sh
-# placeholder-check + Phase 18 manifest-helper fallback path (which
-# expects a single URL string) still works.
+# Source: c01zaut/Qwen2.5-1.5B-Instruct-RK3588-1.1.4 on HuggingFace
+# (variant opt-1-hybrid-ratio-0.5, lowest perplexity at this size).
+# Same RKLLM toolkit version (1.1.4) as the runtime libs.
+#
+# Hosted as a single GitHub Release asset on functionland/blox-ai,
+# tag `model-qwen-2.5-1.5b-w8a8-v1`. Single file because 1.89 GB
+# is under the 2 GiB GitHub Release asset limit — no chunking needed.
+# The chunked-download infra below still works (CHUNK_URLS has one
+# entry; cat of one file is the file itself; SHA verification works
+# identically). When/if we ship a future model that requires
+# chunking again, just add more URLs to the array.
 CHUNK_URLS=(
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-ab"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 )
-DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
-MODEL_SHA256="b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607"
+DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+MODEL_SHA256="b09198d0b389615edfea0def0032722fc853e1d90ccc47ab6c545f8568af8a13"
 
 MODEL_DIR="/uniondrive/blox-ai/model"
-MODEL_FILE="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+MODEL_FILE="$MODEL_DIR/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 LOG_FILE="$MODEL_DIR/wget.log"
 SERVICE_NAME="blox-ai.service"
 
@@ -48,12 +55,25 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
             --fallback-sha256 "$MODEL_SHA256" 2>/dev/null); then
         eval "$MANIFEST_EVAL"
         DOWNLOAD_URL="$MODEL_URL"
-        # Manifest schema v1 carries a single URL per entry, not a
-        # chunk list. Treat manifest-overridden downloads as single-file
-        # so the chunked-assembly path below collapses to one wget+SHA.
-        # When the schema bumps to support chunked URLs, update this
-        # block to read the chunks array from the helper instead.
-        CHUNK_URLS=("$MODEL_URL")
+        # Only override CHUNK_URLS when a REAL manifest is active. The
+        # "fallback" source means the helper couldn't find / parse an
+        # ai-manifest.json and is echoing back our own hardcoded
+        # --fallback-url — which is just the FIRST chunk's URL, NOT a
+        # full-file URL. Clobbering CHUNK_URLS with that would silently
+        # downgrade to a 1-chunk download (the bug this guard fixes:
+        # install on a device with no published manifest was only
+        # fetching chunk-aa, ~1.99 GiB, then refusing to assemble
+        # because the result was smaller than SIZE_LIMIT).
+        #
+        # When MANIFEST_SOURCE is `manifest_current` or `manifest_rollback`,
+        # MODEL_URL is the canonical single-file URL the publisher chose;
+        # CHUNK_URLS collapses to that one entry and the assembly path
+        # below cats the single file before SHA-verifying. When/if the
+        # manifest schema bumps to carry chunk arrays, replace this
+        # single-element with the parsed array.
+        if [ "${MANIFEST_SOURCE:-fallback}" != "fallback" ]; then
+            CHUNK_URLS=("$MODEL_URL")
+        fi
         # MODEL_SHA256, MODEL_VERSION, MODEL_SIZE_BYTES, MANIFEST_SOURCE
         # are now set from the helper's output.
         echo "Phase 18 manifest source: ${MANIFEST_SOURCE:-unknown}"
@@ -63,12 +83,109 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
         fi
     fi
 fi
-# ~2.5 GB lower bound for the W8A8 Qwen 3B model. Actual file is ~2.8-3.1 GB
-# depending on quantization options chosen at conversion. Tight enough to
-# catch incomplete downloads, loose enough to tolerate small variations.
-SIZE_LIMIT=2500000000
+# ~1.7 GB lower bound for the W8A8 Qwen 1.5B model. Actual file is ~1.89 GB
+# (2,035,400,284 bytes exactly for the released variant). Tight enough to
+# catch incomplete downloads, loose enough to tolerate future variants of
+# the 1.5B model at slightly different sizes.
+SIZE_LIMIT=1700000000
 
 MODEL_BASENAME="$(basename "$MODEL_FILE")"
+
+# Read the device's BLOX_AI_MODEL_PATH from .env so we can honor admin
+# overrides. Parse ONE key rather than sourcing the entire file:
+#   - Avoids clobbering script-internal vars (MODEL_DIR, MODEL_SHA256,
+#     SERVICE_NAME, etc.) if .env ever gains a key that collides with
+#     a script variable (codex final-review catch).
+#   - Avoids executing arbitrary shell from .env (treats it as
+#     docker-compose env semantics, not shell-source semantics).
+# Uses the same normalization rules as install.sh's .env merge:
+# strip CRLF, leading whitespace, and `export ` prefix.
+DEVICE_ENV_FILE="/home/pi/.internal/plugins/blox-ai/.env"
+BLOX_AI_MODEL_PATH_FROM_ENV=""
+if [ -r "$DEVICE_ENV_FILE" ]; then
+  BLOX_AI_MODEL_PATH_FROM_ENV=$(
+    sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+      "$DEVICE_ENV_FILE" 2>/dev/null \
+    | awk -F= '/^BLOX_AI_MODEL_PATH=/{ sub(/^BLOX_AI_MODEL_PATH=/, ""); print; exit }'
+  )
+fi
+
+# ---------------------------------------------------------------------------
+# Old-3B model cleanup (Plan B v2.1 D3b).
+#
+# Devices that previously installed the Qwen 3B model carry
+# qwen2.5-3b-instruct-rk3588-w8a8.rkllm (~3.7 GB) on disk. Free it up
+# during the 1.5B install, BUT:
+#   - Don't delete it if admin pinned BLOX_AI_MODEL_PATH at that file
+#     (they made a conscious choice)
+#   - Pre-download cleanup when disk is tight (gemini v2 catch:
+#     3.7 GB old + 2 GB new exceeds free space on constrained boards)
+#   - Post-verify cleanup when disk is fine (preserves the working old
+#     file until the new download is SHA-verified)
+# ---------------------------------------------------------------------------
+OLD_3B_PATH="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+SAFE_TO_CLEAN_OLD_3B=0
+
+# Translate BLOX_AI_MODEL_PATH from container-side to host-side for the
+# guard comparison (codex final-review BLOCKING catch).
+# docker-compose mounts the host's /uniondrive/blox-ai/ as the
+# container's /uniondrive/. So a value like
+# /uniondrive/model/foo.rkllm in .env actually points at the host path
+# /uniondrive/blox-ai/model/foo.rkllm. Without this translation, the
+# guard always evaluates "different" (container path != host path) and
+# the admin-pinned file gets deleted anyway — defeating the entire
+# purpose of the guard.
+container_path_to_host_path() {
+  local p="$1"
+  case "$p" in
+    /uniondrive/blox-ai/*) printf '%s' "$p" ;;
+    /uniondrive/*)         printf '/uniondrive/blox-ai/%s' "${p#/uniondrive/}" ;;
+    *)                     printf '%s' "$p" ;;
+  esac
+}
+
+if [ -f "$OLD_3B_PATH" ]; then
+  CONFIGURED_PATH=""
+  if [ -n "$BLOX_AI_MODEL_PATH_FROM_ENV" ]; then
+    # Translate then resolve. cd into MODEL_DIR so any remaining
+    # relative path resolves against the model dir.
+    host_side=$(container_path_to_host_path "$BLOX_AI_MODEL_PATH_FROM_ENV")
+    CONFIGURED_PATH=$(cd "$MODEL_DIR" 2>/dev/null && \
+      readlink -f "$host_side" 2>/dev/null || \
+      echo "$host_side")
+  fi
+  OLD_RESOLVED=$(readlink -f "$OLD_3B_PATH" 2>/dev/null || echo "$OLD_3B_PATH")
+  if [ "$CONFIGURED_PATH" != "$OLD_RESOLVED" ]; then
+    SAFE_TO_CLEAN_OLD_3B=1
+  else
+    echo "BLOX_AI_MODEL_PATH points at the old 3B file; keeping it."
+  fi
+fi
+
+# Phase A — pre-download cleanup when disk is tight.
+# Threshold: enough free for the new model + 1 GB safety margin.
+NEW_MODEL_SIZE_BYTES=2100000000   # ~2 GB for 1.5B Qwen (actual ~1.89 GB)
+SAFETY_MARGIN_BYTES=1073741824    # 1 GB
+REQUIRED_BYTES=$((NEW_MODEL_SIZE_BYTES + SAFETY_MARGIN_BYTES))
+FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
+# df may print non-numeric on busybox; guard the int compare
+case "$FREE_BYTES" in
+  ''|*[!0-9]*) FREE_BYTES=0 ;;
+esac
+
+if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
+  echo "Disk tight (free=$FREE_BYTES, need=$REQUIRED_BYTES); pre-cleaning old 3B."
+  rm -f "$OLD_3B_PATH"
+  FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
+  case "$FREE_BYTES" in
+    ''|*[!0-9]*) FREE_BYTES=0 ;;
+  esac
+  if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
+    echo "ERROR: still under threshold (free=$FREE_BYTES, need=$REQUIRED_BYTES) after pre-cleanup."
+    echo "       Refusing to attempt a download that will run out of space."
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Placeholder fail-fast (Codex post-review HIGH: both URL and SHA, not just SHA)
@@ -120,6 +237,12 @@ if [ -f "$MODEL_FILE" ]; then
         # disk reclamation matters more than the theoretical rollback path
         # that doesn't actually exist until Phase 18.
         rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
+        # Plan B v2.1 D3b — post-verify cleanup of the old 3B file
+        # (guard prevents touching admin-pinned configurations).
+        if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
+            echo "Removing old 3B model file (~3.7 GB) — cached 1.5B SHA verified."
+            rm -f "$OLD_3B_PATH" 2>/dev/null || true
+        fi
         systemctl restart "$SERVICE_NAME"
         echo "Blox AI started from cached model."
         exit 0
@@ -163,10 +286,22 @@ while true; do
     done
 
     if $DOWNLOAD_OK; then
+        # Single-chunk shortcut + bug fix: when CHUNK_URLS has one entry
+        # and the chunk's basename equals MODEL_FILE's basename, wget
+        # already wrote the model directly to MODEL_FILE. The cat step
+        # below would be `cat MODEL_FILE > MODEL_FILE`, which the shell
+        # opens for write (truncating to 0) BEFORE cat starts reading.
+        # Result: every download succeeds, then the file is wiped to 0
+        # bytes, the "Assembled file too small" branch fires, the file
+        # is deleted, and we retry forever. Lab-verified bug.
+        SINGLE_CHUNK_IS_MODEL_FILE=false
+        if [ "${#CHUNK_PATHS[@]}" -eq 1 ] && [ "${CHUNK_PATHS[0]}" = "$MODEL_FILE" ]; then
+            SINGLE_CHUNK_IS_MODEL_FILE=true
+        fi
         # Concatenate in URL order. cat handles arbitrary chunk count;
         # explicit "${CHUNK_PATHS[@]}" expansion avoids glob ordering
         # surprises if extra chunk-* files somehow exist in the dir.
-        if cat "${CHUNK_PATHS[@]}" > "$MODEL_FILE"; then
+        if $SINGLE_CHUNK_IS_MODEL_FILE || cat "${CHUNK_PATHS[@]}" > "$MODEL_FILE"; then
             FILE_SIZE=$(stat -c%s "$MODEL_FILE")
             if [ "$FILE_SIZE" -ge "$SIZE_LIMIT" ]; then
                 echo "File downloaded; size OK. Verifying SHA-256..."
@@ -211,6 +346,15 @@ done
 # most users); the rm is a no-op there. Glob is constrained to the
 # specific model dir.
 rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
+
+# Plan B v2.1 D3b — post-verify cleanup of the old 3B file (~3.7 GB).
+# Guard from earlier in this script prevents touching the file if admin
+# pinned BLOX_AI_MODEL_PATH at it (deliberate config). If pre-download
+# cleanup already removed it (tight-disk path), this is a no-op.
+if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
+    echo "Removing old 3B model file (~3.7 GB) — new 1.5B SHA verified."
+    rm -f "$OLD_3B_PATH" 2>/dev/null || true
+fi
 
 echo "Starting $SERVICE_NAME..."
 systemctl restart "$SERVICE_NAME"

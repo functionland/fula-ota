@@ -7,8 +7,12 @@ StartLimitBurst=12
 
 [Service]
 WorkingDirectory=/home/pi/.internal/plugins/blox-ai
-ExecStart=/usr/bin/docker-compose -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml up
-ExecStop=/usr/bin/docker-compose -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml down
+# --env-file is REQUIRED — without it docker-compose v2 doesn't auto-load
+# .env from the project dir reliably (lab-verified: defaults BLOX_AI_IMAGE_TAG
+# to `release` and BLOX_AI_MODEL_PATH to blank string even though .env
+# sits next to the compose file). WorkingDirectory alone isn't enough.
+ExecStart=/usr/bin/docker-compose --env-file /home/pi/.internal/plugins/blox-ai/.env -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml up
+ExecStop=/usr/bin/docker-compose --env-file /home/pi/.internal/plugins/blox-ai/.env -f /home/pi/.internal/plugins/blox-ai/docker-compose.yml down
 Restart=always
 RestartSec=300
 

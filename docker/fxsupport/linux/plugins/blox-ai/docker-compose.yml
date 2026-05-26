@@ -15,16 +15,59 @@
 # implementing the executor. Do not broaden /run to writable.
 services:
   blox-ai:
-    image: functionland/blox-ai:latest
+    # Image tag comes from .env (BLOX_AI_IMAGE_TAG, defaults to `release`).
+    # Was hardcoded to `:latest` which the publish workflow never produces;
+    # the service crash-looped with "not found on Docker Hub". See .env for
+    # the list of tags the publish workflow actually publishes + how to
+    # override per device (e.g. set BLOX_AI_IMAGE_TAG=test on a canary).
+    image: functionland/blox-ai:${BLOX_AI_IMAGE_TAG:-release}
     container_name: blox-ai
+    # Memory cap — the W8A8 Qwen 3B model mmaps ~3 GB of shared memory at
+    # load time. Without a limit, a cold start when RAM headroom is tight
+    # (other Fula containers + swap usage) can trigger the SYSTEM-wide
+    # kernel OOM killer, which selects victims by oom_score across all
+    # processes (lab-verified bug: uvicorn killed with shmem-rss 3 GB
+    # during init; mali GPU OOM notifier flooded the kernel log).
+    #
+    # With this limit the cgroup kills THIS container if it exceeds 4 GB
+    # (predictable failure mode + cgroup-local) instead of the kernel
+    # killing a random process system-wide. Container exits with code 137
+    # (SIGKILL); systemd Restart=always kicks in after RestartSec=300 with
+    # a retry on cleaner RAM.
+    #
+    # 4 GB sized as 3 GB model + ~300 MB Python heap + ~700 MB buffer for
+    # inference activations. Tighter would clobber successful loads.
+    #
+    # memswap_limit equals mem_limit → swap effectively disabled for this
+    # container. The Qwen model running from swap would be catastrophically
+    # slow (NPU can't follow swapped pages); better to OOM and restart
+    # cleanly than serve at 0.1 tok/s.
+    mem_limit: 4g
+    memswap_limit: 4g
     security_opt:
       - systempaths=unconfined
       - no-new-privileges:true
+    # /dev/dri/card0 is the GPU/NPU device node. Owned by root:video
+    # (GID 44) with mode 0660 on Armbian/Ubuntu; the bloxai container
+    # uid (1000) is not in `video` by default, so without group_add
+    # the device is visible but unreadable and rkllm_init returns 1.
+    # `render` (GID 993) covers the render-class permissions some
+    # newer mesa builds enforce. Numeric GIDs because the container's
+    # /etc/group does NOT have `render` / `video` entries — name-based
+    # group_add gets rejected by the docker daemon for missing names.
+    group_add:
+      - "44"                       # video — owns /dev/dri/card0
+      - "993"                      # render — newer device class
+      - "${DOCKER_GID:-990}"       # docker — owns /var/run/docker.sock; install.sh detects the host GID and writes it to .env
     devices:
       - /dev/dri:/dev/dri
     environment:
-      - TARGET_PLATFORM=rk3588
-      - RKLLM_MODEL_PATH=/uniondrive/model/qwen2.5-3b-instruct-rk3588-w8a8.rkllm
+      # TARGET_PLATFORM + BLOX_AI_MODEL_PATH come from .env. The former
+      # is interpolated into `command` below; the latter is read directly
+      # by src/runtime/rkllm_runtime.py:find_model_path(). The earlier
+      # RKLLM_MODEL_PATH name was unread by any code path (dead env).
+      - TARGET_PLATFORM=${TARGET_PLATFORM}
+      - BLOX_AI_MODEL_PATH=${BLOX_AI_MODEL_PATH}
     volumes:
       - /uniondrive/blox-ai:/uniondrive
       # /run is tmpfs holding Layer 1.8 state files written by readiness-check.py
@@ -54,6 +97,9 @@ services:
       # to set per-device code; container reads on each tier-3 request
       # (no caching) so rotation takes effect immediately.
       - /etc/fula/blox-ai/security-code:/etc/fula/blox-ai/security-code:ro
-    command: --target_platform ${TARGET_PLATFORM} --rkllm_model_path ${RKLLM_MODEL_PATH}
+    # --rkllm_model_path was removed: the container's entrypoint never
+    # parsed it, and the model path is now picked up via BLOX_AI_MODEL_PATH
+    # env (which src/runtime/rkllm_runtime.py:find_model_path() reads).
+    command: --target_platform ${TARGET_PLATFORM}
     ports:
       - "8083:8083"

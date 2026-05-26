@@ -29,24 +29,31 @@ _START_PATH = os.path.join(_PLUGIN_DIR, "start.sh")
 _DOWNLOAD_PATH = os.path.join(_PLUGIN_DIR, "custom", "download_model.sh")
 _COMPOSE_PATH = os.path.join(_PLUGIN_DIR, "docker-compose.yml")
 
-QWEN_FILENAME = "qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+QWEN_FILENAME = "qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 
 
 # ---------------------------------------------------------------------------
 # info.json — describes new model + new RAM budget
 # ---------------------------------------------------------------------------
 
-def test_info_json_describes_qwen_3b():
+def test_info_json_describes_qwen():
     import json
     with open(_INFO_PATH) as f:
         d = json.load(f)
     assert d["version"] == "201", "Phase 8 bumps version to 201"
     assert "Qwen" in d["description"] or "qwen" in d["description"].lower()
-    assert any("3b" in d["description"].lower() or "3 b" in d["description"].lower() for _ in [1])
+    # Swapped from 3B to 1.5B to halve the model's shmem footprint after the
+    # 3B variant OOM-killed during cold start on tight-RAM scenarios. Assert
+    # the active size class — bump this when we change models again.
+    assert any(s in d["description"].lower() for s in ("1.5b", "1.5 b")), (
+        "description should reference the active 1.5B model"
+    )
     # Required input default matches the actual file we'll download
     inputs = {i["name"]: i for i in d["requiredInputs"]}
     assert inputs["ai-model"]["default"] == QWEN_FILENAME
-    # RAM hint in user-facing instructions reflects the new 4 GB threshold
+    # RAM hint in user-facing instructions: 4 GB-spec device minimum stays
+    # (the 4 GB threshold is for "device class that can run any Blox AI
+    # model", not for "this specific model's RAM cost").
     instr_text = " ".join(i["description"] for i in d["instructions"])
     assert "4 GB" in instr_text
 
@@ -99,18 +106,25 @@ def test_install_sh_ram_gate_simulated_thresholds():
 
 def test_model_filename_matches_across_files():
     """info.json default, start.sh MODEL_FILE, download_model.sh MODEL_FILE,
-    and docker-compose RKLLM_MODEL_PATH must all reference the same
-    Qwen filename. Mismatch = service starts but loads the wrong file."""
+    and the .env BLOX_AI_MODEL_PATH must all reference the same Qwen
+    filename. Mismatch = service starts but loads the wrong file or
+    falls back to MockBackend silently.
+
+    docker-compose.yml no longer hardcodes the filename — it interpolates
+    ${BLOX_AI_MODEL_PATH} from .env so devices can override the path
+    without editing the compose file. The .env file is the single source
+    of truth for the in-container path."""
     for path in (_START_PATH, _DOWNLOAD_PATH):
         with open(path) as f:
             body = f.read()
         assert QWEN_FILENAME in body, (
             f"{os.path.basename(path)} doesn't reference {QWEN_FILENAME}"
         )
-    with open(_COMPOSE_PATH) as f:
-        body = f.read()
-    assert QWEN_FILENAME in body, (
-        f"docker-compose.yml RKLLM_MODEL_PATH doesn't reference {QWEN_FILENAME}"
+    env_path = os.path.join(_PLUGIN_DIR, ".env")
+    with open(env_path) as f:
+        env_body = f.read()
+    assert QWEN_FILENAME in env_body, (
+        f".env BLOX_AI_MODEL_PATH doesn't reference {QWEN_FILENAME}"
     )
 
 
@@ -167,24 +181,25 @@ def test_install_sh_hoists_placeholder_check_before_service_enable():
 
 
 def test_download_model_has_real_sha256():
-    """v1 release: the placeholder has been replaced with the verified
-    SHA-256 of the assembled chunks. The exact value is the SHA of the
-    c01zaut/Qwen2.5-3B-Instruct-rk3588-1.1.1 W8A8 RKLLM as it lives on
-    the lab device (verified against the chunked upload on
-    functionland/blox-ai release tag `model-qwen-2.5-3b-w8a8-v1`).
+    """SHA pinned in download_model.sh matches the actual model file
+    published on functionland/blox-ai releases.
 
-    Update this expected value only when bumping to a new base model."""
+    Current model: c01zaut/Qwen2.5-1.5B-Instruct-RK3588-1.1.4 W8A8 (variant
+    opt-1-hybrid-ratio-0.5). Single-file release asset (no chunking — the
+    1.89 GB file fits under the 2 GiB GitHub Release per-asset cap).
+
+    Update this expected value only when bumping to a new base model.
+    Previous (3B model): b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607"""
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
     assert 'MODEL_SHA256="__SET_BEFORE_RELEASE__"' not in body, (
         "Placeholder must NOT survive into release — fill in real SHA"
     )
-    # The assembled-chunk SHA pinned in the file
-    assert ('MODEL_SHA256="b7cf8b1c10140ac380535a52602d2ecc862aa9'
-            '6a84e3cf5d8267b6e54cca2607"') in body, (
-        "MODEL_SHA256 must match the SHA of the assembled chunks "
-        "published on functionland/blox-ai release "
-        "`model-qwen-2.5-3b-w8a8-v1`"
+    # The 1.5B model SHA pinned in the file
+    assert ('MODEL_SHA256="b09198d0b389615edfea0def0032722fc853e1d9'
+            '0ccc47ab6c545f8568af8a13"') in body, (
+        "MODEL_SHA256 must match the SHA of the model file published on "
+        "functionland/blox-ai release `model-qwen-2.5-1.5b-w8a8-v1`"
     )
 
 
@@ -323,7 +338,9 @@ def test_size_limit_consistent_between_start_and_download():
         "They must match or start.sh will reject valid downloads."
     )
     # Sanity: Phase 8 lower bound is 2.5 GB
-    assert s == 2500000000
+    # 1.7 GB lower bound (was 2.5 GB for the 3B model; bumped down when
+    # we switched to Qwen 1.5B W8A8, which weighs in at ~1.89 GB).
+    assert s == 1700000000
 
 
 # ---------------------------------------------------------------------------
