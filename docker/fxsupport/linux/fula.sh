@@ -1505,6 +1505,11 @@ function restart() {
   sudo mkdir -p /var/log/fula 2>/dev/null || true
   sudo chown 1000:1000 /var/log/fula 2>/dev/null || true
   sudo chmod 0755 /var/log/fula 2>/dev/null || true
+  # Existing files in the dir may have been created earlier by root (e.g.
+  # readiness-check.py running as root via systemd). Chown them too, otherwise
+  # the container's bloxai user can't append to a pre-existing root-owned
+  # events.jsonl even though the parent dir is writable. Lab-verified.
+  sudo chown 1000:1000 /var/log/fula/* 2>/dev/null || true
 
   # Phase 10: blox-ai executor mount targets.
   # /run/fula-ai is the tmpfs for the HMAC approval-token secret the

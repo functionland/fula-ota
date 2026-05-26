@@ -97,6 +97,13 @@ cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
 # previous append would otherwise leave a stale value that breaks compose).
 DOCKER_GID=$(getent group docker 2>/dev/null | cut -d: -f3 || true)
 if [ -n "$DOCKER_GID" ]; then
+  # Ensure .env ends with a newline before appending (otherwise the new
+  # line concatenates onto the previous one — e.g. the shipped .env from
+  # the image not ending in \n produced a malformed line
+  # `BLOX_AI_MODEL_PATH=...rkllmDOCKER_GID=990` that broke env parsing).
+  if [ -s "$BLOX_AI_DIR/.env" ] && [ -n "$(tail -c1 "$BLOX_AI_DIR/.env")" ]; then
+    echo "" >> "$BLOX_AI_DIR/.env"
+  fi
   if grep -q '^DOCKER_GID=' "$BLOX_AI_DIR/.env" 2>/dev/null; then
     sed -i "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID}|" "$BLOX_AI_DIR/.env"
   else
@@ -127,6 +134,10 @@ sleep 1
 mkdir -p /var/log/fula
 chown 1000:1000 /var/log/fula 2>/dev/null || true
 chmod 0755 /var/log/fula 2>/dev/null || true
+# Chown existing files too — readiness-check.py may have created events.jsonl
+# as root via the systemd unit, and that root-owned file blocks the bloxai
+# container from appending even though the parent dir is writable.
+chown 1000:1000 /var/log/fula/* 2>/dev/null || true
 
 # Phase 10 defense-in-depth: ensure /etc/fula/blox-ai/security-code +
 # /run/fula-ai exist as the RIGHT TYPE before the container starts.
