@@ -91,19 +91,23 @@ SIZE_LIMIT=1700000000
 
 MODEL_BASENAME="$(basename "$MODEL_FILE")"
 
-# Source the device's merged .env so admin overrides (notably
-# BLOX_AI_MODEL_PATH) are visible. install.sh always runs the .env merge
-# before kicking off this script, so this file exists by the time we get
-# here. Missing-file path is silent — D3b's guard treats the unset case
-# as "no admin pin", which is correct: fresh installs and devices that
-# never customized .env have BLOX_AI_MODEL_PATH unset and the old 3B
-# file (if present) gets cleaned normally.
+# Read the device's BLOX_AI_MODEL_PATH from .env so we can honor admin
+# overrides. Parse ONE key rather than sourcing the entire file:
+#   - Avoids clobbering script-internal vars (MODEL_DIR, MODEL_SHA256,
+#     SERVICE_NAME, etc.) if .env ever gains a key that collides with
+#     a script variable (codex final-review catch).
+#   - Avoids executing arbitrary shell from .env (treats it as
+#     docker-compose env semantics, not shell-source semantics).
+# Uses the same normalization rules as install.sh's .env merge:
+# strip CRLF, leading whitespace, and `export ` prefix.
 DEVICE_ENV_FILE="/home/pi/.internal/plugins/blox-ai/.env"
+BLOX_AI_MODEL_PATH_FROM_ENV=""
 if [ -r "$DEVICE_ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$DEVICE_ENV_FILE" 2>/dev/null || true
-  set +a
+  BLOX_AI_MODEL_PATH_FROM_ENV=$(
+    sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+      "$DEVICE_ENV_FILE" 2>/dev/null \
+    | awk -F= '/^BLOX_AI_MODEL_PATH=/{ sub(/^BLOX_AI_MODEL_PATH=/, ""); print; exit }'
+  )
 fi
 
 # ---------------------------------------------------------------------------
@@ -122,14 +126,33 @@ fi
 OLD_3B_PATH="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
 SAFE_TO_CLEAN_OLD_3B=0
 
+# Translate BLOX_AI_MODEL_PATH from container-side to host-side for the
+# guard comparison (codex final-review BLOCKING catch).
+# docker-compose mounts the host's /uniondrive/blox-ai/ as the
+# container's /uniondrive/. So a value like
+# /uniondrive/model/foo.rkllm in .env actually points at the host path
+# /uniondrive/blox-ai/model/foo.rkllm. Without this translation, the
+# guard always evaluates "different" (container path != host path) and
+# the admin-pinned file gets deleted anyway — defeating the entire
+# purpose of the guard.
+container_path_to_host_path() {
+  local p="$1"
+  case "$p" in
+    /uniondrive/blox-ai/*) printf '%s' "$p" ;;
+    /uniondrive/*)         printf '/uniondrive/blox-ai/%s' "${p#/uniondrive/}" ;;
+    *)                     printf '%s' "$p" ;;
+  esac
+}
+
 if [ -f "$OLD_3B_PATH" ]; then
-  # cd into MODEL_DIR so relative BLOX_AI_MODEL_PATH (if any) resolves
-  # against the model dir, not download_model.sh's cwd (gemini v2 catch).
   CONFIGURED_PATH=""
-  if [ -n "$BLOX_AI_MODEL_PATH" ]; then
+  if [ -n "$BLOX_AI_MODEL_PATH_FROM_ENV" ]; then
+    # Translate then resolve. cd into MODEL_DIR so any remaining
+    # relative path resolves against the model dir.
+    host_side=$(container_path_to_host_path "$BLOX_AI_MODEL_PATH_FROM_ENV")
     CONFIGURED_PATH=$(cd "$MODEL_DIR" 2>/dev/null && \
-      readlink -f "$BLOX_AI_MODEL_PATH" 2>/dev/null || \
-      echo "$BLOX_AI_MODEL_PATH")
+      readlink -f "$host_side" 2>/dev/null || \
+      echo "$host_side")
   fi
   OLD_RESOLVED=$(readlink -f "$OLD_3B_PATH" 2>/dev/null || echo "$OLD_3B_PATH")
   if [ "$CONFIGURED_PATH" != "$OLD_RESOLVED" ]; then
