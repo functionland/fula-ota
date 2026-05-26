@@ -15,7 +15,14 @@
 # implementing the executor. Do not broaden /run to writable.
 services:
   blox-ai:
-    image: functionland/blox-ai:latest
+    # NOTE: the publish workflow in functionland/blox-ai
+    # (.github/workflows/docker-build-publish.yml) tags `:main` and `:test`,
+    # NOT `:latest`. Using `:latest` here resolves to "not found" on Docker
+    # Hub and breaks the install. `:test` matches what the workflow publishes
+    # on every push to main and matches the convention used elsewhere in
+    # fula-ota (env_release.sh / env_test.sh use named tags, not :latest).
+    # Bump to `:release` when the publish workflow gains a release tag.
+    image: functionland/blox-ai:test
     container_name: blox-ai
     security_opt:
       - systempaths=unconfined
