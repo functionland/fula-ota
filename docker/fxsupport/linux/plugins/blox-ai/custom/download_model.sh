@@ -184,10 +184,22 @@ while true; do
     done
 
     if $DOWNLOAD_OK; then
+        # Single-chunk shortcut + bug fix: when CHUNK_URLS has one entry
+        # and the chunk's basename equals MODEL_FILE's basename, wget
+        # already wrote the model directly to MODEL_FILE. The cat step
+        # below would be `cat MODEL_FILE > MODEL_FILE`, which the shell
+        # opens for write (truncating to 0) BEFORE cat starts reading.
+        # Result: every download succeeds, then the file is wiped to 0
+        # bytes, the "Assembled file too small" branch fires, the file
+        # is deleted, and we retry forever. Lab-verified bug.
+        SINGLE_CHUNK_IS_MODEL_FILE=false
+        if [ "${#CHUNK_PATHS[@]}" -eq 1 ] && [ "${CHUNK_PATHS[0]}" = "$MODEL_FILE" ]; then
+            SINGLE_CHUNK_IS_MODEL_FILE=true
+        fi
         # Concatenate in URL order. cat handles arbitrary chunk count;
         # explicit "${CHUNK_PATHS[@]}" expansion avoids glob ordering
         # surprises if extra chunk-* files somehow exist in the dir.
-        if cat "${CHUNK_PATHS[@]}" > "$MODEL_FILE"; then
+        if $SINGLE_CHUNK_IS_MODEL_FILE || cat "${CHUNK_PATHS[@]}" > "$MODEL_FILE"; then
             FILE_SIZE=$(stat -c%s "$MODEL_FILE")
             if [ "$FILE_SIZE" -ge "$SIZE_LIMIT" ]; then
                 echo "File downloaded; size OK. Verifying SHA-256..."
