@@ -96,10 +96,28 @@ iptables -A "$CHAIN" -p tcp --dport 3500 -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 10.0.0.0/8 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport 3500 -s 172.16.0.0/12 -j ACCEPT
 
-# 14. blox-ai plugin (port 8083 — previously the loyal-agent plugin slot)
-iptables -A "$CHAIN" -p tcp --dport 8083 -s 192.168.0.0/16 -j ACCEPT
-iptables -A "$CHAIN" -p tcp --dport 8083 -s 10.0.0.0/8 -j ACCEPT
-iptables -A "$CHAIN" -p tcp --dport 8083 -s 172.16.0.0/12 -j ACCEPT
+# 14. blox-ai plugin (LAN-side host bind for the AI HTTP transport).
+# Default port 8083. Per-device override via BLOX_AI_PORT in the plugin's
+# .env (read with a numeric guard; fallback to 8083 if missing/malformed).
+# Container's internal port is ALWAYS 8083 — only the host-side bind is
+# overridable, so the BLE proxy (ble_commands.json hits 127.0.0.1:8083)
+# stays correct regardless of BLOX_AI_PORT.
+BLOX_AI_PORT=$(awk -F= '/^BLOX_AI_PORT=/{print $2; exit}' \
+  /home/pi/.internal/plugins/blox-ai/.env 2>/dev/null \
+  | tr -d '[:space:]')
+# Validate: numeric + in 1..65535 (codex Plan HTTP final-review catch:
+# bare numeric guard let 999999 through, which would break iptables).
+case "$BLOX_AI_PORT" in
+  ''|*[!0-9]*) BLOX_AI_PORT=8083 ;;
+  *)
+    if [ "$BLOX_AI_PORT" -lt 1 ] || [ "$BLOX_AI_PORT" -gt 65535 ]; then
+      BLOX_AI_PORT=8083
+    fi
+    ;;
+esac
+iptables -A "$CHAIN" -p tcp --dport "$BLOX_AI_PORT" -s 192.168.0.0/16 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport "$BLOX_AI_PORT" -s 10.0.0.0/8 -j ACCEPT
+iptables -A "$CHAIN" -p tcp --dport "$BLOX_AI_PORT" -s 172.16.0.0/12 -j ACCEPT
 
 # 14a. Kubo gateway — LAN only (for local file retrieval by FxFiles)
 iptables -A "$CHAIN" -p tcp --dport 8080 -s 192.168.0.0/16 -j ACCEPT

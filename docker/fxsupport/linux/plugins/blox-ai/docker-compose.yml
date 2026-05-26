@@ -101,5 +101,11 @@ services:
     # parsed it, and the model path is now picked up via BLOX_AI_MODEL_PATH
     # env (which src/runtime/rkllm_runtime.py:find_model_path() reads).
     command: --target_platform ${TARGET_PLATFORM}
+    # Container internal port is ALWAYS 8083 (BLE proxy at 127.0.0.1:8083
+    # + uvicorn default + ble_commands.json all hardcoded to 8083). The
+    # ${BLOX_AI_PORT:-8083} override changes ONLY the host-side LAN bind —
+    # firewall.sh reads the same .env to open the matching port. Plan HTTP
+    # (v2.1) design choice; deliberately split host vs container to avoid
+    # breaking the BLE proxy when admin overrides for LAN port collisions.
     ports:
-      - "8083:8083"
+      - "${BLOX_AI_PORT:-8083}:8083"
