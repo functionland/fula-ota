@@ -91,6 +91,79 @@ SIZE_LIMIT=1700000000
 
 MODEL_BASENAME="$(basename "$MODEL_FILE")"
 
+# Source the device's merged .env so admin overrides (notably
+# BLOX_AI_MODEL_PATH) are visible. install.sh always runs the .env merge
+# before kicking off this script, so this file exists by the time we get
+# here. Missing-file path is silent — D3b's guard treats the unset case
+# as "no admin pin", which is correct: fresh installs and devices that
+# never customized .env have BLOX_AI_MODEL_PATH unset and the old 3B
+# file (if present) gets cleaned normally.
+DEVICE_ENV_FILE="/home/pi/.internal/plugins/blox-ai/.env"
+if [ -r "$DEVICE_ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$DEVICE_ENV_FILE" 2>/dev/null || true
+  set +a
+fi
+
+# ---------------------------------------------------------------------------
+# Old-3B model cleanup (Plan B v2.1 D3b).
+#
+# Devices that previously installed the Qwen 3B model carry
+# qwen2.5-3b-instruct-rk3588-w8a8.rkllm (~3.7 GB) on disk. Free it up
+# during the 1.5B install, BUT:
+#   - Don't delete it if admin pinned BLOX_AI_MODEL_PATH at that file
+#     (they made a conscious choice)
+#   - Pre-download cleanup when disk is tight (gemini v2 catch:
+#     3.7 GB old + 2 GB new exceeds free space on constrained boards)
+#   - Post-verify cleanup when disk is fine (preserves the working old
+#     file until the new download is SHA-verified)
+# ---------------------------------------------------------------------------
+OLD_3B_PATH="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+SAFE_TO_CLEAN_OLD_3B=0
+
+if [ -f "$OLD_3B_PATH" ]; then
+  # cd into MODEL_DIR so relative BLOX_AI_MODEL_PATH (if any) resolves
+  # against the model dir, not download_model.sh's cwd (gemini v2 catch).
+  CONFIGURED_PATH=""
+  if [ -n "$BLOX_AI_MODEL_PATH" ]; then
+    CONFIGURED_PATH=$(cd "$MODEL_DIR" 2>/dev/null && \
+      readlink -f "$BLOX_AI_MODEL_PATH" 2>/dev/null || \
+      echo "$BLOX_AI_MODEL_PATH")
+  fi
+  OLD_RESOLVED=$(readlink -f "$OLD_3B_PATH" 2>/dev/null || echo "$OLD_3B_PATH")
+  if [ "$CONFIGURED_PATH" != "$OLD_RESOLVED" ]; then
+    SAFE_TO_CLEAN_OLD_3B=1
+  else
+    echo "BLOX_AI_MODEL_PATH points at the old 3B file; keeping it."
+  fi
+fi
+
+# Phase A — pre-download cleanup when disk is tight.
+# Threshold: enough free for the new model + 1 GB safety margin.
+NEW_MODEL_SIZE_BYTES=2100000000   # ~2 GB for 1.5B Qwen (actual ~1.89 GB)
+SAFETY_MARGIN_BYTES=1073741824    # 1 GB
+REQUIRED_BYTES=$((NEW_MODEL_SIZE_BYTES + SAFETY_MARGIN_BYTES))
+FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
+# df may print non-numeric on busybox; guard the int compare
+case "$FREE_BYTES" in
+  ''|*[!0-9]*) FREE_BYTES=0 ;;
+esac
+
+if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
+  echo "Disk tight (free=$FREE_BYTES, need=$REQUIRED_BYTES); pre-cleaning old 3B."
+  rm -f "$OLD_3B_PATH"
+  FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
+  case "$FREE_BYTES" in
+    ''|*[!0-9]*) FREE_BYTES=0 ;;
+  esac
+  if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
+    echo "ERROR: still under threshold (free=$FREE_BYTES, need=$REQUIRED_BYTES) after pre-cleanup."
+    echo "       Refusing to attempt a download that will run out of space."
+    exit 1
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # Placeholder fail-fast (Codex post-review HIGH: both URL and SHA, not just SHA)
 # ---------------------------------------------------------------------------
@@ -141,6 +214,12 @@ if [ -f "$MODEL_FILE" ]; then
         # disk reclamation matters more than the theoretical rollback path
         # that doesn't actually exist until Phase 18.
         rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
+        # Plan B v2.1 D3b — post-verify cleanup of the old 3B file
+        # (guard prevents touching admin-pinned configurations).
+        if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
+            echo "Removing old 3B model file (~3.7 GB) — cached 1.5B SHA verified."
+            rm -f "$OLD_3B_PATH" 2>/dev/null || true
+        fi
         systemctl restart "$SERVICE_NAME"
         echo "Blox AI started from cached model."
         exit 0
@@ -244,6 +323,15 @@ done
 # most users); the rm is a no-op there. Glob is constrained to the
 # specific model dir.
 rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
+
+# Plan B v2.1 D3b — post-verify cleanup of the old 3B file (~3.7 GB).
+# Guard from earlier in this script prevents touching the file if admin
+# pinned BLOX_AI_MODEL_PATH at it (deliberate config). If pre-download
+# cleanup already removed it (tight-disk path), this is a no-op.
+if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
+    echo "Removing old 3B model file (~3.7 GB) — new 1.5B SHA verified."
+    rm -f "$OLD_3B_PATH" 2>/dev/null || true
+fi
 
 echo "Starting $SERVICE_NAME..."
 systemctl restart "$SERVICE_NAME"
