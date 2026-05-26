@@ -63,6 +63,80 @@ Two things this design does NOT defend against, by deliberate trade-off:
 - A compromised container has docker.sock access (required for the `docker.restart` family of tier-2 actions) and could escalate that to host root. Mitigation: trust the container image's supply chain, pin to SHA-published builds.
 - A motivated attacker with the rotated security code AND a paired BLE session can run tier-3 actions. The code is a confirmation gate, not a cryptographic lock.
 
+## LAN HTTP transport — trust-LAN posture (Plan HTTP)
+
+Blox AI exposes port 8083 to the LAN (`firewall.sh` allows RFC1918 only;
+no internet exposure). The phone app prefers LAN HTTP over BLE when both
+sides are on the same network — same SSE protocol, just orders of
+magnitude faster than the ~6 KB/s BLE proxy.
+
+The exposed surface (port `${BLOX_AI_PORT:-8083}`) is reachable from any
+host on the same LAN. **This is intentional**, but it carries a real
+trust assumption.
+
+### What's authenticated
+- `/execute-action` — HMAC token issued per `/troubleshoot` session,
+  rotated per container restart, bound to action_id + nonce + expiry.
+- Tier-3 actions (reboot, partition expand, ipfs reset) additionally
+  require the security code at `/etc/fula/blox-ai/security-code`.
+
+### What's NOT authenticated (known gap)
+- `/troubleshoot`, `/troubleshoot/user-reply`, `/troubleshoot/phone-context`,
+  `/cancel`, `/feedback`, `/pending`, `/diag/*`, `/status`, `/health`.
+
+A LAN attacker can:
+- start their own `/troubleshoot` session and receive HMAC tokens valid
+  for THAT session,
+- call `/execute-action` with those tokens → execute tier-2 actions on
+  the real blox (container restarts, etc.),
+- read diagnostic state via `/diag/*`,
+- DoS active legitimate sessions via `/cancel`.
+
+The phone-side verification (`authorizer === appPeerId` from mDNS) blocks
+the app from talking to a foreign blox, but it doesn't prevent a
+foreign client from talking to YOUR blox.
+
+### Trust model
+- **Assumed-trusted**: your home/office LAN. The blox is on a network you
+  control.
+- **NOT trusted for LAN HTTP**: public WiFi (coffee shops, hotels,
+  airports, conference centers), shared WiFi (apartment complexes,
+  dorms). If you put the blox on a hostile network, the BLE-only path
+  is the safer choice.
+
+Hardening these unauthenticated endpoints is tracked as **Plan SEC**
+follow-up (will require auth on `/troubleshoot` + per-device-paired
+token issuance). Not addressed in Plan HTTP.
+
+### Operator playbook
+
+**Change the tier-3 security code from default `1234`:**
+```bash
+echo <new-4-digit-code> | sudo tee /etc/fula/blox-ai/security-code
+sudo chmod 0600 /etc/fula/blox-ai/security-code
+```
+
+**Test LAN reachability from a peer host** (workstation/laptop on the
+same LAN as the blox — do NOT run on the blox itself):
+```bash
+bash docker/fxsupport/linux/plugins/blox-ai/custom/lan_smoke_from_peer.sh <blox-ip>
+```
+The script refuses to run if it detects it's on the blox (because
+localhost-to-localhost curl proves nothing about firewall reachability).
+
+**Per-device port override** (only if 8083 collides with another service
+on the LAN side — uncommon):
+```bash
+sudo nano /home/pi/.internal/plugins/blox-ai/.env   # set BLOX_AI_PORT=8084 (or whatever)
+sudo bash /usr/bin/fula/firewall.sh                 # re-apply iptables with the new port
+sudo systemctl restart blox-ai.service              # restart container with new host bind
+```
+The container's INTERNAL port stays 8083 — BLE proxy + uvicorn defaults
++ `ble_commands.json` all depend on that. The override changes ONLY the
+host-side LAN bind. Customizing the port also requires the phone app to
+know about it; today the app defaults to 8083 (mDNS TXT field
+`bloxAiPort` for port discovery is planned but not shipped yet).
+
 ## Troubleshooting the troubleshooter
 
 | Symptom | Check |
