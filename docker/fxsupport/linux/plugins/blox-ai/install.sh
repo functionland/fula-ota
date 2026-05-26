@@ -83,6 +83,29 @@ sleep 1
 
 cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$BLOX_AI_DIR/"
 cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
+
+# Append host-specific DOCKER_GID so the container can read /var/run/docker.sock.
+# The sock is owned by root:<docker_gid> on the host; the container's bloxai
+# user (uid 1000) needs to be added to that GID via group_add in compose.
+# Detect dynamically because the docker group GID varies by distro install
+# path (Armbian/Ubuntu apt install often produces 990, but compose-installed
+# docker can pick 999 or 1001). Without this, docker-py inside the container
+# gets PermissionError(13) and diag/containers returns running_count=0.
+#
+# Idempotent: we grep for the key first so reinstalls don't append duplicates,
+# and overwrite the line if the host's docker_gid changed (rare, but the
+# previous append would otherwise leave a stale value that breaks compose).
+DOCKER_GID=$(getent group docker 2>/dev/null | cut -d: -f3 || true)
+if [ -n "$DOCKER_GID" ]; then
+  if grep -q '^DOCKER_GID=' "$BLOX_AI_DIR/.env" 2>/dev/null; then
+    sed -i "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID}|" "$BLOX_AI_DIR/.env"
+  else
+    echo "DOCKER_GID=${DOCKER_GID}" >> "$BLOX_AI_DIR/.env"
+  fi
+  echo "wired DOCKER_GID=${DOCKER_GID} into ${BLOX_AI_DIR}/.env"
+else
+  echo "WARNING: could not detect host docker group GID; diag/containers will fail"
+fi
 # Phase 7: copy runbook + action_whitelist so the docker-compose `./`
 # bind-mount source files exist at the WorkingDirectory the systemd unit
 # uses ($BLOX_AI_DIR). Without these, the container start would fail
@@ -94,12 +117,16 @@ cp -r "${PLUGIN_EXEC_DIR}/api" "$BLOX_AI_DIR/"
 sync
 sleep 1
 
-# Ensure /var/log/fula exists for the container's mount target. Conservative
-# perms per Codex post-review (0775 not 0777 — only root + container's gid
-# needs write). Idempotent: a no-op if Phase 1's readiness-check already
-# created it via os.makedirs.
+# Ensure /var/log/fula exists for the container's mount target.
+# Owner uid:gid 1000:1000 because that's the container's bloxai user
+# (Dockerfile pins it) AND the host's pi user — so the container can
+# write events.jsonl / ai-actions.jsonl / ai-feedback.jsonl directly.
+# Without chown, the dir is root:root and the non-root container hits
+# Permission denied on every audit-log write (lab-verified bug).
+# Idempotent: a no-op if Phase 1's readiness-check already created it.
 mkdir -p /var/log/fula
-chmod 0775 /var/log/fula 2>/dev/null || true
+chown 1000:1000 /var/log/fula 2>/dev/null || true
+chmod 0755 /var/log/fula 2>/dev/null || true
 
 # Phase 10 defense-in-depth: ensure /etc/fula/blox-ai/security-code +
 # /run/fula-ai exist as the RIGHT TYPE before the container starts.
@@ -116,6 +143,7 @@ if [ ! -f /etc/fula/blox-ai/security-code ]; then
   chmod 0600 /etc/fula/blox-ai/security-code 2>/dev/null || true
 fi
 mkdir -p /run/fula-ai
+chown 1000:1000 /run/fula-ai 2>/dev/null || true
 chmod 0700 /run/fula-ai 2>/dev/null || true
 
 # Stage the BLE command manifest so the core scanner (local_command_server.py)

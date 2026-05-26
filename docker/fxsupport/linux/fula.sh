@@ -1494,17 +1494,38 @@ function restart() {
   # Phase 7: persistent log dir for readiness-check events + Phase 10 ai
   # audit log. Phase 1's readiness-check creates this lazily on first
   # event, but we want it to exist BEFORE the blox-ai container starts
-  # so its bind-mount target resolves cleanly. Conservative perms.
+  # so its bind-mount target resolves cleanly.
+  #
+  # Owner uid:gid 1000:1000 because that's what `pi` is on Armbian/Ubuntu
+  # AND what the blox-ai container's `bloxai` user is (Dockerfile pins
+  # the container UID to 1000). Without this, the container can't write
+  # events.jsonl / ai-actions.jsonl / ai-feedback.jsonl and audit logging
+  # silently drops every entry. Codex post-review HIGH (lab-verified
+  # Permission denied on first run).
   sudo mkdir -p /var/log/fula 2>/dev/null || true
-  sudo chmod 0775 /var/log/fula 2>/dev/null || true
+  sudo chown 1000:1000 /var/log/fula 2>/dev/null || true
+  sudo chmod 0755 /var/log/fula 2>/dev/null || true
 
   # Phase 10: blox-ai executor mount targets.
   # /run/fula-ai is the tmpfs for the HMAC approval-token secret the
-  # container generates at start. Created here at 0700 root-only so the
-  # container's bind-mount target exists. Per Codex pre-review HIGH:
-  # narrow scope (subdir of /run, not all of /run writable).
+  # container generates at start. 0700 + owner uid 1000 (= container
+  # `bloxai` user) so only the container can read/write the secret.
+  # /run is tmpfs and disappears on reboot — we ALSO ship a tmpfiles.d
+  # config (below) that systemd-tmpfiles --create re-creates on every
+  # boot, so the secret dir is available before blox-ai.service starts
+  # even when fula.sh install hasn't re-run for that boot.
   sudo mkdir -p /run/fula-ai 2>/dev/null || true
+  sudo chown 1000:1000 /run/fula-ai 2>/dev/null || true
   sudo chmod 0700 /run/fula-ai 2>/dev/null || true
+  # tmpfiles.d entry — survives reboot recreation of /run.
+  sudo tee /etc/tmpfiles.d/blox-ai.conf > /dev/null << 'TMPFILES_EOF'
+# Recreate the blox-ai HMAC approval-secret dir on every boot.
+# 0700 + owner uid 1000 = the blox-ai container's `bloxai` user (which is
+# also `pi` on the host). Drop this file with `sudo rm` if the plugin is
+# uninstalled and you want to free the tmpfs slot.
+d /run/fula-ai 0700 1000 1000 -
+TMPFILES_EOF
+  sudo systemd-tmpfiles --create /etc/tmpfiles.d/blox-ai.conf 2>/dev/null || true
   # /etc/fula/blox-ai/security-code is the tier-3 confirmation code.
   # Default '1234' shipped here so tier-3 actions work out of the box;
   # device admin can `sudo nano /etc/fula/blox-ai/security-code` to
