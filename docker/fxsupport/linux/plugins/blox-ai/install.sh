@@ -243,6 +243,29 @@ chmod 0700 /run/fula-ai 2>/dev/null || true
 # can register ai/* and diag/* commands. Touch the reload flag so the next
 # BLE invocation triggers a re-scan without waiting for a daemon restart.
 cp "${PLUGIN_EXEC_DIR}/ble_commands.json" "$BLOX_AI_DIR/"
+
+# Plan HTTP v2.2 hotfix (gemini final-review BLOCK): if the admin overrode
+# BLOX_AI_PORT, the docker host bind moves to that port and `127.0.0.1:8083`
+# is no longer bound — but `ble_commands.json` hardcodes 127.0.0.1:8083 in
+# every proxy_url. The host-side BLE proxy (local_command_server.py) would
+# then get connection-refused on every ai/* and diag/* command.
+#
+# Fix: read the device's BLOX_AI_PORT (post-merge) and rewrite the device's
+# ble_commands.json proxy_url ports to match. Default 8083 → no-op.
+# Source .env: shipped path. Substitutes literal "127.0.0.1:8083" in the
+# device-side JSON.
+BLOX_AI_PORT_RUNTIME=$(awk -F= '/^BLOX_AI_PORT=/{print $2; exit}' \
+  "$BLOX_AI_DIR/.env" 2>/dev/null | tr -d '[:space:]')
+case "$BLOX_AI_PORT_RUNTIME" in
+  ''|*[!0-9]*) BLOX_AI_PORT_RUNTIME=8083 ;;
+esac
+if [ "$BLOX_AI_PORT_RUNTIME" != "8083" ]; then
+  # Validated above to be numeric, so safe in the sed RHS.
+  sed -i "s|http://127\.0\.0\.1:8083/|http://127.0.0.1:${BLOX_AI_PORT_RUNTIME}/|g" \
+    "$BLOX_AI_DIR/ble_commands.json"
+  echo "[blox-ai install] templated ble_commands.json proxy_url -> 127.0.0.1:${BLOX_AI_PORT_RUNTIME}"
+fi
+
 mkdir -p "$COMMANDS_DIR"
 touch "$COMMANDS_DIR/.command_plugin_reload" 2>/dev/null || true
 sync

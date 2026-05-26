@@ -105,8 +105,15 @@ iptables -A "$CHAIN" -p tcp --dport 3500 -s 172.16.0.0/12 -j ACCEPT
 BLOX_AI_PORT=$(awk -F= '/^BLOX_AI_PORT=/{print $2; exit}' \
   /home/pi/.internal/plugins/blox-ai/.env 2>/dev/null \
   | tr -d '[:space:]')
+# Validate: numeric + in 1..65535 (codex Plan HTTP final-review catch:
+# bare numeric guard let 999999 through, which would break iptables).
 case "$BLOX_AI_PORT" in
   ''|*[!0-9]*) BLOX_AI_PORT=8083 ;;
+  *)
+    if [ "$BLOX_AI_PORT" -lt 1 ] || [ "$BLOX_AI_PORT" -gt 65535 ]; then
+      BLOX_AI_PORT=8083
+    fi
+    ;;
 esac
 iptables -A "$CHAIN" -p tcp --dport "$BLOX_AI_PORT" -s 192.168.0.0/16 -j ACCEPT
 iptables -A "$CHAIN" -p tcp --dport "$BLOX_AI_PORT" -s 10.0.0.0/8 -j ACCEPT
