@@ -48,12 +48,25 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
             --fallback-sha256 "$MODEL_SHA256" 2>/dev/null); then
         eval "$MANIFEST_EVAL"
         DOWNLOAD_URL="$MODEL_URL"
-        # Manifest schema v1 carries a single URL per entry, not a
-        # chunk list. Treat manifest-overridden downloads as single-file
-        # so the chunked-assembly path below collapses to one wget+SHA.
-        # When the schema bumps to support chunked URLs, update this
-        # block to read the chunks array from the helper instead.
-        CHUNK_URLS=("$MODEL_URL")
+        # Only override CHUNK_URLS when a REAL manifest is active. The
+        # "fallback" source means the helper couldn't find / parse an
+        # ai-manifest.json and is echoing back our own hardcoded
+        # --fallback-url — which is just the FIRST chunk's URL, NOT a
+        # full-file URL. Clobbering CHUNK_URLS with that would silently
+        # downgrade to a 1-chunk download (the bug this guard fixes:
+        # install on a device with no published manifest was only
+        # fetching chunk-aa, ~1.99 GiB, then refusing to assemble
+        # because the result was smaller than SIZE_LIMIT).
+        #
+        # When MANIFEST_SOURCE is `manifest_current` or `manifest_rollback`,
+        # MODEL_URL is the canonical single-file URL the publisher chose;
+        # CHUNK_URLS collapses to that one entry and the assembly path
+        # below cats the single file before SHA-verifying. When/if the
+        # manifest schema bumps to carry chunk arrays, replace this
+        # single-element with the parsed array.
+        if [ "${MANIFEST_SOURCE:-fallback}" != "fallback" ]; then
+            CHUNK_URLS=("$MODEL_URL")
+        fi
         # MODEL_SHA256, MODEL_VERSION, MODEL_SIZE_BYTES, MANIFEST_SOURCE
         # are now set from the helper's output.
         echo "Phase 18 manifest source: ${MANIFEST_SOURCE:-unknown}"
