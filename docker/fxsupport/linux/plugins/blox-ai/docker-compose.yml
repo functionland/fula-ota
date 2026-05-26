@@ -22,6 +22,28 @@ services:
     # override per device (e.g. set BLOX_AI_IMAGE_TAG=test on a canary).
     image: functionland/blox-ai:${BLOX_AI_IMAGE_TAG:-release}
     container_name: blox-ai
+    # Memory cap — the W8A8 Qwen 3B model mmaps ~3 GB of shared memory at
+    # load time. Without a limit, a cold start when RAM headroom is tight
+    # (other Fula containers + swap usage) can trigger the SYSTEM-wide
+    # kernel OOM killer, which selects victims by oom_score across all
+    # processes (lab-verified bug: uvicorn killed with shmem-rss 3 GB
+    # during init; mali GPU OOM notifier flooded the kernel log).
+    #
+    # With this limit the cgroup kills THIS container if it exceeds 4 GB
+    # (predictable failure mode + cgroup-local) instead of the kernel
+    # killing a random process system-wide. Container exits with code 137
+    # (SIGKILL); systemd Restart=always kicks in after RestartSec=300 with
+    # a retry on cleaner RAM.
+    #
+    # 4 GB sized as 3 GB model + ~300 MB Python heap + ~700 MB buffer for
+    # inference activations. Tighter would clobber successful loads.
+    #
+    # memswap_limit equals mem_limit → swap effectively disabled for this
+    # container. The Qwen model running from swap would be catastrophically
+    # slow (NPU can't follow swapped pages); better to OOM and restart
+    # cleanly than serve at 0.1 tok/s.
+    mem_limit: 4g
+    memswap_limit: 4g
     security_opt:
       - systempaths=unconfined
       - no-new-privileges:true

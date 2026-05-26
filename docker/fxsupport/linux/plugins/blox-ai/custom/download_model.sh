@@ -2,26 +2,33 @@
 
 set -e
 
-# Phase 8: Qwen 2.5-3B-Instruct RKLLM W8A8 — base model for Blox AI v1.
+# Qwen 2.5-1.5B-Instruct RKLLM W8A8 — production model for Blox AI.
 #
-# Hosted as a GitHub Release on functionland/blox-ai, tag
-# `model-qwen-2.5-3b-w8a8-v1`. The 3.74 GB model is split into two
-# chunks because GitHub Release assets are capped at 2 GiB per file.
-# Chunks are concatenated in array order (chunk-aa, chunk-ab) then
-# SHA-verified as a single file against MODEL_SHA256 below.
+# Switched from 3B W8A8 (~3.74 GB, ~3 GB shmem at load) to 1.5B W8A8
+# (~1.89 GB, ~1.9 GB shmem at load) to halve the RAM footprint. The
+# 3B variant OOM-killed during cold start on tight-RAM scenarios
+# (7.7 GB total RAM, ~3 GB headroom after Fula stack — model needed
+# all of it in one shot). The 1.5B variant fits comfortably.
 #
-# DOWNLOAD_URL stays as the FIRST chunk URL so the install.sh
-# placeholder-check + Phase 18 manifest-helper fallback path (which
-# expects a single URL string) still works.
+# Source: c01zaut/Qwen2.5-1.5B-Instruct-RK3588-1.1.4 on HuggingFace
+# (variant opt-1-hybrid-ratio-0.5, lowest perplexity at this size).
+# Same RKLLM toolkit version (1.1.4) as the runtime libs.
+#
+# Hosted as a single GitHub Release asset on functionland/blox-ai,
+# tag `model-qwen-2.5-1.5b-w8a8-v1`. Single file because 1.89 GB
+# is under the 2 GiB GitHub Release asset limit — no chunking needed.
+# The chunked-download infra below still works (CHUNK_URLS has one
+# entry; cat of one file is the file itself; SHA verification works
+# identically). When/if we ship a future model that requires
+# chunking again, just add more URLs to the array.
 CHUNK_URLS=(
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-ab"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 )
-DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-3b-w8a8-v1/chunk-aa"
-MODEL_SHA256="b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607"
+DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+MODEL_SHA256="b09198d0b389615edfea0def0032722fc853e1d90ccc47ab6c545f8568af8a13"
 
 MODEL_DIR="/uniondrive/blox-ai/model"
-MODEL_FILE="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+MODEL_FILE="$MODEL_DIR/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 LOG_FILE="$MODEL_DIR/wget.log"
 SERVICE_NAME="blox-ai.service"
 
@@ -76,10 +83,11 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
         fi
     fi
 fi
-# ~2.5 GB lower bound for the W8A8 Qwen 3B model. Actual file is ~2.8-3.1 GB
-# depending on quantization options chosen at conversion. Tight enough to
-# catch incomplete downloads, loose enough to tolerate small variations.
-SIZE_LIMIT=2500000000
+# ~1.7 GB lower bound for the W8A8 Qwen 1.5B model. Actual file is ~1.89 GB
+# (2,035,400,284 bytes exactly for the released variant). Tight enough to
+# catch incomplete downloads, loose enough to tolerate future variants of
+# the 1.5B model at slightly different sizes.
+SIZE_LIMIT=1700000000
 
 MODEL_BASENAME="$(basename "$MODEL_FILE")"
 

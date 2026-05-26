@@ -12,7 +12,7 @@ Users keep reporting "my Blox is disconnected." The actual root cause is almost 
 
 | Component | Where | What |
 |---|---|---|
-| Model | `/uniondrive/blox-ai/model/qwen2.5-3b-instruct-rk3588-w8a8.rkllm` | ~3 GB, RKLLM W8A8, downloaded SHA-verified on install |
+| Model | `/uniondrive/blox-ai/model/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm` | ~1.9 GB, RKLLM W8A8, downloaded SHA-verified on install |
 | Runtime | `functionland/blox-ai:latest` container, port 8083 | Inference loop + tool-calling + `/troubleshoot` SSE + `/execute-action` |
 | Runbook | `runbook.md` (bind-mounted into container) | Symptom→diagnostic→action recipes the model loads as system prompt |
 | Action whitelist | `action_whitelist.json` (bind-mounted) | The HARD boundary the executor enforces; AI cannot invent actions |
