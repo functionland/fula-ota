@@ -3882,7 +3882,25 @@ def check_power_health():
     """
     state = {}
 
-    # 1. Undervoltage / brownout / thermal events from dmesg, last 24h.
+    # 1. Undervoltage / brownout events from dmesg, last 24h.
+    #
+    # Bug fix 2026-05-26 — the regex was originally
+    # `under.?voltage|brownout|thermal|throttle`, but `thermal` and
+    # `throttle` match BENIGN kernel messages on a healthy RK3588
+    # ("rk3588-thermal: ...", "cpufreq: thermal throttle ...") that
+    # fire on every routine temperature update. Lab observed: dmesg
+    # had 0 matches for under-voltage but the counter showed 6, which
+    # propagated up to the AI as "undervoltage emergency" — pure false
+    # positive. Temperature health is already captured separately as
+    # `max_temp_c` so dropping thermal+throttle loses no information.
+    #
+    # Also excludes recovery notifications ("voltage normal", "...ok")
+    # via the negative lookahead so the same incident isn't double-
+    # counted as both "fault" and "recovered".
+    UNDERVOLTAGE_RE = re.compile(
+        r"\b(under[-_\s]?voltage|brownout)\b(?!.*\b(ok|recovered|normal|cleared)\b)",
+        re.IGNORECASE,
+    )
     try:
         res = subprocess.run(
             ["sudo", "dmesg", "--ctime", "--since", "24 hours ago"],
@@ -3891,7 +3909,7 @@ def check_power_health():
         if res.returncode == 0:
             count = 0
             for line in (res.stdout or "").splitlines():
-                if re.search(r"under.?voltage|brownout|thermal|throttle", line, re.IGNORECASE):
+                if UNDERVOLTAGE_RE.search(line):
                     count += 1
             state["undervoltage_events_24h"] = count
     except _SubprocessTimeoutExpired:

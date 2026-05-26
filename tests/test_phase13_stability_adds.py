@@ -110,13 +110,31 @@ def test_check_power_health_writes_uptime_always(tmp_path, monkeypatch):
 
 
 def test_check_power_health_counts_dmesg_events(tmp_path, monkeypatch):
+    """Verifies the NARROW regex (2026-05-26 fix): only true undervoltage
+    + brownout events count. Routine thermal/throttle kernel messages
+    are NOT counted — temperature health is already captured separately
+    as max_temp_c.
+
+    Lab observed before fix: dmesg had 0 actual undervoltage events but
+    the counter showed 6 because `thermal` matched benign kernel
+    messages on healthy RK3588 boards. That falsely triggered the AI
+    to report 'undervoltage emergency'.
+    """
     state_path = tmp_path / "fula-power.state"
     monkeypatch.setattr(readiness, "POWER_STATE_PATH", str(state_path))
 
     dmesg_out = (
+        # MUST count (3 true power events):
         "Sun May 24 07:00:00 2026 [    1.000] Undervoltage detected!\n"
-        "Sun May 24 07:01:00 2026 [    2.000] thermal throttling cpu5\n"
         "Sun May 24 07:02:00 2026 [    3.000] brownout protector triggered\n"
+        "Sun May 24 07:05:00 2026 [    6.000] under-voltage on rail 5V\n"
+        # MUST NOT count (benign — these are normal on healthy RK3588):
+        "Sun May 24 07:01:00 2026 [    2.000] thermal throttling cpu5\n"
+        "Sun May 24 07:04:00 2026 [    5.000] rk3588-thermal: temperature update\n"
+        "Sun May 24 07:06:00 2026 [    7.000] cpufreq: thermal throttle event\n"
+        # MUST NOT count (recovery — same incident as the first event):
+        "Sun May 24 07:00:30 2026 [    1.500] Undervoltage cleared, voltage OK\n"
+        # MUST NOT count (unrelated):
         "Sun May 24 07:03:00 2026 [    4.000] normal log line\n"
     )
 
@@ -131,8 +149,42 @@ def test_check_power_health_counts_dmesg_events(tmp_path, monkeypatch):
          patch.object(readiness, "_glob_paths", return_value=[]):
         readiness.check_power_health()
     data = json.loads(state_path.read_text())
-    assert data["undervoltage_events_24h"] == 3
+    # 3 true power events; thermal/throttle/recovery lines excluded.
+    assert data["undervoltage_events_24h"] == 3, (
+        f"expected 3 true undervoltage+brownout events, got {data['undervoltage_events_24h']}; "
+        "if higher, the regex is too broad (thermal/throttle leaking in)"
+    )
     assert data["recent_reboots"] == 2
+
+
+def test_check_power_health_skips_pure_thermal_throttle_noise(tmp_path, monkeypatch):
+    """Regression guard: on a healthy RK3588 board, dmesg has many
+    routine thermal/throttle messages but ZERO undervoltage. The
+    counter MUST be 0 in that case. Lab bug 2026-05-26 had it at 6."""
+    state_path = tmp_path / "fula-power.state"
+    monkeypatch.setattr(readiness, "POWER_STATE_PATH", str(state_path))
+
+    dmesg_out = (
+        "Sun May 24 07:00:00 2026 [    1.000] rk3588-thermal: temperature update\n"
+        "Sun May 24 07:01:00 2026 [    2.000] thermal_zone0: temperature changed\n"
+        "Sun May 24 07:02:00 2026 [    3.000] cpufreq: thermal throttle event\n"
+        "Sun May 24 07:03:00 2026 [    4.000] mali GPU: thermal limit reached\n"
+        "Sun May 24 07:04:00 2026 [    5.000] thermal throttling cpu5\n"
+    )
+    def fake_run(args, **kwargs):
+        if args[1] == "dmesg":
+            return _fake_inspect(0, dmesg_out)
+        if args[0] == "last":
+            return _fake_inspect(0, "")
+        return _fake_inspect(returncode=1)
+    with patch.object(readiness.subprocess, "run", side_effect=fake_run), \
+         patch.object(readiness, "_glob_paths", return_value=[]):
+        readiness.check_power_health()
+    data = json.loads(state_path.read_text())
+    assert data["undervoltage_events_24h"] == 0, (
+        f"healthy-board thermal noise leaked into undervoltage counter: "
+        f"got {data['undervoltage_events_24h']}, expected 0"
+    )
 
 
 def test_check_power_health_max_thermal_zone(tmp_path, monkeypatch):
