@@ -30,11 +30,20 @@ set -e
 # release tag that bundles this script. The fail-fast guard further
 # down rejects any download attempt while placeholders are present
 # so a device can never silently pull an unverified blob.
+# Two-chunk release. The assembled file is 2,375,021,452 bytes (~2.21 GB);
+# GitHub's per-asset cap is 2 GiB, so the .rkllm was split into:
+#   - part-aa: 1,992,294,400 bytes (~1.9 GB)
+#   - part-ab:   382,727,052 bytes (~365 MB)
+# The download loop below fetches both, cat's them into MODEL_FILE in
+# array order, then verifies the assembled SHA-256.
 CHUNK_URLS=(
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm.part-aa"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm.part-ab"
 )
-DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm"
-MODEL_SHA256="__SET_BEFORE_RELEASE__"
+# First chunk URL kept here for the manifest-helper fallback path (Phase 18).
+DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm.part-aa"
+# SHA-256 of the ASSEMBLED file (cat part-aa part-ab), NOT of individual chunks.
+MODEL_SHA256="8843d4612d42a71605c8d0b38cf9a758a5a53f65a8dde3f17f9d4549b9794e87"
 
 MODEL_DIR="/uniondrive/blox-ai/model"
 MODEL_FILE="$MODEL_DIR/qwen3-1.7b-rk3588-w8a8.rkllm"
