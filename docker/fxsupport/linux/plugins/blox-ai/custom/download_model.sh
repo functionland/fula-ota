@@ -316,7 +316,11 @@ RETRY_COUNT=0
 while true; do
     # Clean any partial state from a prior failed cycle. Done at the top
     # of every cycle so a fresh attempt always starts from a known state.
-    rm -f "$MODEL_DIR"/chunk-* "$MODEL_FILE"
+    # Clean chunk leftovers from prior cycles. Two patterns covered:
+    #   - chunk-*       (legacy naming, kept for backwards compat)
+    #   - <MODEL>.part-* (current naming — split -b produces these for
+    #     2-chunk models that exceed GitHub's 2 GiB per-asset cap)
+    rm -f "$MODEL_DIR"/chunk-* "$MODEL_DIR"/"$MODEL_BASENAME".part-* "$MODEL_FILE"
 
     DOWNLOAD_OK=true
     CHUNK_PATHS=()
@@ -359,7 +363,8 @@ while true; do
                     echo "SHA verified."
                     # Free disk: drop chunk files now that the assembled
                     # file is verified. Chunks are no longer needed.
-                    rm -f "$MODEL_DIR"/chunk-*
+                    # Two patterns: legacy `chunk-*` + current `<model>.part-*`.
+                    rm -f "$MODEL_DIR"/chunk-* "$MODEL_DIR"/"$MODEL_BASENAME".part-*
                     break
                 fi
                 # User override of the .corrupt.<ts> quarantine pattern:
@@ -377,7 +382,7 @@ while true; do
 
     # This cycle failed; clean up + retry the FULL chunk set.
     echo "Deleting bad files; will retry full download."
-    rm -f "$MODEL_DIR"/chunk-*
+    rm -f "$MODEL_DIR"/chunk-* "$MODEL_DIR"/"$MODEL_BASENAME".part-*
     rm -f "$MODEL_FILE"
     if [ $RETRY_COUNT -lt 3 ]; then
         RETRY_COUNT=$((RETRY_COUNT + 1))

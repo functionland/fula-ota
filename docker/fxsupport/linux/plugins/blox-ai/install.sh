@@ -109,7 +109,16 @@ cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$BLOX_AI_DIR/"
 #   - Log key names only — never values (some keys hold paths/secrets)
 #   - DOCKER_GID NOT in FORCE_UPDATE_KEYS because the dedicated
 #     dynamic-detection block below sed-updates it from getent.
-FORCE_UPDATE_KEYS=""   # empty by default; add keys here only with cause
+# BLOX_AI_MODEL_PATH MUST be force-updated across model swaps. The
+# shipped value tracks the model that the corresponding download_model.sh
+# fetches; if a device keeps its old path across an OTA, it will look
+# for a file that download_model.sh just deleted (or never wrote).
+# Trade-off acknowledged: admin overrides to BLOX_AI_MODEL_PATH get
+# replaced on each upgrade — admins re-applying a custom model must
+# do so after every fula-ota release. Acceptable because model swaps
+# are infrequent (Qwen 2.5 3B -> 1.5B -> Qwen 3 1.7B were 3 swaps in
+# ~6 months) and silent breakage is the worse failure mode.
+FORCE_UPDATE_KEYS="BLOX_AI_MODEL_PATH"
 
 if [ ! -f "$BLOX_AI_DIR/.env" ]; then
   cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true
