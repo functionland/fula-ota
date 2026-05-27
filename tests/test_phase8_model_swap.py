@@ -1,4 +1,10 @@
-"""Phase 8 tests — Qwen 2.5-3B-Instruct RKLLM model swap.
+"""Phase 8 tests — Qwen 3 1.7B (with thinking mode) RKLLM model swap.
+
+History of model swaps validated by this file:
+  - Originally: Deepseek-LLM 7B (loyal-agent slot)
+  - Phase 8 v1: Qwen 2.5-3B-Instruct W8A8
+  - Phase 8 v2: Qwen 2.5-1.5B-Instruct W8A8 (halved shmem after 3B OOM)
+  - Phase 8 v3 (CURRENT): Qwen 3 1.7B W8A8 with thinking mode
 
 Covers (per Codex + Gemini pre-impl consensus):
 - Placeholder fail-fast guards (both URL and SHA, not just SHA — Codex)
@@ -6,11 +12,13 @@ Covers (per Codex + Gemini pre-impl consensus):
   prior size-only check let a corrupt cache survive forever)
 - RAM gate threshold accepts 4 GB-spec devices and rejects 2 GB
 - Model filename consistency across info.json + download_model.sh +
-  start.sh + docker-compose.yml
+  start.sh + .env
 - No Deepseek strings remain in active code paths including the pgrep
   pattern (Codex post-review catch from Phase 6 lab)
 - Existing Deepseek file is NOT deleted by download_model.sh (Codex HIGH
   vs Gemini MEDIUM — we follow Codex's "preserve rollback path" stance)
+- Stale 3B AND 1.5B Qwen models cleaned up by the new install path
+  (guarded against admin pinning via BLOX_AI_MODEL_PATH)
 """
 
 import os
@@ -29,7 +37,9 @@ _START_PATH = os.path.join(_PLUGIN_DIR, "start.sh")
 _DOWNLOAD_PATH = os.path.join(_PLUGIN_DIR, "custom", "download_model.sh")
 _COMPOSE_PATH = os.path.join(_PLUGIN_DIR, "docker-compose.yml")
 
-QWEN_FILENAME = "qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+QWEN_FILENAME = "qwen3-1.7b-rk3588-w8a8.rkllm"
+PRIOR_3B_FILENAME = "qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+PRIOR_1_5B_FILENAME = "qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +50,17 @@ def test_info_json_describes_qwen():
     import json
     with open(_INFO_PATH) as f:
         d = json.load(f)
-    assert d["version"] == "201", "Phase 8 bumps version to 201"
+    assert d["version"] == "202", "Phase 8 v3 bumps version to 202"
     assert "Qwen" in d["description"] or "qwen" in d["description"].lower()
-    # Swapped from 3B to 1.5B to halve the model's shmem footprint after the
-    # 3B variant OOM-killed during cold start on tight-RAM scenarios. Assert
-    # the active size class — bump this when we change models again.
-    assert any(s in d["description"].lower() for s in ("1.5b", "1.5 b")), (
-        "description should reference the active 1.5B model"
+    # Switched to Qwen 3 1.7B with thinking mode for stronger reasoning at
+    # the same RAM envelope. Assert the active size class — bump this when
+    # we change models again.
+    assert any(s in d["description"].lower() for s in ("1.7b", "1.7 b")), (
+        "description should reference the active 1.7B model"
+    )
+    assert "thinking mode" in d["description"].lower(), (
+        "Phase 8 v3 enables thinking mode; description must mention it so "
+        "operators know the runtime strips <think> blocks"
     )
     # Required input default matches the actual file we'll download
     inputs = {i["name"]: i for i in d["requiredInputs"]}
@@ -180,26 +194,31 @@ def test_install_sh_hoists_placeholder_check_before_service_enable():
     )
 
 
-def test_download_model_has_real_sha256():
-    """SHA pinned in download_model.sh matches the actual model file
-    published on functionland/blox-ai releases.
+def test_download_model_has_real_sha256_or_placeholder():
+    """SHA pinned in download_model.sh is either:
+      - the canonical placeholder __SET_BEFORE_RELEASE__ (model file not
+        yet built + uploaded — release-placeholder-gate.yml catches this
+        before any release tag is cut), OR
+      - a populated 64-char hex SHA256 of the actual model file published
+        on functionland/blox-ai releases.
 
-    Current model: c01zaut/Qwen2.5-1.5B-Instruct-RK3588-1.1.4 W8A8 (variant
-    opt-1-hybrid-ratio-0.5). Single-file release asset (no chunking — the
-    1.89 GB file fits under the 2 GiB GitHub Release per-asset cap).
+    Phase 8 v3 (Qwen 3 1.7B) ships placeholder initially; the publisher
+    converts the .rkllm + uploads + populates the SHA in a follow-up.
 
-    Update this expected value only when bumping to a new base model.
-    Previous (3B model): b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607"""
+    Prior real SHAs (for reference):
+      - 3B model:   b7cf8b1c10140ac380535a52602d2ecc862aa96a84e3cf5d8267b6e54cca2607
+      - 1.5B model: b09198d0b389615edfea0def0032722fc853e1d90ccc47ab6c545f8568af8a13
+    """
     with open(_DOWNLOAD_PATH) as f:
         body = f.read()
-    assert 'MODEL_SHA256="__SET_BEFORE_RELEASE__"' not in body, (
-        "Placeholder must NOT survive into release — fill in real SHA"
-    )
-    # The 1.5B model SHA pinned in the file
-    assert ('MODEL_SHA256="b09198d0b389615edfea0def0032722fc853e1d9'
-            '0ccc47ab6c545f8568af8a13"') in body, (
-        "MODEL_SHA256 must match the SHA of the model file published on "
-        "functionland/blox-ai release `model-qwen-2.5-1.5b-w8a8-v1`"
+    m = re.search(r'MODEL_SHA256="([^"]+)"', body)
+    assert m, "MODEL_SHA256 assignment not found in download_model.sh"
+    value = m.group(1)
+    is_placeholder = value == "__SET_BEFORE_RELEASE__"
+    is_real_sha = bool(re.fullmatch(r"[0-9a-f]{64}", value))
+    assert is_placeholder or is_real_sha, (
+        f"MODEL_SHA256 must be either the canonical placeholder "
+        f"'__SET_BEFORE_RELEASE__' or a 64-char hex SHA-256. Got: {value!r}"
     )
 
 
@@ -314,6 +333,44 @@ def test_download_model_deletes_old_deepseek_after_qwen_verified():
     )
 
 
+def test_download_model_cleans_old_3b_and_1_5b_after_qwen3_verified():
+    """Phase 8 v3 (Qwen 3 1.7B swap) inherits the post-verify cleanup
+    pattern for BOTH stale Qwen models — devices that walked the upgrade
+    path Deepseek → 3B → 1.5B → 1.7B may have either stale file on disk.
+
+    Guards (SAFE_TO_CLEAN_OLD_3B / SAFE_TO_CLEAN_OLD_1_5B) preserve any
+    file the admin pinned via BLOX_AI_MODEL_PATH. Pre-download cleanup
+    runs when disk is tight; post-verify cleanup runs after Qwen3 SHA
+    verification succeeds.
+    """
+    with open(_DOWNLOAD_PATH) as f:
+        body = f.read()
+    # Old-file paths must be defined
+    assert f'OLD_3B_PATH="$MODEL_DIR/{PRIOR_3B_FILENAME}"' in body, (
+        "OLD_3B_PATH must point at the prior 3B model filename"
+    )
+    assert f'OLD_1_5B_PATH="$MODEL_DIR/{PRIOR_1_5B_FILENAME}"' in body, (
+        "OLD_1_5B_PATH must point at the prior 1.5B model filename"
+    )
+    # Both guards must exist and start at 0 (safe default — only flipped
+    # to 1 once admin-pin check confirms the old file isn't pinned)
+    assert "SAFE_TO_CLEAN_OLD_3B=0" in body
+    assert "SAFE_TO_CLEAN_OLD_1_5B=0" in body
+    # Both cleanup paths must be gated on the SAFE_TO_CLEAN flag
+    assert 'SAFE_TO_CLEAN_OLD_3B" = "1"' in body
+    assert 'SAFE_TO_CLEAN_OLD_1_5B" = "1"' in body
+    # Post-verify cleanup must come AFTER the "SHA verified" success marker
+    # for the new model — never before (otherwise a failed Qwen3 download
+    # wipes the working old file and leaves the device with no model).
+    verified_idx = body.find("SHA verified")
+    cleanup_1_5b_idx = body.find(
+        'rm -f "$OLD_1_5B_PATH"', verified_idx
+    )
+    assert cleanup_1_5b_idx > verified_idx, (
+        "OLD_1_5B cleanup must come AFTER 'SHA verified' success marker"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Size limits consistent across start.sh and download_model.sh
 # ---------------------------------------------------------------------------
@@ -337,10 +394,13 @@ def test_size_limit_consistent_between_start_and_download():
         f"SIZE_LIMIT differs: start.sh={s}, download_model.sh={d}. "
         "They must match or start.sh will reject valid downloads."
     )
-    # Sanity: Phase 8 lower bound is 2.5 GB
-    # 1.7 GB lower bound (was 2.5 GB for the 3B model; bumped down when
-    # we switched to Qwen 1.5B W8A8, which weighs in at ~1.89 GB).
-    assert s == 1700000000
+    # Sanity: Phase 8 v3 lower bound is 1.9 GB for Qwen 3 1.7B W8A8.
+    # History:
+    #   - 2.5 GB for the original 3B model
+    #   - 1.7 GB for the 1.5B model (file weighed ~1.89 GB)
+    #   - 1.9 GB for the 1.7B Qwen3 model (~2.0-2.4 GB estimated upper)
+    # Bump together with download_model.sh + start.sh on each model swap.
+    assert s == 1900000000
 
 
 # ---------------------------------------------------------------------------

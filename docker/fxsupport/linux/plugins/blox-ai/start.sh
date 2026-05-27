@@ -19,12 +19,13 @@ if systemctl is-active --quiet blox-ai.service; then
 fi
 
 MODEL_DIR="/uniondrive/blox-ai/model"
-MODEL_FILE="$MODEL_DIR/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
-# ~1.7 GB lower bound for Qwen 1.5B W8A8 (file is ~1.89 GB). Was 2.5 GB
-# when we shipped the 3B model; bumped down with the 1.5B swap so this
-# value stays consistent with download_model.sh's SIZE_LIMIT (the
-# test_size_limit_consistent_between_start_and_download test enforces).
-SIZE_LIMIT=1700000000
+MODEL_FILE="$MODEL_DIR/qwen3-1.7b-rk3588-w8a8.rkllm"
+# ~1.9 GB lower bound for Qwen 3 1.7B W8A8 (estimated 2.0-2.4 GB on
+# disk). Kept consistent with download_model.sh's SIZE_LIMIT — the
+# test_size_limit_consistent_between_start_and_download test enforces
+# the pairing. Update both sides together when the converted file's
+# actual size lands.
+SIZE_LIMIT=1900000000
 
 # Phase 8: SHA verification is duplicated here (sourced from
 # download_model.sh) per Codex post-review HIGH — manual `start.sh`

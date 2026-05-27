@@ -12,7 +12,7 @@ Users keep reporting "my Blox is disconnected." The actual root cause is almost 
 
 | Component | Where | What |
 |---|---|---|
-| Model | `/uniondrive/blox-ai/model/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm` | ~1.9 GB, RKLLM W8A8, downloaded SHA-verified on install |
+| Model | `/uniondrive/blox-ai/model/qwen3-1.7b-rk3588-w8a8.rkllm` | ~2.0-2.4 GB, RKLLM W8A8, Qwen 3 with thinking mode, downloaded SHA-verified on install |
 | Runtime | `functionland/blox-ai:latest` container, port 8083 | Inference loop + tool-calling + `/troubleshoot` SSE + `/execute-action` |
 | Runbook | `runbook.md` (bind-mounted into container) | Symptom→diagnostic→action recipes the model loads as system prompt |
 | Action whitelist | `action_whitelist.json` (bind-mounted) | The HARD boundary the executor enforces; AI cannot invent actions |
@@ -38,9 +38,9 @@ What `install.sh` does:
 2. Copies the systemd unit + the BLE-command manifest into place.
 3. Touches `/home/pi/commands/.command_plugin_reload` so the core BLE server re-scans plugin commands.
 4. Enables + starts `blox-ai.service` and `blox-ai-isolation.timer`.
-5. Kicks off `download_model.sh` in the background (~3 GB download).
+5. Kicks off `download_model.sh` in the background (~2.3 GB download).
 
-What `uninstall.sh` does (reverse): stops + disables the service + timer, removes systemd units, removes the BLE manifest, touches reload flag. Audit logs (`/var/log/fula/ai-actions.jsonl`, `ai-pending-actions.jsonl`, `ai-feedback.jsonl`) are deliberately LEFT IN PLACE — they outlive the feature for forensic completeness. The 3 GB model file is left in place by default; remove it manually if you want the disk space back.
+What `uninstall.sh` does (reverse): stops + disables the service + timer, removes systemd units, removes the BLE manifest, touches reload flag. Audit logs (`/var/log/fula/ai-actions.jsonl`, `ai-pending-actions.jsonl`, `ai-feedback.jsonl`) are deliberately LEFT IN PLACE — they outlive the feature for forensic completeness. The ~2.3 GB model file is left in place by default; remove it manually if you want the disk space back.
 
 ## How it works (one-paragraph)
 

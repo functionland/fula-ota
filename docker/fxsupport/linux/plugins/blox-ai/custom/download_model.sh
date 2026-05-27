@@ -2,33 +2,42 @@
 
 set -e
 
-# Qwen 2.5-1.5B-Instruct RKLLM W8A8 — production model for Blox AI.
+# Qwen 3-1.7B RKLLM W8A8 — production model for Blox AI (2026-05-26).
 #
-# Switched from 3B W8A8 (~3.74 GB, ~3 GB shmem at load) to 1.5B W8A8
-# (~1.89 GB, ~1.9 GB shmem at load) to halve the RAM footprint. The
-# 3B variant OOM-killed during cold start on tight-RAM scenarios
-# (7.7 GB total RAM, ~3 GB headroom after Fula stack — model needed
-# all of it in one shot). The 1.5B variant fits comfortably.
+# History of model swaps for this device class (7.7 GB RAM, RK3588 NPU):
+#   - Originally: Deepseek-LLM 7B (loyal-agent slot)         ~7 GB on disk
+#   - Switched to: Qwen 2.5 3B W8A8 (Plan B)                 ~3.7 GB, OOM-killed cold start
+#   - Switched to: Qwen 2.5 1.5B Instruct W8A8 (Plan B v2)   ~1.89 GB, stable
+#   - Switched to: Qwen 3 1.7B W8A8 (THIS COMMIT)            ~2.0-2.4 GB
 #
-# Source: c01zaut/Qwen2.5-1.5B-Instruct-RK3588-1.1.4 on HuggingFace
-# (variant opt-1-hybrid-ratio-0.5, lowest perplexity at this size).
-# Same RKLLM toolkit version (1.1.4) as the runtime libs.
+# Why Qwen 3 1.7B over Qwen 2.5 1.5B:
+#   - Qwen 3 1.7B-Base ≈ Qwen 2.5 3B-Base on reasoning per
+#     Alibaba's release blog. Meaningful uplift for our specific
+#     failure modes (lab-observed: kubernetes hallucination, field-
+#     confusion, contradiction-with-own-tool-output, overconfident
+#     restart_fula recommendations).
+#   - Newer arch + Apache 2.0 (no attribution clause vs Hammer's
+#     CC-BY-4.0).
+#   - Officially supported by RKLLM toolkit (Qwen3 listed in v1.1.x+).
+#   - Hybrid thinking mode: container runtime enables it for the
+#     intelligence uplift AND strips <think>...</think> blocks from
+#     both SSE output (user UX) AND multi-turn history (so KV doesn't
+#     accumulate think-content across turns of the tool-call loop).
 #
 # Hosted as a single GitHub Release asset on functionland/blox-ai,
-# tag `model-qwen-2.5-1.5b-w8a8-v1`. Single file because 1.89 GB
-# is under the 2 GiB GitHub Release asset limit — no chunking needed.
-# The chunked-download infra below still works (CHUNK_URLS has one
-# entry; cat of one file is the file itself; SHA verification works
-# identically). When/if we ship a future model that requires
-# chunking again, just add more URLs to the array.
+# tag `model-qwen-3-1.7b-w8a8-v1`. URL + SHA below are PLACEHOLDERS
+# — the publisher must populate them BEFORE cutting a fula-ota
+# release tag that bundles this script. The fail-fast guard further
+# down rejects any download attempt while placeholders are present
+# so a device can never silently pull an unverified blob.
 CHUNK_URLS=(
-    "https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+    "https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm"
 )
-DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-2.5-1.5b-w8a8-v1/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
-MODEL_SHA256="b09198d0b389615edfea0def0032722fc853e1d90ccc47ab6c545f8568af8a13"
+DOWNLOAD_URL="https://github.com/functionland/blox-ai/releases/download/model-qwen-3-1.7b-w8a8-v1/qwen3-1.7b-rk3588-w8a8.rkllm"
+MODEL_SHA256="__SET_BEFORE_RELEASE__"
 
 MODEL_DIR="/uniondrive/blox-ai/model"
-MODEL_FILE="$MODEL_DIR/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+MODEL_FILE="$MODEL_DIR/qwen3-1.7b-rk3588-w8a8.rkllm"
 LOG_FILE="$MODEL_DIR/wget.log"
 SERVICE_NAME="blox-ai.service"
 
@@ -83,11 +92,14 @@ if [ -r "$MANIFEST_HELPER" ] && command -v python3 >/dev/null 2>&1; then
         fi
     fi
 fi
-# ~1.7 GB lower bound for the W8A8 Qwen 1.5B model. Actual file is ~1.89 GB
-# (2,035,400,284 bytes exactly for the released variant). Tight enough to
-# catch incomplete downloads, loose enough to tolerate future variants of
-# the 1.5B model at slightly different sizes.
-SIZE_LIMIT=1700000000
+# ~1.9 GB lower bound for the W8A8 Qwen 3 1.7B model. Tight enough to
+# catch incomplete downloads, loose enough to tolerate variation in the
+# converted-file size (RKLLM toolkit output varies slightly between
+# toolkit versions and quantization-config tweaks). The exact released
+# size lands once the publisher converts + uploads the .rkllm; if a
+# future variant comes in smaller than 1.9 GB this guard fires and we
+# either lower it or accept the smaller artifact.
+SIZE_LIMIT=1900000000
 
 MODEL_BASENAME="$(basename "$MODEL_FILE")"
 
@@ -111,20 +123,25 @@ if [ -r "$DEVICE_ENV_FILE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Old-3B model cleanup (Plan B v2.1 D3b).
+# Stale-model cleanup (3B and old 1.5B).
 #
-# Devices that previously installed the Qwen 3B model carry
-# qwen2.5-3b-instruct-rk3588-w8a8.rkllm (~3.7 GB) on disk. Free it up
-# during the 1.5B install, BUT:
-#   - Don't delete it if admin pinned BLOX_AI_MODEL_PATH at that file
-#     (they made a conscious choice)
+# Devices that previously installed earlier Blox AI models carry stale
+# .rkllm files on disk:
+#   - qwen2.5-3b-instruct-rk3588-w8a8.rkllm     (~3.7 GB) — Plan B v1
+#   - qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm   (~1.89 GB) — Plan B v2
+# Both are unused by Qwen 3 1.7B. Free them up during install, BUT:
+#   - Don't delete a file the admin pinned via BLOX_AI_MODEL_PATH
+#     (deliberate config — they may be canary-testing the old model)
 #   - Pre-download cleanup when disk is tight (gemini v2 catch:
-#     3.7 GB old + 2 GB new exceeds free space on constrained boards)
+#     3.7 GB old + 1.89 GB old-1.5 + 2.4 GB new exceeds free space on
+#     constrained boards — must clean before fetching the new one)
 #   - Post-verify cleanup when disk is fine (preserves the working old
-#     file until the new download is SHA-verified)
+#     file until the new download is SHA-verified — rollback safety)
 # ---------------------------------------------------------------------------
 OLD_3B_PATH="$MODEL_DIR/qwen2.5-3b-instruct-rk3588-w8a8.rkllm"
+OLD_1_5B_PATH="$MODEL_DIR/qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
 SAFE_TO_CLEAN_OLD_3B=0
+SAFE_TO_CLEAN_OLD_1_5B=0
 
 # Translate BLOX_AI_MODEL_PATH from container-side to host-side for the
 # guard comparison (codex final-review BLOCKING catch).
@@ -144,16 +161,16 @@ container_path_to_host_path() {
   esac
 }
 
+# Resolve BLOX_AI_MODEL_PATH from .env once for both guards.
+CONFIGURED_PATH=""
+if [ -n "$BLOX_AI_MODEL_PATH_FROM_ENV" ]; then
+  host_side=$(container_path_to_host_path "$BLOX_AI_MODEL_PATH_FROM_ENV")
+  CONFIGURED_PATH=$(cd "$MODEL_DIR" 2>/dev/null && \
+    readlink -f "$host_side" 2>/dev/null || \
+    echo "$host_side")
+fi
+
 if [ -f "$OLD_3B_PATH" ]; then
-  CONFIGURED_PATH=""
-  if [ -n "$BLOX_AI_MODEL_PATH_FROM_ENV" ]; then
-    # Translate then resolve. cd into MODEL_DIR so any remaining
-    # relative path resolves against the model dir.
-    host_side=$(container_path_to_host_path "$BLOX_AI_MODEL_PATH_FROM_ENV")
-    CONFIGURED_PATH=$(cd "$MODEL_DIR" 2>/dev/null && \
-      readlink -f "$host_side" 2>/dev/null || \
-      echo "$host_side")
-  fi
   OLD_RESOLVED=$(readlink -f "$OLD_3B_PATH" 2>/dev/null || echo "$OLD_3B_PATH")
   if [ "$CONFIGURED_PATH" != "$OLD_RESOLVED" ]; then
     SAFE_TO_CLEAN_OLD_3B=1
@@ -162,9 +179,18 @@ if [ -f "$OLD_3B_PATH" ]; then
   fi
 fi
 
+if [ -f "$OLD_1_5B_PATH" ]; then
+  OLD_RESOLVED=$(readlink -f "$OLD_1_5B_PATH" 2>/dev/null || echo "$OLD_1_5B_PATH")
+  if [ "$CONFIGURED_PATH" != "$OLD_RESOLVED" ]; then
+    SAFE_TO_CLEAN_OLD_1_5B=1
+  else
+    echo "BLOX_AI_MODEL_PATH points at the old 1.5B file; keeping it."
+  fi
+fi
+
 # Phase A — pre-download cleanup when disk is tight.
 # Threshold: enough free for the new model + 1 GB safety margin.
-NEW_MODEL_SIZE_BYTES=2100000000   # ~2 GB for 1.5B Qwen (actual ~1.89 GB)
+NEW_MODEL_SIZE_BYTES=2400000000   # ~2.4 GB for Qwen 3 1.7B W8A8 (estimated upper)
 SAFETY_MARGIN_BYTES=1073741824    # 1 GB
 REQUIRED_BYTES=$((NEW_MODEL_SIZE_BYTES + SAFETY_MARGIN_BYTES))
 FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
@@ -173,18 +199,29 @@ case "$FREE_BYTES" in
   ''|*[!0-9]*) FREE_BYTES=0 ;;
 esac
 
-if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
-  echo "Disk tight (free=$FREE_BYTES, need=$REQUIRED_BYTES); pre-cleaning old 3B."
-  rm -f "$OLD_3B_PATH"
+reclaim_under_pressure() {
+  # Recompute free space after a deletion and update FREE_BYTES.
   FREE_BYTES=$(df --output=avail -B1 "$MODEL_DIR" 2>/dev/null | tail -1 | tr -d ' ')
   case "$FREE_BYTES" in
     ''|*[!0-9]*) FREE_BYTES=0 ;;
   esac
-  if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
-    echo "ERROR: still under threshold (free=$FREE_BYTES, need=$REQUIRED_BYTES) after pre-cleanup."
-    echo "       Refusing to attempt a download that will run out of space."
-    exit 1
-  fi
+}
+
+# Clean the larger one first if both are present (more reclaim per delete).
+if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ] && [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ]; then
+  echo "Disk tight (free=$FREE_BYTES, need=$REQUIRED_BYTES); pre-cleaning old 3B."
+  rm -f "$OLD_3B_PATH"
+  reclaim_under_pressure
+fi
+if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ] && [ "$SAFE_TO_CLEAN_OLD_1_5B" = "1" ]; then
+  echo "Disk tight (free=$FREE_BYTES, need=$REQUIRED_BYTES); pre-cleaning old 1.5B."
+  rm -f "$OLD_1_5B_PATH"
+  reclaim_under_pressure
+fi
+if [ "$FREE_BYTES" -lt "$REQUIRED_BYTES" ]; then
+  echo "ERROR: still under threshold (free=$FREE_BYTES, need=$REQUIRED_BYTES) after pre-cleanup."
+  echo "       Refusing to attempt a download that will run out of space."
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -237,11 +274,15 @@ if [ -f "$MODEL_FILE" ]; then
         # disk reclamation matters more than the theoretical rollback path
         # that doesn't actually exist until Phase 18.
         rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
-        # Plan B v2.1 D3b — post-verify cleanup of the old 3B file
-        # (guard prevents touching admin-pinned configurations).
+        # Post-verify cleanup of stale models — guard prevents touching
+        # admin-pinned configurations.
         if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
-            echo "Removing old 3B model file (~3.7 GB) — cached 1.5B SHA verified."
+            echo "Removing old 3B model file (~3.7 GB) — cached Qwen3 SHA verified."
             rm -f "$OLD_3B_PATH" 2>/dev/null || true
+        fi
+        if [ "$SAFE_TO_CLEAN_OLD_1_5B" = "1" ] && [ -f "$OLD_1_5B_PATH" ]; then
+            echo "Removing old 1.5B model file (~1.89 GB) — cached Qwen3 SHA verified."
+            rm -f "$OLD_1_5B_PATH" 2>/dev/null || true
         fi
         systemctl restart "$SERVICE_NAME"
         echo "Blox AI started from cached model."
@@ -347,13 +388,16 @@ done
 # specific model dir.
 rm -f "$MODEL_DIR"/deepseek-*.rkllm 2>/dev/null || true
 
-# Plan B v2.1 D3b — post-verify cleanup of the old 3B file (~3.7 GB).
-# Guard from earlier in this script prevents touching the file if admin
-# pinned BLOX_AI_MODEL_PATH at it (deliberate config). If pre-download
-# cleanup already removed it (tight-disk path), this is a no-op.
+# Post-verify cleanup of stale models. Guards prevent touching files the
+# admin pinned via BLOX_AI_MODEL_PATH (deliberate config). If pre-download
+# cleanup already removed them (tight-disk path), these are no-ops.
 if [ "$SAFE_TO_CLEAN_OLD_3B" = "1" ] && [ -f "$OLD_3B_PATH" ]; then
-    echo "Removing old 3B model file (~3.7 GB) — new 1.5B SHA verified."
+    echo "Removing old 3B model file (~3.7 GB) — new Qwen3 SHA verified."
     rm -f "$OLD_3B_PATH" 2>/dev/null || true
+fi
+if [ "$SAFE_TO_CLEAN_OLD_1_5B" = "1" ] && [ -f "$OLD_1_5B_PATH" ]; then
+    echo "Removing old 1.5B model file (~1.89 GB) — new Qwen3 SHA verified."
+    rm -f "$OLD_1_5B_PATH" 2>/dev/null || true
 fi
 
 echo "Starting $SERVICE_NAME..."

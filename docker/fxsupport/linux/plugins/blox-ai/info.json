@@ -1,8 +1,8 @@
 {
     "name": "blox-ai",
     "display_name": "Blox AI",
-    "description": "Blox AI is an on-device troubleshooting assistant. It uses your blox's NPU to diagnose connection and stack issues locally, propose fixes you can approve from the app, and execute safe repairs when you tap Approve. Powered by a tool-calling-capable small language model (Qwen 2.5 1.5B Instruct, RKLLM-quantized) that runs entirely on-device — no data leaves your blox.",
-    "version": "201",
+    "description": "Blox AI is an on-device troubleshooting assistant. It uses your blox's NPU to diagnose connection and stack issues locally, propose fixes you can approve from the app, and execute safe repairs when you tap Approve. Powered by a tool-calling-capable small language model (Qwen 3 1.7B with thinking mode, RKLLM-quantized) that runs entirely on-device — no data leaves your blox.",
+    "version": "202",
     "usage": {
         "storage": "medium",
         "compute": "low",
@@ -38,15 +38,15 @@
         },
         {
             "order": 3,
-            "description": "After installation, the ~1.9 GB model continues downloading in the background. Blox AI becomes available a few minutes after install completes (depending on your internet speed)."
+            "description": "After installation, the ~2.3 GB model continues downloading in the background. Blox AI becomes available a few minutes after install completes (depending on your internet speed)."
         }
     ],
     "requiredInputs": [
         {
             "name": "ai-model",
-            "instructions": "Qwen 2.5 1.5B Instruct, RKLLM-quantized for RK3588 NPU. Selected for native function-calling support (required by the troubleshooting tool-call flow) at a RAM footprint (~1.9 GB shmem) that fits on a 7.7 GB device alongside the full Fula stack.",
+            "instructions": "Qwen 3 1.7B with thinking mode, RKLLM-quantized for RK3588 NPU. Native function-calling support (required by the troubleshooting tool-call flow). Thinking mode enabled for stronger reasoning; the container strips <think> blocks from user-visible output and from cross-turn history so KV cache stays bounded. RAM footprint (~2.0-2.4 GB shmem) fits on a 7.7 GB device alongside the full Fula stack.",
             "type": "string",
-            "default": "qwen2.5-1.5b-instruct-rk3588-w8a8.rkllm"
+            "default": "qwen3-1.7b-rk3588-w8a8.rkllm"
         }
     ],
     "outputs": [
