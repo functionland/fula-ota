@@ -95,6 +95,8 @@ services:
       # network (joined below). Host loopback (127.0.0.1:5001) only works
       # from the host itself, not from inside this container.
       - BLOX_AI_KUBO_API_URL=http://ipfs_host:5001/api/v0
+      # diag/image_versions: path to fula's .env with expected image tags
+      - BLOX_AI_FULA_ENV_PATH=/etc/fula/host-env
     volumes:
       - /uniondrive/blox-ai:/uniondrive
       # /run is tmpfs holding Layer 1.8 state files written by readiness-check.py
@@ -138,6 +140,11 @@ services:
       # (active-plugins.txt + per-plugin status.txt + info.json).
       # Read-only — diag never mutates plugin state.
       - /home/pi/.internal/plugins:/etc/fula/host-plugins:ro
+      # Phase 0.5c: diag/image_versions needs .env to know expected
+      # image tags. Single-file read-only bind. Without this the
+      # tool gracefully degrades (expected_image=unset everywhere),
+      # but with it the tree can detect Watchtower-induced drift.
+      - /usr/bin/fula/.env:/etc/fula/host-env:ro
     # --rkllm_model_path was removed: the container's entrypoint never
     # parsed it, and the model path is now picked up via BLOX_AI_MODEL_PATH
     # env (which src/runtime/rkllm_runtime.py:find_model_path() reads).
