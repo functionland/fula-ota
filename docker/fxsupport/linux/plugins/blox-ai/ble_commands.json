@@ -1,6 +1,6 @@
 {
   "plugin_id": "blox-ai",
-  "schema_version": 3,
+  "schema_version": 4,
   "commands": [
     {"name": "ai/execute",       "type": "exec", "proxy_url": "http://127.0.0.1:8083/execute-action", "timeout_s": 60, "require_approval": true},
     {"name": "ai/status",        "type": "read", "proxy_url": "http://127.0.0.1:8083/status",         "timeout_s": 5},
@@ -24,6 +24,11 @@
     {"name": "diag/systemd_services",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/systemd_services",  "timeout_s": 15},
     {"name": "diag/network_interface", "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/network_interface", "timeout_s": 5},
     {"name": "diag/uniondrive",        "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/uniondrive",        "timeout_s": 8},
-    {"name": "diag/identity_health",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/identity_health",   "timeout_s": 12}
+    {"name": "diag/identity_health",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/identity_health",   "timeout_s": 12},
+    {"name": "diag/kubo_health",       "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/kubo_health",       "timeout_s": 10},
+    {"name": "diag/fula_go_health",    "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/fula_go_health",    "timeout_s": 10},
+    {"name": "diag/image_versions",    "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/image_versions",    "timeout_s": 15},
+    {"name": "diag/ble_state",         "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/ble_state",         "timeout_s": 3},
+    {"name": "diag/plugins",           "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/plugins",           "timeout_s": 5}
   ]
 }

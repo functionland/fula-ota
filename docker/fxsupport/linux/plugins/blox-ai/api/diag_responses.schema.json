@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.functionland.dev/fula/blox-ai/diag_responses.v1.schema.json",
   "title": "Blox AI diag/* endpoint response shapes",
-  "description": "Phase 9 contract. Each GET /diag/<name> endpoint returns a JSON body conforming to one of the schemas below. The container enforces on response; fula-ota proxy passes through. Subsystem enum + severity enum (green|yellow|red) are reused from sse_events.schema.json for cross-shape consistency (Codex pre-review). schema_version=2 (2026-05-28) added discovery_state + systemd_services + network_interface for the deterministic-tree foundation (Phase 0.5a). schema_version=3 (2026-05-28) adds uniondrive + identity_health (Phase 0.5b) — identity_health is the first chain-grounded diag tool, using on-chain isPeerIdMemberOfPool + getOnlineStatusSince. All version bumps additive — older consumers see identical shapes for prior tools.",
-  "schema_version": 3,
+  "description": "Phase 9 contract. Each GET /diag/<name> endpoint returns a JSON body conforming to one of the schemas below. The container enforces on response; fula-ota proxy passes through. Subsystem enum + severity enum (green|yellow|red) are reused from sse_events.schema.json for cross-shape consistency (Codex pre-review). v2 (2026-05-28) added discovery_state + systemd_services + network_interface (Phase 0.5a). v3 (2026-05-28) added uniondrive + identity_health (Phase 0.5b) — first chain-grounded diag tool, on-chain isPeerIdMemberOfPool + getOnlineStatusSince. v4 (2026-05-28) adds kubo_health + fula_go_health + image_versions + ble_state + plugins (Phase 0.5c). All version bumps additive.",
+  "schema_version": 4,
   "$defs": {
     "severity": { "enum": ["green", "yellow", "red"] },
     "iso8601_datetime": {
@@ -296,6 +296,119 @@
         "online_count":          { "type": "integer", "minimum": 0 },
         "online_total_expected": { "type": "integer", "minimum": 0 },
         "online_window_s":       { "type": "integer", "minimum": 0 }
+      }
+    },
+    "kubo_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["daemon_reachable"],
+      "description": "Phase 0.5c — kubo HTTP API health (id + version + swarm count). `daemon_reachable=false` means the API didn't respond (kubo wedged or container crashed) — different from systemd_services which only sees the container state. swarm_peer_count below ~5 explains a class of 'device disconnected' complaints.",
+      "properties": {
+        "daemon_reachable":  { "type": "boolean" },
+        "peer_id":           { "type": "string" },
+        "agent_version":     { "type": "string", "maxLength": 128 },
+        "addresses_count":   { "type": "integer", "minimum": 0 },
+        "version":           { "type": "string", "maxLength": 32 },
+        "commit":            { "type": "string", "maxLength": 32 },
+        "swarm_peer_count":  { "type": "integer", "minimum": 0 }
+      }
+    },
+    "fula_go_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container_running"],
+      "description": "Phase 0.5c — fula_go container state + mDNS/pool event recency. fula_go has no HTTP status endpoint; only signals are docker inspect + filtered log scan. last_mdns_loaded_ts proves wap is alive (re-broadcasts every 5s per go-fula 08fe98f). last_mdns_info carries the BloxPeerIdString / IpfsClusterID / PoolName / Authorizer the wap was broadcasting — useful even when config.yaml read fails.",
+      "properties": {
+        "container_running":         { "type": "boolean" },
+        "container_state":           { "type": "string", "maxLength": 32 },
+        "restart_count":             { "type": "integer", "minimum": 0 },
+        "container_started_at":      { "$ref": "#/$defs/iso8601_datetime" },
+        "mdns_broadcasts_in_tail":   { "type": "integer", "minimum": 0 },
+        "last_mdns_loaded_ts":       { "$ref": "#/$defs/iso8601_datetime" },
+        "last_pool_event_ts":        { "$ref": "#/$defs/iso8601_datetime" },
+        "last_pool_event_excerpt":   { "type": "string", "maxLength": 300 },
+        "last_mdns_info": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "BloxPeerIdString": { "type": "string" },
+            "IpfsClusterID":    { "type": "string" },
+            "PoolName":         { "type": "string" },
+            "Authorizer":       { "type": "string" },
+            "HardwareID":       { "type": "string" }
+          }
+        }
+      }
+    },
+    "image_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["containers", "mismatched_containers"],
+      "description": "Phase 0.5c — container running images vs .env-pinned tags. Mismatches mean Watchtower pulled a newer tag, or .env was updated but containers haven't restarted. We DELIBERATELY don't query Docker Hub — .env IS the source of truth for 'what this device should be running'.",
+      "properties": {
+        "containers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["container", "actual_image", "expected_image", "match"],
+            "properties": {
+              "container":      { "type": "string", "minLength": 1 },
+              "actual_image":   { "type": "string" },
+              "expected_image": { "type": "string" },
+              "match":          { "type": "boolean" }
+            }
+          }
+        },
+        "mismatched_containers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_pins": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "ble_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present"],
+      "description": "Phase 0.5c — recent BLE session activity (per Phase 1.9 plugin scanner). `present=null` when state file hasn't been written yet (pre-Phase-1.9 firmware OR no BLE session since boot). Tristate per the discovery_state pattern; trees must branch on null explicitly.",
+      "properties": {
+        "present":            { "type": ["boolean", "null"] },
+        "last_session_ts":    { "type": "string", "maxLength": 200 },
+        "last_command":       { "type": "string", "maxLength": 200 },
+        "last_command_ts":    { "type": "string", "maxLength": 200 },
+        "session_count_24h":  { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plugins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "installed"],
+      "description": "Phase 0.5c — installed + active fula plugins with version metadata. `active` reflects /home/pi/.internal/plugins/active-plugins.txt; `installed` is the runtime-dir listing with per-plugin status + (info.json-sourced) version. Mismatch between active vs installed.active hints at install-state drift.",
+      "properties": {
+        "active": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "installed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "active"],
+            "properties": {
+              "name":         { "type": "string", "minLength": 1 },
+              "active":       { "type": "boolean" },
+              "status":       { "type": "string", "maxLength": 64 },
+              "display_name": { "type": "string", "maxLength": 500 },
+              "version":      { "type": "string", "maxLength": 500 },
+              "description":  { "type": "string", "maxLength": 500 }
+            }
+          }
+        }
       }
     },
     "summary": {
