@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.functionland.dev/fula/blox-ai/diag_responses.v1.schema.json",
   "title": "Blox AI diag/* endpoint response shapes",
-  "description": "Phase 9 contract. Each GET /diag/<name> endpoint returns a JSON body conforming to one of the schemas below. The container enforces on response; fula-ota proxy passes through. Subsystem enum + severity enum (green|yellow|red) are reused from sse_events.schema.json for cross-shape consistency (Codex pre-review).",
-  "schema_version": 1,
+  "description": "Phase 9 contract. Each GET /diag/<name> endpoint returns a JSON body conforming to one of the schemas below. The container enforces on response; fula-ota proxy passes through. Subsystem enum + severity enum (green|yellow|red) are reused from sse_events.schema.json for cross-shape consistency (Codex pre-review). schema_version=2 (2026-05-28) adds discovery_state + systemd_services + network_interface for the deterministic-tree foundation (Phase 0.5a); additive — v1 consumers are unaffected.",
+  "schema_version": 2,
   "$defs": {
     "severity": { "enum": ["green", "yellow", "red"] },
     "iso8601_datetime": {
@@ -175,6 +175,79 @@
         "recent_log":      { "type": "string" },
         "last_failure_ts": { "$ref": "#/$defs/iso8601_datetime" },
         "recover_state":   { "type": "object" }
+      }
+    },
+    "discovery_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok"],
+      "description": "Snapshot of /run/fula-discovery.state written by readiness-check.py's check_discovery_https_reachable probe (Phase 1.2). Tristate `ok` — null means the state file hasn't been written yet (fresh boot or pre-Phase-1.2 firmware) so trees can branch on 'unknown' explicitly rather than misreading absence as failure.",
+      "properties": {
+        "ok":             { "type": ["boolean", "null"] },
+        "last_check_ts":  { "$ref": "#/$defs/iso8601_datetime" },
+        "error":          { "type": "string", "maxLength": 500 },
+        "latency_ms":     { "type": "number", "minimum": 0 }
+      }
+    },
+    "systemd_services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["services"],
+      "description": "Per-unit systemctl is-active state for the fula unit set. Trees branch on `active` (bool) for is-it-running questions; `state` carries the raw text (active|inactive|failed|activating|...). `active=null` + `state='unknown'` means systemctl itself was unreachable (dev host, container without init) — trees should branch on unknown rather than assume false.",
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "active", "state"],
+            "properties": {
+              "name":      { "type": "string", "minLength": 1 },
+              "active":    { "type": ["boolean", "null"] },
+              "state":     { "type": "string", "minLength": 1, "maxLength": 64 },
+              "sub_state": { "type": "string", "maxLength": 64 },
+              "result":    { "type": "string", "maxLength": 64 }
+            }
+          }
+        }
+      }
+    },
+    "network_interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interfaces", "tools_present"],
+      "description": "Per-interface IP + WiFi state from `ip -j addr` + `iw dev <ifname> link`. tools_present.{ip,iw} let trees distinguish 'tool missing' from 'tool returned no data' — important on stripped Pi OS builds where iw may be absent.",
+      "properties": {
+        "tools_present": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ip", "iw"],
+          "properties": {
+            "ip": { "type": "boolean" },
+            "iw": { "type": "boolean" }
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "operstate"],
+            "properties": {
+              "name":      { "type": "string", "minLength": 1 },
+              "operstate": { "type": "string", "minLength": 1, "maxLength": 32 },
+              "mtu":       { "type": ["integer", "null"], "minimum": 0 },
+              "mac":       { "type": "string" },
+              "ipv4":      { "type": "array", "items": { "type": "string" } },
+              "ipv6":      { "type": "array", "items": { "type": "string" } },
+              "wifi_associated":     { "type": "boolean" },
+              "wifi_ssid":           { "type": "string" },
+              "wifi_signal_dbm":     { "type": "integer" },
+              "wifi_tx_bitrate_mbps":{ "type": "number", "minimum": 0 },
+              "wifi_freq_mhz":       { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
       }
     },
     "summary": {

@@ -1,6 +1,6 @@
 {
   "plugin_id": "blox-ai",
-  "schema_version": 1,
+  "schema_version": 2,
   "commands": [
     {"name": "ai/execute",       "type": "exec", "proxy_url": "http://127.0.0.1:8083/execute-action", "timeout_s": 60, "require_approval": true},
     {"name": "ai/status",        "type": "read", "proxy_url": "http://127.0.0.1:8083/status",         "timeout_s": 5},
@@ -9,16 +9,19 @@
     {"name": "ai/user-reply",    "type": "exec", "proxy_url": "http://127.0.0.1:8083/troubleshoot/user-reply",    "timeout_s": 10},
     {"name": "ai/phone-context", "type": "exec", "proxy_url": "http://127.0.0.1:8083/troubleshoot/phone-context", "timeout_s": 10},
     {"name": "ai/feedback",      "type": "exec", "proxy_url": "http://127.0.0.1:8083/feedback",                   "timeout_s": 10},
-    {"name": "diag/internet",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/internet",  "timeout_s": 8},
-    {"name": "diag/relay",      "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/relay",     "timeout_s": 15},
-    {"name": "diag/time",       "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/time",      "timeout_s": 5},
-    {"name": "diag/power",      "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/power",     "timeout_s": 5},
-    {"name": "diag/storage",    "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/storage",   "timeout_s": 8},
-    {"name": "diag/containers", "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/containers", "timeout_s": 8},
-    {"name": "diag/wireguard",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/wireguard", "timeout_s": 5},
-    {"name": "diag/heartbeat",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/heartbeat", "timeout_s": 5},
-    {"name": "diag/events",     "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/events",    "timeout_s": 5},
-    {"name": "diag/readiness",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/readiness", "timeout_s": 5},
-    {"name": "diag/summary",    "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/summary",   "timeout_s": 10}
+    {"name": "diag/internet",          "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/internet",          "timeout_s": 8},
+    {"name": "diag/relay",             "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/relay",             "timeout_s": 15},
+    {"name": "diag/time",              "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/time",              "timeout_s": 5},
+    {"name": "diag/power",             "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/power",             "timeout_s": 5},
+    {"name": "diag/storage",           "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/storage",           "timeout_s": 8},
+    {"name": "diag/containers",        "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/containers",        "timeout_s": 8},
+    {"name": "diag/wireguard",         "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/wireguard",         "timeout_s": 5},
+    {"name": "diag/heartbeat",         "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/heartbeat",         "timeout_s": 5},
+    {"name": "diag/events",            "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/events",            "timeout_s": 5},
+    {"name": "diag/readiness",         "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/readiness",         "timeout_s": 5},
+    {"name": "diag/summary",           "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/summary",           "timeout_s": 10},
+    {"name": "diag/discovery_state",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/discovery_state",   "timeout_s": 3},
+    {"name": "diag/systemd_services",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/systemd_services",  "timeout_s": 15},
+    {"name": "diag/network_interface", "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/network_interface", "timeout_s": 5}
   ]
 }
