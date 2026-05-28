@@ -1,0 +1,124 @@
+id: cannot-join-pool
+version: 1
+title: "Blox can't join a pool"
+
+# Pool join requires:
+#   1. Blox is online (handled by `disconnected` tree).
+#   2. config.yaml has a poolName (otherwise the wap doesn't know which
+#      pool to join-request to).
+#   3. The chain accepts the join — but if this fails, the chain returns
+#      an error; the most common case from a user perspective is just
+#      "the join button doesn't seem to do anything", which is the
+#      poolName-not-set case.
+#   4. (Less common) authorizer peerID matches the app's connected peer.
+#      Without app side info we can't fully verify; we surface the
+#      authorizer value from config so the user can compare.
+
+nodes:
+  - id: delegate_to_disconnected
+    branches:
+      - default:
+          emit_thought: |
+            Joining a pool needs your Blox to be reachable. Running the
+            connection checks first — if anything's wrong there, joining
+            won't work either.
+          include_tree: disconnected
+          next: pool_config_check
+
+  - id: pool_config_check
+    diag: identity_health
+    timeout_s: 12
+    branches:
+      - when: |
+          result.pool_member == None and
+          result.pool_member_reason == 'missing_pool_id'
+        then:
+          emit_verdict:
+            summary: |
+              Your Blox's config doesn't have a pool ID set. The wap component
+              has nothing to join. Open the app's Settings > Pools and tap a
+              pool to join — the app will write the pool ID into your Blox's
+              config.
+            severity: red
+            root_cause: pool_id_not_configured
+          stop: true
+      - when: |
+          result.pool_member == None and
+          result.pool_member_reason == 'missing_chain'
+        then:
+          emit_verdict:
+            summary: |
+              Your Blox's config doesn't specify which chain (base or skale).
+              Without a chain, the join request has nowhere to land.
+            severity: red
+            root_cause: chain_not_configured
+          stop: true
+      - when: "result.pool_member == True"
+        then:
+          emit_verdict:
+            summary: |
+              You're already a pool member on chain. If the app still shows
+              "join" instead of "joined", it may need a refresh — try pulling
+              to refresh the Pools screen.
+            severity: green
+            root_cause: already_pool_member
+          stop: true
+      - when: "result.pool_member == False"
+        then:
+          emit_thought: |
+            Pool ID is configured but the chain doesn't show you as a member.
+            The join request may be pending OR may have been rejected.
+          next: fula_go_join_logs
+      - when: |
+          result.pool_member == None and
+          result.pool_member_reason == 'rpc_unreachable'
+        then:
+          emit_verdict:
+            summary: |
+              I can't reach the Fula chain RPC to check your join status.
+              Either the chain is having issues or your Blox can't reach it.
+              Try again in a few minutes.
+            severity: yellow
+            root_cause: chain_rpc_unreachable
+          stop: true
+      - default:
+          emit_verdict:
+            summary: "Pool join status is indeterminate from the data I can see."
+            severity: yellow
+            root_cause: join_indeterminate
+          stop: true
+
+  - id: fula_go_join_logs
+    diag: fula_go_health
+    timeout_s: 10
+    branches:
+      - when: |
+          get(result, 'last_pool_event_ts', None) != None
+        then:
+          emit_thought: |
+            fula_go has recent pool-related log activity. The join request
+            was likely submitted; the chain just hasn't accepted it yet
+            (rules vary per pool — some require existing-member votes).
+          emit_verdict:
+            summary: |
+              Your Blox sent a pool join request but the chain hasn't accepted
+              it yet. Most pools require approval from existing members; this
+              can take minutes to hours.
+            severity: yellow
+            root_cause: join_pending_approval
+          stop: true
+      - default:
+          emit_verdict:
+            summary: |
+              Your pool ID is configured but I don't see a join request in
+              your Blox's logs. Try restarting fula_go — it'll re-submit on
+              next boot.
+            severity: yellow
+            root_cause: join_not_submitted
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce fula_go to resubmit the pool join request."
+            args:
+              container: fula_go
+          stop: true

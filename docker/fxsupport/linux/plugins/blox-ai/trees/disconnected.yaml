@@ -1,0 +1,276 @@
+id: disconnected
+version: 1
+title: "App shows Blox as disconnected"
+
+# Disconnected is the central scenario — most "my Blox isn't working"
+# complaints land here. Cascades through:
+#   1. Internet reachability  (DNS + discovery server)
+#   2. Critical systemd units (fula + uniondrive + docker)
+#   3. Uniondrive mount       (catastrophic if not mounted)
+#   4. Kubo daemon health     (the libp2p layer the app talks to)
+#   5. Fula_go health         (wap + mDNS + chain bridge)
+#   6. Relay reservations     (no relay → app can't reach blox via libp2p)
+#
+# Sub-cascades referenced via `next:` to in-file subtrees:
+#   - docker_outdated_check (image_versions vs .env pins)
+#   - storage_issues_check  (ext4 errors, dmesg I/O)
+#
+# Tree contract: every node either emits a verdict + stops, or hands
+# off to the next node. Falling off the end emits a synthesized
+# "tree_indeterminate" verdict so the app always has a final state.
+
+nodes:
+  # ---- Tier 0: internet --------------------------------------------------
+  - id: internet_check
+    diag: internet
+    timeout_s: 8
+    branches:
+      - when: "result.dns_ok == False"
+        then:
+          emit_thought: "DNS resolution failing — your Blox can't reach any internet hostnames."
+          emit_verdict:
+            summary: "Your Blox can't reach the internet — DNS is failing."
+            severity: red
+            root_cause: dns_unreachable
+          emit_recommendation:
+            action_name: systemctl.restart
+            tier: 2
+            reasoning: "Restart systemd-resolved to clear stuck DNS cache."
+            args:
+              unit: systemd-resolved.service
+          stop: true
+      - when: "result.captive_portal_likely == True"
+        then:
+          emit_thought: "Discovery server unreachable but other internet looks OK — likely captive portal."
+          emit_verdict:
+            summary: "A captive portal (login required) is blocking your Blox from reaching the Fula discovery server."
+            severity: yellow
+            root_cause: captive_portal
+          stop: true
+      - when: "result.https_discovery_ok == False"
+        then:
+          emit_thought: "Internet looks OK but discovery.fula.network isn't reachable."
+          emit_verdict:
+            summary: "The Fula discovery server is unreachable from your Blox — likely a regional block, ISP issue, or firewall."
+            severity: red
+            root_cause: discovery_unreachable
+          stop: true
+      - default:
+          emit_thought: "Internet looks healthy. Checking critical services."
+          next: services_check
+
+  # ---- Tier 1: systemd services -----------------------------------------
+  - id: services_check
+    diag: systemd_services
+    timeout_s: 15
+    branches:
+      - when: |
+          any(
+            s.name == 'fula.service' and s.active == False
+            for s in result.services
+          )
+        then:
+          emit_verdict:
+            summary: "The main Fula service isn't running on your Blox."
+            severity: red
+            root_cause: fula_service_inactive
+          emit_recommendation:
+            action_name: restart_fula
+            tier: 2
+            reasoning: "Restart fula.service — the orchestrator that brings up the whole stack."
+          stop: true
+      - when: |
+          any(
+            s.name == 'uniondrive.service' and s.active == False
+            for s in result.services
+          )
+        then:
+          emit_verdict:
+            summary: "The uniondrive (storage) service isn't running — all containers depend on it."
+            severity: red
+            root_cause: uniondrive_service_inactive
+          emit_recommendation:
+            action_name: restart_uniondrive
+            tier: 2
+            reasoning: "Restart uniondrive.service to remount /uniondrive."
+          stop: true
+      - when: |
+          any(
+            s.name == 'docker.service' and s.active == False
+            for s in result.services
+          )
+        then:
+          emit_verdict:
+            summary: "Docker isn't running. Every Fula service depends on it."
+            severity: red
+            root_cause: docker_service_inactive
+          emit_recommendation:
+            action_name: systemctl.restart
+            tier: 2
+            reasoning: "Bounce docker.service."
+            args:
+              unit: docker.service
+          stop: true
+      - default:
+          next: uniondrive_check
+
+  # ---- Tier 2: uniondrive mount -----------------------------------------
+  - id: uniondrive_check
+    diag: uniondrive
+    timeout_s: 8
+    branches:
+      - when: "result.mounted == False"
+        then:
+          emit_thought: "/uniondrive isn't mounted — containers can't write data."
+          emit_verdict:
+            summary: "Your Blox's storage drive (/uniondrive) isn't mounted. Until it is, no container can store data."
+            severity: red
+            root_cause: uniondrive_not_mounted
+          emit_recommendation:
+            action_name: restart_uniondrive
+            tier: 2
+            reasoning: "Restart uniondrive.service to attempt remount."
+          stop: true
+      - when: "result.use_percent != None and result.use_percent >= 95"
+        then:
+          emit_thought: "/uniondrive is over 95% full — containers will start failing soon."
+          next: storage_issues_check
+      - when: "get(result, 'ext4_errors_count', 0) > 0 or get(result, 'dmesg_io_errors_1h', 0) > 0"
+        then:
+          emit_thought: "Storage shows ext4 errors or recent I/O errors — silent corruption likely."
+          next: storage_issues_check
+      - default:
+          next: kubo_health_check
+
+  # ---- Tier 2 sub-cascade: storage issues -------------------------------
+  - id: storage_issues_check
+    diag: uniondrive
+    branches:
+      - when: "get(result, 'ext4_errors_count', 0) > 0"
+        then:
+          emit_verdict:
+            summary: "Your Blox's storage has ext4 filesystem errors. Data may be corrupted; reboot to trigger an fsck."
+            severity: red
+            root_cause: ext4_errors_present
+          stop: true
+      - when: "get(result, 'dmesg_io_errors_1h', 0) > 0"
+        then:
+          emit_verdict:
+            summary: "The kernel logged I/O errors on your storage in the last hour. The disk may be failing."
+            severity: red
+            root_cause: disk_io_errors
+          stop: true
+      - when: "result.use_percent != None and result.use_percent >= 95"
+        then:
+          emit_verdict:
+            summary: "Your Blox's storage is over 95% full. Free up space or expand the partition."
+            severity: red
+            root_cause: storage_full
+          emit_recommendation:
+            action_name: partition
+            tier: 3
+            reasoning: "Expand the uniondrive partition into any unused disk space."
+          stop: true
+      - default:
+          next: kubo_health_check
+
+  # ---- Tier 3: kubo daemon ----------------------------------------------
+  - id: kubo_health_check
+    diag: kubo_health
+    timeout_s: 10
+    branches:
+      - when: "result.daemon_reachable == False"
+        then:
+          emit_thought: "Kubo (the IPFS daemon) container is running but its API isn't responding — likely wedged."
+          emit_verdict:
+            summary: "Your Blox's IPFS daemon is wedged. Restarting it usually fixes this."
+            severity: red
+            root_cause: kubo_api_unresponsive
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce the ipfs_host container."
+            args:
+              container: ipfs_host
+          stop: true
+      - when: "get(result, 'swarm_peer_count', 0) < 5"
+        then:
+          emit_thought: "Kubo is up but has very few libp2p peers — explains the disconnected appearance."
+          next: relay_check
+      - default:
+          next: fula_go_check
+
+  # ---- Tier 4: fula_go (wap / authorizer / chain bridge) ----------------
+  - id: fula_go_check
+    diag: fula_go_health
+    timeout_s: 10
+    branches:
+      - when: "result.container_running == False"
+        then:
+          emit_verdict:
+            summary: "fula_go (the wap + chain bridge container) isn't running."
+            severity: red
+            root_cause: fula_go_inactive
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce fula_go."
+            args:
+              container: fula_go
+          stop: true
+      - when: "get(result, 'restart_count', 0) > 3"
+        then:
+          emit_verdict:
+            summary: "fula_go is crash-looping (3+ restarts). Logs likely have the underlying error."
+            severity: yellow
+            root_cause: fula_go_crash_loop
+          stop: true
+      - default:
+          next: relay_check
+
+  # ---- Tier 5: relay reservations ---------------------------------------
+  - id: relay_check
+    diag: relay
+    timeout_s: 15
+    branches:
+      - when: "result.reservation_count == 0"
+        then:
+          emit_verdict:
+            summary: "Your Blox has no relay reservations. The app can't reach it via libp2p — it relies on a relay being available."
+            severity: red
+            root_cause: no_relay_reservation
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce kubo to trigger a fresh relay handshake."
+            args:
+              container: ipfs_host
+          stop: true
+      - default:
+          next: docker_outdated_check
+
+  # ---- Tier 6 (last-resort): docker images outdated ---------------------
+  - id: docker_outdated_check
+    diag: image_versions
+    timeout_s: 15
+    branches:
+      - when: "len(result.mismatched_containers) > 0"
+        then:
+          emit_thought: |
+            Some containers are running outdated images vs the .env pin.
+            This can cause subtle protocol mismatches.
+          emit_verdict:
+            summary: "Some of your Blox's docker images are out of date. A force-update should resolve this."
+            severity: yellow
+            root_cause: docker_images_outdated
+          emit_recommendation:
+            action_name: force_update
+            tier: 3
+            reasoning: "Pull latest images + restart the stack."
+          stop: true
+      - default:
+          emit_verdict:
+            summary: "I checked DNS, services, mount, kubo, fula_go, relay, and image freshness — everything looks healthy. The disconnect may be on the phone side (WiFi, app cache)."
+            severity: yellow
+            root_cause: disconnected_indeterminate
+          stop: true

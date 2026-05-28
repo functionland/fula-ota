@@ -1,0 +1,131 @@
+id: not-earning
+version: 1
+title: "Blox shows as connected but isn't earning rewards"
+
+# Earnings depend on three things:
+#   1. The blox is actually online (handled by `disconnected` tree).
+#   2. The ipfs-cluster container is healthy + part of the cluster.
+#   3. The cluster's peerID is registered with a pool on chain AND
+#      reporting online recently (handled by diag/identity_health).
+#
+# The first node delegates to `disconnected` — if disconnected found
+# the issue, we halt with its verdict; if everything in disconnected
+# is healthy, we continue with the earnings-specific cluster + chain
+# checks.
+
+nodes:
+  # ---- First check: is the blox actually connected at all? ---------------
+  - id: delegate_to_disconnected
+    branches:
+      - default:
+          emit_thought: |
+            Earnings require a healthy blox. Running the connection checks
+            first; if anything's wrong there, that's the actual answer.
+          include_tree: disconnected
+          # If `disconnected` did not emit a verdict, the connection
+          # is healthy — drop into the earnings-specific checks.
+          next: cluster_container_check
+
+  # ---- Cluster container running? ---------------------------------------
+  - id: cluster_container_check
+    diag: containers
+    timeout_s: 8
+    branches:
+      - when: |
+          any(
+            c.name == 'ipfs_cluster' and c.state != 'running'
+            for c in result.containers
+          )
+        then:
+          emit_thought: "ipfs_cluster isn't running — that's the container that submits earnings proofs on chain."
+          emit_verdict:
+            summary: "Your Blox's ipfs-cluster container isn't running. Without it, the chain doesn't see your blox as online for earnings."
+            severity: red
+            root_cause: cluster_not_running
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce ipfs_cluster."
+            args:
+              container: ipfs_cluster
+          stop: true
+      - when: |
+          any(
+            c.name == 'ipfs_cluster' and c.oom_killed == True
+            for c in result.containers
+          )
+        then:
+          emit_verdict:
+            summary: "ipfs-cluster was OOM-killed. It restarted but the underlying RAM pressure may recur."
+            severity: yellow
+            root_cause: cluster_oom_killed
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce ipfs_cluster fresh; review whether other plugins are crowding RAM."
+            args:
+              container: ipfs_cluster
+          stop: true
+      - default:
+          next: chain_membership_check
+
+  # ---- On-chain pool membership + recent-online ------------------------
+  - id: chain_membership_check
+    diag: identity_health
+    timeout_s: 12
+    branches:
+      - when: "result.pool_member == False"
+        then:
+          emit_thought: |
+            Your Blox's ipfs-cluster peerID isn't a member of any pool on chain.
+            Without pool membership, no earnings.
+          emit_verdict:
+            summary: "Your Blox isn't registered as a member of any pool on chain. Open the app's Settings > Pools to join one."
+            severity: red
+            root_cause: not_pool_member
+          stop: true
+      - when: "result.pool_member == None and result.pool_member_reason == 'missing_pool_id'"
+        then:
+          emit_thought: "config.yaml doesn't have a poolName set."
+          emit_verdict:
+            summary: "Your Blox's config doesn't have a pool ID set. Open the app's Settings > Pools and join a pool."
+            severity: red
+            root_cause: pool_id_not_configured
+          stop: true
+      - when: "result.pool_member == None and result.pool_member_reason == 'rpc_unreachable'"
+        then:
+          emit_thought: "The chain RPC isn't reachable from your Blox — we can't confirm membership."
+          emit_verdict:
+            summary: "I can't reach the Fula chain RPC to verify your pool membership. The chain might be experiencing issues, or your Blox's outbound HTTPS is blocked."
+            severity: yellow
+            root_cause: chain_rpc_unreachable
+          stop: true
+      - when: "result.pool_member == True and result.online_recent == False"
+        then:
+          emit_thought: |
+            You're a pool member but the chain shows no online submissions in the last 24h.
+            Likely the ipfs-cluster online-status submitter is wedged.
+          emit_verdict:
+            summary: "Your Blox is registered with a pool but the chain hasn't seen an online submission in the last 24 hours. Restarting ipfs-cluster usually fixes this."
+            severity: yellow
+            root_cause: not_reporting_online
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce ipfs_cluster to retrigger online-status submission."
+            args:
+              container: ipfs_cluster
+          stop: true
+      - when: "result.pool_member == True and result.online_recent == True"
+        then:
+          emit_verdict:
+            summary: "Your Blox is healthy AND on chain AND reporting online. Earnings should be accruing. If the app's earnings display shows zero, that may be a UI-cache issue — try pulling-to-refresh in the app."
+            severity: green
+            root_cause: earnings_should_accrue
+          stop: true
+      - default:
+          emit_verdict:
+            summary: "Earnings status is indeterminate — couldn't confirm pool membership or online status from chain data."
+            severity: yellow
+            root_cause: earnings_indeterminate
+          stop: true
