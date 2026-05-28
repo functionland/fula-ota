@@ -73,6 +73,18 @@ services:
       # RKLLM_MODEL_PATH name was unread by any code path (dead env).
       - TARGET_PLATFORM=${TARGET_PLATFORM}
       - BLOX_AI_MODEL_PATH=${BLOX_AI_MODEL_PATH}
+      # Phase 0.5b/c diag tools — host paths that get bind-mounted into
+      # the container (see volumes below). Default impl values in the
+      # python module assume these container-side paths, so these env
+      # vars only need overriding when running the impls on the host
+      # directly (smoke tests).
+      - BLOX_AI_CONFIG_YAML_PATH=/etc/fula/host-config.yaml
+      - BLOX_AI_CLUSTER_IDENTITY_PATH=/etc/fula/host-ipfs-cluster-identity.json
+      - BLOX_AI_PLUGINS_DIR=/etc/fula/host-plugins
+      # diag/kubo_health: reaches kubo via container name on fula_default
+      # network (joined below). Host loopback (127.0.0.1:5001) only works
+      # from the host itself, not from inside this container.
+      - BLOX_AI_KUBO_API_URL=http://ipfs_host:5001/api/v0
     volumes:
       - /uniondrive/blox-ai:/uniondrive
       # /run is tmpfs holding Layer 1.8 state files written by readiness-check.py
@@ -102,6 +114,20 @@ services:
       # to set per-device code; container reads on each tier-3 request
       # (no caching) so rotation takes effect immediately.
       - /etc/fula/blox-ai/security-code:/etc/fula/blox-ai/security-code:ro
+      # Phase 0.5b: diag/identity_health needs to read poolName +
+      # chainName from config.yaml (chain RPC inputs). Single-file
+      # read-only bind — container only reads. The `identity` field
+      # (private key seed) is NOT touched by the impl.
+      - /home/pi/.internal/config.yaml:/etc/fula/host-config.yaml:ro
+      # Phase 0.5b: diag/identity_health needs the ipfs-cluster public
+      # peerID (which is what the chain records — distinct from the
+      # kubo peerID the app talks to). The `private_key` field in this
+      # file is NOT touched by the impl.
+      - /uniondrive/ipfs-cluster/identity.json:/etc/fula/host-ipfs-cluster-identity.json:ro
+      # Phase 0.5c: diag/plugins needs the plugins manifest dir
+      # (active-plugins.txt + per-plugin status.txt + info.json).
+      # Read-only — diag never mutates plugin state.
+      - /home/pi/.internal/plugins:/etc/fula/host-plugins:ro
     # --rkllm_model_path was removed: the container's entrypoint never
     # parsed it, and the model path is now picked up via BLOX_AI_MODEL_PATH
     # env (which src/runtime/rkllm_runtime.py:find_model_path() reads).
@@ -114,3 +140,19 @@ services:
     # breaking the BLE proxy when admin overrides for LAN port collisions.
     ports:
       - "${BLOX_AI_PORT:-8083}:8083"
+    # Phase 0.5c: join fula_default so diag/kubo_health can reach kubo
+    # by container name (`ipfs_host:5001`). kubo's host port 5001 is
+    # bound to 127.0.0.1 only (per fula docker-compose), so the only
+    # way for a non-host container to reach the kubo API is to join the
+    # same docker network. The default network is preserved so existing
+    # blox-ai_default-network behavior (port publishing, container DNS
+    # within the plugin's own compose) is unaffected.
+    networks:
+      - default
+      - fula_default
+
+networks:
+  default:
+    name: blox-ai_default
+  fula_default:
+    external: true
