@@ -1,6 +1,6 @@
 {
   "plugin_id": "blox-ai",
-  "schema_version": 2,
+  "schema_version": 3,
   "commands": [
     {"name": "ai/execute",       "type": "exec", "proxy_url": "http://127.0.0.1:8083/execute-action", "timeout_s": 60, "require_approval": true},
     {"name": "ai/status",        "type": "read", "proxy_url": "http://127.0.0.1:8083/status",         "timeout_s": 5},
@@ -22,6 +22,8 @@
     {"name": "diag/summary",           "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/summary",           "timeout_s": 10},
     {"name": "diag/discovery_state",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/discovery_state",   "timeout_s": 3},
     {"name": "diag/systemd_services",  "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/systemd_services",  "timeout_s": 15},
-    {"name": "diag/network_interface", "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/network_interface", "timeout_s": 5}
+    {"name": "diag/network_interface", "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/network_interface", "timeout_s": 5},
+    {"name": "diag/uniondrive",        "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/uniondrive",        "timeout_s": 8},
+    {"name": "diag/identity_health",   "type": "read", "proxy_url": "http://127.0.0.1:8083/diag/identity_health",   "timeout_s": 12}
   ]
 }
