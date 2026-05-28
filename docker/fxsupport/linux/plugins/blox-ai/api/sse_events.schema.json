@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.functionland.dev/fula/blox-ai/sse_events.v3.schema.json",
   "title": "Blox AI /troubleshoot + /execute-action SSE event envelope",
-  "description": "Phase 9 + Phase 10 + Phase 11 contract. Every event emitted by the Blox AI container's POST /troubleshoot AND POST /execute-action SSE streams MUST match exactly one of the variants below. The container is the primary enforcer (validates before emit); the fula-ota BLE proxy passes through but the executor additionally validates `recommended_action` and `/execute-action` requests against action_whitelist.json. Phase 10 added execution_result. Phase 11 adds session_started + user_question + user_reply_received.",
-  "schema_version": 3,
+  "description": "Phase 9 + Phase 10 + Phase 11 + Phase 1.* contract. Every event emitted by the Blox AI container's POST /troubleshoot AND POST /troubleshoot/tree AND POST /execute-action SSE streams MUST match exactly one of the variants below. The container is the primary enforcer (validates before emit); the fula-ota BLE proxy passes through but the executor additionally validates `recommended_action` and `/execute-action` requests against action_whitelist.json. Phase 10 added execution_result. Phase 11 added session_started + user_question + user_reply_received. v4 (2026-05-28) extends tool_call.tool enum with the 10 Phase 0.5 diag tools so /troubleshoot/tree events validate against the schema, and broadens recommended_action.tier to {1,2,3} for tier-1 read-only/navigation actions the deterministic-tree runner may emit.",
+  "schema_version": 4,
   "oneOf": [
     { "$ref": "#/$defs/session_started" },
     { "$ref": "#/$defs/thought" },
@@ -40,7 +40,7 @@
           "properties": {
             "tool": {
               "type": "string",
-              "description": "Must be one of the diag/* names registered in ble_commands.json. Phase 11 will add ai/user-reply etc.",
+              "description": "Must be one of the diag/* names registered in ble_commands.json. Schema v4 (2026-05-28) extends the enum with the 10 Phase 0.5 diag tools (discovery_state, systemd_services, network_interface, uniondrive, identity_health, kubo_health, fula_go_health, image_versions, ble_state, plugins) so the deterministic tree runner's tool_call events validate.",
               "enum": [
                 "diag/internet",
                 "diag/relay",
@@ -52,7 +52,17 @@
                 "diag/heartbeat",
                 "diag/events",
                 "diag/readiness",
-                "diag/summary"
+                "diag/summary",
+                "diag/discovery_state",
+                "diag/systemd_services",
+                "diag/network_interface",
+                "diag/uniondrive",
+                "diag/identity_health",
+                "diag/kubo_health",
+                "diag/fula_go_health",
+                "diag/image_versions",
+                "diag/ble_state",
+                "diag/plugins"
               ]
             },
             "args": { "type": "object" }
@@ -111,7 +121,7 @@
         "args":            { "type": "object" },
         "reasoning":       { "type": "string", "minLength": 1, "maxLength": 1000 },
         "confidence":      { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-        "tier":            { "enum": [2, 3] },
+        "tier":            { "enum": [1, 2, 3], "description": "Schema v4 broadens this from {2,3} to {1,2,3}. tier 1 is for read-only/navigation actions the deterministic-tree runner may emit (e.g. app deep-links). The executor still validates against action_whitelist.json — tier 1 actions in the whitelist auto-approve in the app; tier 2/3 still require tap-approval / security-code respectively." },
         "approval_token":  { "type": "string", "minLength": 64, "maxLength": 2048, "description": "Phase 10 v2: bumped from 16/256 to 64/2048 to match execute_action_request.schema.json. Codex post-impl HIGH catch — a token sized 30 chars would validate on emit but get rejected at execute, breaking the contract." },
         "expected_duration_s": { "type": "number", "minimum": 0, "maximum": 600 }
       }
@@ -135,7 +145,7 @@
       "properties": {
         "type":             { "const": "session_started" },
         "session_id":       { "type": "string", "minLength": 1, "maxLength": 128 },
-        "protocol_version": { "const": 3, "description": "SSE event envelope schema version. Matches `schema_version` field at the root of sse_events.schema.json. Bumped to 4 in any future SSE schema iteration so clients can negotiate." },
+        "protocol_version": { "const": 4, "description": "SSE event envelope schema version. Matches `schema_version` field at the root of sse_events.schema.json. v4 (2026-05-28) extends tool_call.tool enum + broadens recommended_action.tier to {1,2,3}. Clients negotiate by inspecting this field on session_started." },
         "ttl_seconds":      { "type": "integer", "minimum": 60, "maximum": 86400, "description": "How long the session stays alive without activity (sliding — refreshed on each /user-reply or /phone-context). Container's choice; typically 1800 (30 min) per plan." }
       }
     },
