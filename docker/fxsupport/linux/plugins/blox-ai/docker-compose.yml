@@ -22,6 +22,16 @@ services:
     # override per device (e.g. set BLOX_AI_IMAGE_TAG=test on a canary).
     image: functionland/blox-ai:${BLOX_AI_IMAGE_TAG:-release}
     container_name: blox-ai
+    # user=root because the Phase 0.5b/c diag mounts (config.yaml,
+    # active-plugins.txt, etc.) are root-owned with 0600 perms on the
+    # host and the previous container UID 1000 got EACCES on read.
+    # This does NOT broaden the security boundary: docker.sock is
+    # mounted (see SECURITY NOTE above), which already gives this
+    # container host-root-equivalent power. Running as root inside
+    # is strictly less surprising than the docker.sock surface.
+    # Phase 10 executor design will revisit if a tighter UID
+    # capability model becomes necessary.
+    user: "0:0"
     # Memory cap — the W8A8 Qwen 3 1.7B model mmaps ~2.0-2.4 GB of shared
     # memory at load time. With thinking mode enabled, KV cache grows with
     # per-turn think tokens (the runtime strips <think> from history before
