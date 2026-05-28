@@ -97,6 +97,8 @@ services:
       - BLOX_AI_KUBO_API_URL=http://ipfs_host:5001/api/v0
       # diag/image_versions: path to fula's .env with expected image tags
       - BLOX_AI_FULA_ENV_PATH=/etc/fula/host-env
+      # Phase 1.c: deterministic tree YAMLs the runner walks.
+      - BLOX_AI_TREES_DIR=/etc/fula/blox-ai/trees
     volumes:
       - /uniondrive/blox-ai:/uniondrive
       # /run is tmpfs holding Layer 1.8 state files written by readiness-check.py
@@ -145,6 +147,11 @@ services:
       # tool gracefully degrades (expected_image=unset everywhere),
       # but with it the tree can detect Watchtower-induced drift.
       - /usr/bin/fula/.env:/etc/fula/host-env:ro
+      # Phase 1.b/1.c: deterministic-tree YAMLs. Bind-mounted from the
+      # plugin install dir; the runner loads them at container start.
+      # Editing a tree here + bouncing blox-ai applies immediately —
+      # no container rebuild needed.
+      - ./trees:/etc/fula/blox-ai/trees:ro
     # --rkllm_model_path was removed: the container's entrypoint never
     # parsed it, and the model path is now picked up via BLOX_AI_MODEL_PATH
     # env (which src/runtime/rkllm_runtime.py:find_model_path() reads).
