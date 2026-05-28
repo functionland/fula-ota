@@ -86,11 +86,11 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["summary", "severity"],
+          "required": ["summary", "severity", "root_cause"],
           "properties": {
             "summary":    { "type": "string", "minLength": 1, "maxLength": 500 },
             "severity":   { "enum": ["green", "yellow", "red"] },
-            "root_cause": { "type": "string", "maxLength": 200 }
+            "root_cause": { "type": "string", "minLength": 1, "maxLength": 200 }
           }
         }
       }
