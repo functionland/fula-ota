@@ -31,6 +31,29 @@ nodes:
     diag: containers
     timeout_s: 8
     branches:
+      # OOM-kill must be checked BEFORE the generic state!='running' branch.
+      # A container that was OOM-killed and stayed down satisfies BOTH
+      # conditions; if state!='running' wins it masks the OOM root cause
+      # (RAM pressure that will recur). oom_killed reflects the last exit
+      # whether or not the container is back up, so check it first.
+      - when: |
+          any(
+            c.name == 'ipfs_cluster' and c.oom_killed == True
+            for c in result.containers
+          )
+        then:
+          emit_thought: "ipfs_cluster was OOM-killed — surface the RAM pressure before a generic not-running verdict, since that's the real root cause whether or not it's back up yet."
+          emit_verdict:
+            summary: "Your Blox's ipfs-cluster container was OOM-killed (ran out of memory). Restart it fresh to resume earnings, but the underlying RAM pressure may recur — check whether other plugins are crowding RAM."
+            severity: yellow
+            root_cause: cluster_oom_killed
+          emit_recommendation:
+            action_name: docker.restart
+            tier: 2
+            reasoning: "Bounce ipfs_cluster fresh; review whether other plugins are crowding RAM."
+            args:
+              container: ipfs_cluster
+          stop: true
       - when: |
           any(
             c.name == 'ipfs_cluster' and c.state != 'running'
@@ -46,23 +69,6 @@ nodes:
             action_name: docker.restart
             tier: 2
             reasoning: "Bounce ipfs_cluster."
-            args:
-              container: ipfs_cluster
-          stop: true
-      - when: |
-          any(
-            c.name == 'ipfs_cluster' and c.oom_killed == True
-            for c in result.containers
-          )
-        then:
-          emit_verdict:
-            summary: "ipfs-cluster was OOM-killed. It restarted but the underlying RAM pressure may recur."
-            severity: yellow
-            root_cause: cluster_oom_killed
-          emit_recommendation:
-            action_name: docker.restart
-            tier: 2
-            reasoning: "Bounce ipfs_cluster fresh; review whether other plugins are crowding RAM."
             args:
               container: ipfs_cluster
           stop: true

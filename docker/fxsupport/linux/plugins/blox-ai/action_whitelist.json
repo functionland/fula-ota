@@ -44,8 +44,8 @@
     "_notes": "Even if action_name is whitelisted, the args must match. Fail-closed at executor. NOT applicable to maps_to_core actions — those take no args and dispatch via flag files.",
 
     "docker.restart": {
+      "_notes": "ipfs_host (kubo) is deliberately EXCLUDED. Kubo is the base IPFS daemon that ipfs_cluster, fula_go, fula_pinning and fula_gateway all depend on; restarting it alone leaves them attached to a daemon that vanished underneath them. Any kubo-level repair must use restart_fula, which bounces the whole stack in dependency order. Enforced here (not just in the trees/runbook) so even the free-form LLM path cannot single-restart kubo — the executor fail-closes on container=ipfs_host. ipfs_cluster and fula_go remain individually restartable because they reconnect to a still-running kubo.",
       "container": [
-        "ipfs_host",
         "ipfs_cluster",
         "ipfs_local",
         "fula_go",

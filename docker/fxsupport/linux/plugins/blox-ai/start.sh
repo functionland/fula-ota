@@ -18,6 +18,33 @@ if systemctl is-active --quiet blox-ai.service; then
     exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# Decommission bypass (reversible — see .env BLOX_AI_MODEL_ENABLED).
+#
+# When BLOX_AI_MODEL_ENABLED != 1 the model is intentionally absent (see
+# custom/download_model.sh, which moves it aside to model-disabled/). The
+# container still serves the deterministic YAML trees via its in-container
+# MockBackend fallback, so start the service directly and skip the
+# model-presence/SHA gate below. Without this, update.sh -> start.sh would
+# hit that gate, exit WITHOUT starting, and leave the device with no trees.
+# ---------------------------------------------------------------------------
+DEVICE_ENV_FILE="/home/pi/.internal/plugins/blox-ai/.env"
+BLOX_AI_MODEL_ENABLED_FROM_ENV=""
+if [ -r "$DEVICE_ENV_FILE" ]; then
+  BLOX_AI_MODEL_ENABLED_FROM_ENV=$(
+    sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+      "$DEVICE_ENV_FILE" 2>/dev/null \
+    | awk -F= '/^BLOX_AI_MODEL_ENABLED=/{ sub(/^BLOX_AI_MODEL_ENABLED=/, ""); print; exit }'
+  )
+fi
+BLOX_AI_MODEL_ENABLED_FROM_ENV=$(printf '%s' "$BLOX_AI_MODEL_ENABLED_FROM_ENV" | tr -d '[:space:]')
+if [ "$BLOX_AI_MODEL_ENABLED_FROM_ENV" != "1" ]; then
+  echo "BLOX_AI_MODEL_ENABLED != 1 — starting Blox AI in trees-only mode (no model)."
+  systemctl start blox-ai.service
+  echo "Blox AI started (trees-only)."
+  exit 0
+fi
+
 MODEL_DIR="/uniondrive/blox-ai/model"
 MODEL_FILE="$MODEL_DIR/qwen3-1.7b-rk3588-w8a8.rkllm"
 # ~1.9 GB lower bound for Qwen 3 1.7B W8A8 (estimated 2.0-2.4 GB on

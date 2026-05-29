@@ -132,6 +132,62 @@ if [ -r "$DEVICE_ENV_FILE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Decommission gate (reversible — see .env BLOX_AI_MODEL_ENABLED).
+#
+# When BLOX_AI_MODEL_ENABLED != 1 the AI model is intentionally NOT loaded:
+# the container still runs and the deterministic YAML troubleshooting trees
+# work via the in-container MockBackend fallback, but no ~2.3 GB model is
+# downloaded or kept on disk. This frees the RAM and removes the NPU
+# inference load that was tripping RK3588 thermal shutdowns.
+#
+# The model is MOVED (not deleted) into a sibling model-disabled/ dir so
+# re-enabling needs no 2.3 GB CDN re-download. The move matters because the
+# container's find_model_path() scans MODEL_DIR for ANY *.rkllm — a disabled
+# model must therefore leave the scanned dir entirely. model-disabled/ is a
+# sibling of MODEL_DIR on the same persistent /uniondrive mount, so it
+# survives reboots and OTA (OTA ships only host scripts, never /uniondrive).
+#
+# Reversal: ship BLOX_AI_MODEL_ENABLED=1 (a FORCE_UPDATE_KEY, so the OTA
+# re-applies it fleet-wide). The enabled branch below restores the model from
+# model-disabled/ when present, else falls through to the normal download.
+# ---------------------------------------------------------------------------
+BLOX_AI_MODEL_ENABLED_FROM_ENV=""
+if [ -r "$DEVICE_ENV_FILE" ]; then
+  BLOX_AI_MODEL_ENABLED_FROM_ENV=$(
+    sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/^export[[:space:]]\+//' \
+      "$DEVICE_ENV_FILE" 2>/dev/null \
+    | awk -F= '/^BLOX_AI_MODEL_ENABLED=/{ sub(/^BLOX_AI_MODEL_ENABLED=/, ""); print; exit }'
+  )
+fi
+BLOX_AI_MODEL_ENABLED_FROM_ENV=$(printf '%s' "$BLOX_AI_MODEL_ENABLED_FROM_ENV" | tr -d '[:space:]')
+DISABLED_DIR="$(dirname "$MODEL_DIR")/model-disabled"
+
+if [ "$BLOX_AI_MODEL_ENABLED_FROM_ENV" != "1" ]; then
+  echo "BLOX_AI_MODEL_ENABLED='$BLOX_AI_MODEL_ENABLED_FROM_ENV' (!= 1) — AI model decommissioned."
+  echo "Moving any on-disk model aside to model-disabled/ and starting trees-only."
+  mkdir -p "$DISABLED_DIR" 2>/dev/null || true
+  shopt -s nullglob
+  for f in "$MODEL_DIR"/*.rkllm; do
+    echo "  $(basename "$f") -> model-disabled/ (reversible; no re-download on enable)"
+    mv -f "$f" "$DISABLED_DIR"/ 2>/dev/null || rm -f "$f" 2>/dev/null || true
+  done
+  shopt -u nullglob
+  # Drop chunk/partial leftovers so nothing can be re-assembled into a model.
+  rm -f "$MODEL_DIR"/chunk-* "$MODEL_DIR"/"$MODEL_BASENAME".part-* 2>/dev/null || true
+  systemctl restart "$SERVICE_NAME"
+  echo "Blox AI restarted in trees-only mode (MockBackend; no model loaded)."
+  exit 0
+fi
+
+# Enabled (BLOX_AI_MODEL_ENABLED=1): if the model was previously moved aside,
+# restore it instead of re-downloading 2.3 GB from the CDN.
+if [ ! -f "$MODEL_FILE" ] && [ -f "$DISABLED_DIR/$MODEL_BASENAME" ]; then
+  echo "BLOX_AI_MODEL_ENABLED=1 — restoring model from model-disabled/ (no re-download)."
+  mkdir -p "$MODEL_DIR" 2>/dev/null || true
+  mv -f "$DISABLED_DIR/$MODEL_BASENAME" "$MODEL_FILE" 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # Stale-model cleanup (3B and old 1.5B).
 #
 # Devices that previously installed earlier Blox AI models carry stale

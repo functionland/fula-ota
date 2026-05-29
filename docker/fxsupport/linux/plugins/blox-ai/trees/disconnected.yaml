@@ -85,15 +85,16 @@ nodes:
             for s in result.services
           )
         then:
-          emit_verdict:
-            summary: "The uniondrive (storage) service isn't running — all containers depend on it."
-            severity: red
-            root_cause: uniondrive_service_inactive
-          emit_recommendation:
-            action_name: restart_uniondrive
-            tier: 2
-            reasoning: "Restart uniondrive.service to remount /uniondrive."
-          stop: true
+          # Don't STOP with restart_uniondrive here. A failing backing disk is a
+          # common CAUSE of the uniondrive service dropping, and a restart won't
+          # hold on a bad disk. Defer to uniondrive_check, which inspects disk
+          # health (ext4 / dmesg I/O errors) BEFORE concluding "just remount it"
+          # — the same disk-first ordering used inside uniondrive_check itself.
+          # If the disk is healthy and the mount is down, uniondrive_check still
+          # recommends restart_uniondrive; if the disk is bad it routes to the
+          # correct storage verdict instead of a futile restart.
+          emit_thought: "The uniondrive (storage) service is inactive — checking disk health and the mount before recommending a restart."
+          next: uniondrive_check
       - when: |
           any(
             s.name == 'docker.service' and s.active == False
@@ -119,9 +120,18 @@ nodes:
     diag: uniondrive
     timeout_s: 8
     branches:
+      # Disk failure must win over a missing mount. A failing backing disk is a
+      # common CAUSE of the mount dropping, and restart_uniondrive won't hold on
+      # a bad disk. The diag returns the disk-health fields even when the drive
+      # is unmounted, so check them BEFORE the mounted==False branch — otherwise
+      # mounted==False stops the tree before the disk check below ever runs.
+      - when: "get(result, 'ext4_errors_count', 0) > 0 or get(result, 'dmesg_io_errors_1h', 0) > 0"
+        then:
+          emit_thought: "Storage shows ext4 errors or recent I/O errors — likely the root cause whether or not the drive is currently mounted."
+          next: storage_issues_check
       - when: "result.mounted == False"
         then:
-          emit_thought: "/uniondrive isn't mounted — containers can't write data."
+          emit_thought: "/uniondrive isn't mounted (and the disk looks healthy) — containers can't write data."
           emit_verdict:
             summary: "Your Blox's storage drive (/uniondrive) isn't mounted. Until it is, no container can store data."
             severity: red
@@ -134,10 +144,6 @@ nodes:
       - when: "result.use_percent != None and result.use_percent >= 95"
         then:
           emit_thought: "/uniondrive is over 95% full — containers will start failing soon."
-          next: storage_issues_check
-      - when: "get(result, 'ext4_errors_count', 0) > 0 or get(result, 'dmesg_io_errors_1h', 0) > 0"
-        then:
-          emit_thought: "Storage shows ext4 errors or recent I/O errors — silent corruption likely."
           next: storage_issues_check
       - default:
           next: kubo_health_check
@@ -183,15 +189,13 @@ nodes:
         then:
           emit_thought: "Kubo (the IPFS daemon) container is running but its API isn't responding — likely wedged."
           emit_verdict:
-            summary: "Your Blox's IPFS daemon is wedged. Restarting it usually fixes this."
+            summary: "Your Blox's IPFS daemon is wedged. Restarting the Fula stack usually fixes this."
             severity: red
             root_cause: kubo_api_unresponsive
           emit_recommendation:
-            action_name: docker.restart
+            action_name: restart_fula
             tier: 2
-            reasoning: "Bounce the ipfs_host container."
-            args:
-              container: ipfs_host
+            reasoning: "Restart the whole Fula stack rather than kubo alone. ipfs-cluster and the other services depend on kubo, so bouncing kubo by itself leaves them attached to a daemon that restarted out from under them; restart_fula brings the stack back up in dependency order."
           stop: true
       - when: "get(result, 'swarm_peer_count', 0) < 5"
         then:
@@ -205,6 +209,18 @@ nodes:
     diag: fula_go_health
     timeout_s: 10
     branches:
+      # Crash-loop must be checked BEFORE container_running==False. A
+      # crash-looping container flaps up/down; if the diag samples it while
+      # it's momentarily down, container_running==False would fire a futile
+      # "bounce fula_go" and mask the crash loop. restart_count is populated
+      # regardless of the current up/down state, so check it first.
+      - when: "get(result, 'restart_count', 0) > 3"
+        then:
+          emit_verdict:
+            summary: "fula_go is crash-looping (3+ restarts). Logs likely have the underlying error."
+            severity: yellow
+            root_cause: fula_go_crash_loop
+          stop: true
       - when: "result.container_running == False"
         then:
           emit_verdict:
@@ -217,13 +233,6 @@ nodes:
             reasoning: "Bounce fula_go."
             args:
               container: fula_go
-          stop: true
-      - when: "get(result, 'restart_count', 0) > 3"
-        then:
-          emit_verdict:
-            summary: "fula_go is crash-looping (3+ restarts). Logs likely have the underlying error."
-            severity: yellow
-            root_cause: fula_go_crash_loop
           stop: true
       - default:
           next: relay_check
@@ -240,11 +249,9 @@ nodes:
             severity: red
             root_cause: no_relay_reservation
           emit_recommendation:
-            action_name: docker.restart
+            action_name: restart_fula
             tier: 2
-            reasoning: "Bounce kubo to trigger a fresh relay handshake."
-            args:
-              container: ipfs_host
+            reasoning: "Restart the Fula stack to trigger a fresh relay handshake. kubo isn't bounced on its own because ipfs-cluster and other services depend on it — restart_fula re-handshakes the relay while bringing the whole stack back in dependency order."
           stop: true
       - default:
           next: docker_outdated_check

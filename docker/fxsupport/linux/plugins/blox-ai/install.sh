@@ -118,7 +118,12 @@ cp "${PLUGIN_EXEC_DIR}/docker-compose.yml" "$BLOX_AI_DIR/"
 # do so after every fula-ota release. Acceptable because model swaps
 # are infrequent (Qwen 2.5 3B -> 1.5B -> Qwen 3 1.7B were 3 swaps in
 # ~6 months) and silent breakage is the worse failure mode.
-FORCE_UPDATE_KEYS="BLOX_AI_MODEL_PATH"
+# BLOX_AI_MODEL_ENABLED is force-updated for the same reason: it is the
+# reversible decommission switch (0 = model skipped, trees-only via
+# MockBackend; 1 = model loaded). Forcing it keeps the fleet consistent and
+# makes re-enable a single OTA-shipped value change rather than a per-device
+# edit. Re-enabling is intentionally fleet-wide, so forcing it is correct.
+FORCE_UPDATE_KEYS="BLOX_AI_MODEL_PATH BLOX_AI_MODEL_ENABLED"
 
 if [ ! -f "$BLOX_AI_DIR/.env" ]; then
   cp "${PLUGIN_EXEC_DIR}/.env" "$BLOX_AI_DIR/" 2>/dev/null || true

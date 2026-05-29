@@ -39,7 +39,7 @@ You can propose user-approved repair actions from `action_whitelist.json`.
 Tier 2 (single-tap approval):
 - `restart_fula` — full fula stack restart (~60s downtime)
 - `restart_uniondrive` — also bounces wireguard
-- `docker.restart container=<name>` — one container only
+- `docker.restart container=<name>` — one container only (NOT `ipfs_host`/kubo — excluded from the whitelist; use `restart_fula` for any kubo-level repair)
 - `systemctl.restart unit=<unit>` — one host unit
 - `systemctl.reset-failed unit=<unit>` — clear start-limit lockout
 - `wireguard.bounce` — recycle support tunnel
@@ -200,8 +200,9 @@ If no phone_context has arrived this session, you can hint in a `thought` event 
 3. Disk I/O errors
 
 **Recommended actions**:
-- `OOMKilled=true` AND restart_count rising: `docker.restart container=ipfs_host` (tier 2). Confidence: high.
-- API hangs but containers look alive: `docker.restart container=ipfs_host` first, then `docker.restart container=ipfs_cluster` if still wedged. Confidence: high.
+- NEVER restart kubo (`ipfs_host`) on its own. ipfs-cluster and the other services depend on it, so bouncing kubo alone leaves them attached to a daemon that vanished underneath them. Use `restart_fula`, which brings the whole stack back up in dependency order.
+- `OOMKilled=true` AND restart_count rising: `restart_fula` (tier 2). Confidence: high.
+- API hangs but containers look alive: `restart_fula` (tier 2) — it bounces kubo and ipfs-cluster together in the right order. Confidence: high.
 - Pebble DB corruption signature in cluster logs: tier 3 `node_delete` (purges chain DB; forces resync over hours). Get explicit user approval. Confidence: medium.
 - Disk errors detected: NO repair action; refer to support. Confidence: high.
 
@@ -239,7 +240,7 @@ If no phone_context has arrived this session, you can hint in a `thought` event 
 3. Host-process leak (rare; readiness-check.py is bounded)
 
 **Recommended actions**:
-- One container OOMKilled, restart_count low: `docker.restart container=<name>` (tier 2). Auto-restart by Docker should already fire; this is for forcing a clean state. Confidence: high.
+- One container OOMKilled, restart_count low: `docker.restart container=<name>` (tier 2). Auto-restart by Docker should already fire; this is for forcing a clean state. Confidence: high. EXCEPTION: if `<name>` is `ipfs_host` (kubo), use `restart_fula` instead (see the Kubo / IPFS-cluster section) — never restart kubo alone.
 - Multiple containers OOMKilled: stop here. Ask user how much RAM the device has (`diag/power` shows total). If < 8 GB and blox-ai is loaded: AI plugin may be the cause. Tell user to consider uninstalling blox-ai. Confidence: medium.
 
 ---
