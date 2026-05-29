@@ -368,6 +368,17 @@ running=true
 
 # Main loop
 while $running; do
+    # "Update" taps only enqueue a name in update-plugins.txt (no install-state change),
+    # so process the queue here — the reconcile branch below would re-install every plugin.
+    if [ -s "$UPDATE_PLUGIN_FILE" ]; then
+        if acquire_lock; then
+            log_message "Changes detected in update-plugins.txt"
+            process_plugin_updates
+            release_lock
+        else
+            log_message "Failed to acquire lock for plugin updates. Will retry."
+        fi
+    fi
     if $PROCESSING_CHANGES; then
         log_message "PROCESSING_CHANGES=$PROCESSING_CHANGES"
     fi
