@@ -217,6 +217,18 @@ cp "${PLUGIN_EXEC_DIR}/runbook.md" "$BLOX_AI_DIR/"
 cp "${PLUGIN_EXEC_DIR}/action_whitelist.json" "$BLOX_AI_DIR/"
 # Phase 9: API contract schemas — bind-mounted into container at /etc/fula/blox-ai/api/
 cp -r "${PLUGIN_EXEC_DIR}/api" "$BLOX_AI_DIR/"
+# Troubleshooting trees — bind-mounted read-only by docker-compose
+# (`./trees:/etc/fula/blox-ai/trees:ro`, resolving against $BLOX_AI_DIR, the
+# systemd WorkingDirectory). Like runbook.md / action_whitelist.json above,
+# the trees MUST be staged here or the container mounts a stale copy. install.sh
+# re-runs on every boot (plugins.sh -> install_active_plugins), so this is the
+# ONLY path by which tree edits shipped in a fula-ota release reach the running
+# container. Bug 2026-05-29: without this copy the device kept mounting the
+# trees that first landed here and shipped fixes (kubo docker.restart ->
+# restart_fula) never took effect. Use `trees/.` into an mkdir'd dir so a
+# re-run refreshes files in place instead of nesting trees/trees/.
+mkdir -p "$BLOX_AI_DIR/trees"
+cp -r "${PLUGIN_EXEC_DIR}/trees/." "$BLOX_AI_DIR/trees/"
 sync
 sleep 1
 

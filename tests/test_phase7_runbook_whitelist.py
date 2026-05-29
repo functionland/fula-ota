@@ -301,6 +301,27 @@ def test_install_sh_stages_runbook_and_whitelist():
     assert 'cp "${PLUGIN_EXEC_DIR}/action_whitelist.json" "$BLOX_AI_DIR/"' in body
 
 
+def test_install_sh_stages_trees():
+    """Bug 2026-05-29: the docker-compose `./trees:...:ro` mount resolves
+    against $BLOX_AI_DIR (systemd WorkingDirectory), but install.sh never
+    copied trees/ there -> the container kept mounting the stale trees that
+    first landed on the device, so shipped tree fixes (kubo docker.restart ->
+    restart_fula) never reached the running container. install.sh re-runs every
+    boot, so this copy is the only propagation path for tree edits."""
+    with open(_INSTALL_SH_PATH) as f:
+        body = f.read()
+    assert 'mkdir -p "$BLOX_AI_DIR/trees"' in body
+    assert 'cp -r "${PLUGIN_EXEC_DIR}/trees/." "$BLOX_AI_DIR/trees/"' in body
+
+
+def test_compose_mounts_trees_readonly():
+    """The trees the install copies are consumed via this read-only bind
+    mount; keep the staging path and the mount target in lockstep."""
+    with open(_COMPOSE_PATH, encoding="utf-8") as f:
+        body = f.read()
+    assert "./trees:/etc/fula/blox-ai/trees:ro" in body
+
+
 def test_install_sh_ensures_var_log_fula_exists():
     """Container mounts /var/log/fula host-side. install.sh ensures it
     exists with 0775 perms (Codex: conservative perms, not 0777)."""
