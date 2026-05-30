@@ -56,9 +56,19 @@ def test_no_restart_when_lists_match(tmp_path, monkeypatch):
 
 
 def test_restart_when_lists_differ(tmp_path, monkeypatch):
-    """Workers returns a different relay set → docker restart fires."""
+    """Workers returns a different relay set → kubo config is rewritten via
+    update_kubo_config.py, THEN ipfs_host is restarted.
+
+    The function does NOT restart kubo by itself anymore: `docker restart`
+    alone reloads the same stale on-disk config, so the code first runs
+    FULA_PATH/update_kubo_config.py to write the new StaticRelays and only
+    restarts if that succeeds. We point FULA_PATH at a tmp dir holding a stub
+    script so the existence guard passes, and make the mocked update step
+    report returncode 0 so the flow proceeds to the restart."""
     on_disk = ["/dns/old.fx.land/tcp/4001/p2p/OLD"]
     monkeypatch.setattr(readiness, "KUBO_CONFIG_PATH", _seed_kubo_config(tmp_path, on_disk))
+    monkeypatch.setattr(readiness, "FULA_PATH", str(tmp_path))
+    (tmp_path / "update_kubo_config.py").write_text("# stub")
 
     workers_response = [
         {"peerId": "NEW", "addr": "/dns/new.fx.land/tcp/4001",
@@ -67,10 +77,24 @@ def test_restart_when_lists_differ(tmp_path, monkeypatch):
     with patch.object(readiness, "requests") as mock_req, \
          patch.object(readiness, "subprocess") as mock_sub:
         mock_req.get.return_value = _mk_response(200, workers_response)
+        # update_kubo_config.py must "succeed" (rc 0) so the code reaches the
+        # restart step. (A MagicMock default returncode is truthy → treated as
+        # failure → would bail before the restart.)
+        mock_sub.run.return_value.returncode = 0
         readiness.maybe_refresh_relays()
-        mock_sub.run.assert_called_once()
-        args = mock_sub.run.call_args[0][0]
-        assert "docker" in args and "restart" in args and "ipfs_host" in args
+
+        calls = mock_sub.run.call_args_list
+        # Step 1: the config-rewrite script runs.
+        assert any(
+            "update_kubo_config.py" in part
+            for c in calls for part in c[0][0]
+        ), f"update_kubo_config.py was not invoked; calls={calls}"
+        # Step 2: ipfs_host is restarted exactly once.
+        restart_calls = [
+            c for c in calls
+            if "docker" in c[0][0] and "restart" in c[0][0] and "ipfs_host" in c[0][0]
+        ]
+        assert len(restart_calls) == 1, f"expected one ipfs_host restart, got {calls}"
 
 
 def test_no_restart_when_workers_unreachable(tmp_path, monkeypatch):

@@ -59,7 +59,12 @@ def _validate(payload, schema):
 
 def test_sse_schema_bumped_to_v3():
     d = _load(_SSE_SCHEMA)
-    assert d["schema_version"] == 3
+    # The v3 conversational variants (checked below) exist at v3 and beyond;
+    # later phases bumped schema_version additively (Phase 0.5 → v4). Assert the
+    # floor, not an exact match, so additive bumps don't re-break this. The $id
+    # is a stable cross-repo URL that lags schema_version by design (see
+    # test_phase9 test_schemas_have_stable_ids) — it is still v3.
+    assert d["schema_version"] >= 3
     assert d["$id"].endswith("sse_events.v3.schema.json")
     type_consts = set()
     for ref in d["oneOf"]:
@@ -78,7 +83,7 @@ def test_session_started_event_validates():
     _validate({
         "type": "session_started",
         "session_id": "sess-uuid-001",
-        "protocol_version": 3,
+        "protocol_version": 4,  # session_started.protocol_version is const:4 in the schema
         "ttl_seconds": 1800,
     }, sse)
 
@@ -89,7 +94,7 @@ def test_session_started_minimal_validates():
     _validate({
         "type": "session_started",
         "session_id": "sess-uuid-001",
-        "protocol_version": 3,
+        "protocol_version": 4,  # session_started.protocol_version is const:4 in the schema
     }, sse)
 
 

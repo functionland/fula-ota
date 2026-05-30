@@ -167,7 +167,11 @@ def test_scanner_registers_all_diag_namespace_as_reads(tmp_path):
     s = local_command_server.LocalCommandServer(plugin_manifest_glob=glob)
 
     diag_names = [n for n in s.plugin_commands if n.startswith("diag/")]
-    assert len(diag_names) == 11, f"expected 11 diag/* commands, got {diag_names}"
+    # Phase 6 shipped 11 diag/* probes; Phase 0.5 grew the palette (now 22,
+    # incl. diag/bundle). The palette is additive, so assert the floor here —
+    # the exact AI-tool set is pinned in test_phase9 (tool enum == diag/* minus
+    # bundle). What matters in THIS test is that every diag/* is a read below.
+    assert len(diag_names) >= 11, f"expected >=11 diag/* commands, got {diag_names}"
     for n in diag_names:
         # diag/* must be in the read dispatch dict — they're side-effect-free
         # probes. If a diag/* slipped into exec_commands it would silently

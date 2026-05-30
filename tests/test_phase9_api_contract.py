@@ -60,7 +60,9 @@ def test_sse_schema_file_exists_and_is_valid_json(sse_schema):
 
 def test_diag_schema_file_exists_and_is_valid_json(diag_schema):
     assert diag_schema["$schema"].endswith("/draft/2020-12/schema")
-    assert diag_schema["schema_version"] == 1
+    # Phase 9 shipped v1; later phases bumped it (Phase 0.5 → v4). Bumps are
+    # additive, so accept any released version (mirrors the sse sibling above).
+    assert diag_schema["schema_version"] >= 1
     jsonschema.Draft202012Validator.check_schema(diag_schema)
 
 
@@ -340,9 +342,16 @@ def test_runbook_protocol_tool_list_matches_ble_manifest():
     schema_tools = sorted(
         sse["$defs"]["tool_call"]["properties"]["payload"]["properties"]["tool"]["enum"]
     )
-    assert schema_tools == manifest_diag, (
+    # diag/bundle is the app-facing bulk aggregator (Phase 0.5, 30s timeout):
+    # the app calls it to fill its diagnostics screen, but it is intentionally
+    # NOT an AI tool_call — the model invokes the individual diag/* probes (and
+    # diag/summary for a quick parallel snapshot). Same pattern as ai/user-reply
+    # + ai/phone-context being BLE commands but absent from the tool enum. So
+    # the AI tool enum == every BLE diag/* command MINUS the app-only bundle.
+    manifest_ai_tools = sorted(set(manifest_diag) - {"diag/bundle"})
+    assert schema_tools == manifest_ai_tools, (
         f"sse_events.schema tool enum {schema_tools} != ble_commands manifest "
-        f"diag/* {manifest_diag} — drift between Phase 6 and Phase 9"
+        f"diag/* minus bundle {manifest_ai_tools} — drift between Phase 6 and Phase 9"
     )
 
 

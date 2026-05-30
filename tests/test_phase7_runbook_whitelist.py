@@ -323,12 +323,15 @@ def test_compose_mounts_trees_readonly():
 
 
 def test_install_sh_ensures_var_log_fula_exists():
-    """Container mounts /var/log/fula host-side. install.sh ensures it
-    exists with 0775 perms (Codex: conservative perms, not 0777)."""
+    """Container mounts /var/log/fula host-side. install.sh ensures it exists.
+    Perms are 0755: the only writers are readiness-check.py (root via systemd)
+    and the blox-ai container (root — docker-compose user "0:0"), both of which
+    bypass the mode bits, and the dir is chown'd to pi:pi. 0755 is therefore
+    sufficient and least-privilege (more conservative than 0775/0777)."""
     with open(_INSTALL_SH_PATH) as f:
         body = f.read()
     assert "mkdir -p /var/log/fula" in body
-    assert "chmod 0775 /var/log/fula" in body
+    assert "chmod 0755 /var/log/fula" in body
 
 
 # ---------------------------------------------------------------------------
@@ -337,8 +340,10 @@ def test_install_sh_ensures_var_log_fula_exists():
 
 def test_fula_sh_creates_var_log_fula_dir():
     """Both advisors (HIGH): /var/log/fula must be created at boot so the
-    container's bind-mount target resolves cleanly."""
+    container's bind-mount target resolves cleanly. Perms 0755 — sufficient
+    and least-privilege; both writers (readiness-check + container) run as
+    root and bypass the mode bits (see install.sh test above)."""
     with open(_FULA_SH_PATH) as f:
         body = f.read()
     assert "mkdir -p /var/log/fula" in body
-    assert "chmod 0775 /var/log/fula" in body
+    assert "chmod 0755 /var/log/fula" in body
