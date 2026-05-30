@@ -62,6 +62,30 @@ services:
     security_opt:
       - systempaths=unconfined
       - no-new-privileges:true
+    # Remote-support + executor host-bridge: support.py and executor.py reach
+    # the host via `nsenter --target 1 --mount --uts --ipc --net --pid <cmd>`
+    # to drive wireguard-support.service, systemctl, wg and timedatectl on the
+    # HOST. The tunnel being diagnosed is libp2p-independent, so blox-ai must be
+    # able to bring WireGuard up by itself WITHOUT relying on the core
+    # local_command_server / commands.sh being alive — i.e. self-sustained.
+    #   - pid: host     -> makes `--target 1` resolve to host init (systemd),
+    #                      not the container's own PID 1.
+    #   - CAP_SYS_ADMIN -> setns(2) into the host mount/ipc/net/uts/pid
+    #                      namespaces; without it nsenter fails EPERM
+    #                      ("reassociate to namespace 'ns/ipc' failed").
+    #   - CAP_NET_ADMIN -> `wg show` (status.sh runs in-process via nsenter,
+    #                      not via host systemd) and `wg-quick up/down` / `ip
+    #                      link` for the bounce action read/modify the WireGuard
+    #                      device in the host net ns; both need NET_ADMIN.
+    # no-new-privileges is KEPT: status.sh/install.sh run as root via nsenter
+    # and use no setuid elevation (no `sudo`), so it breaks nothing. This is NOT
+    # a new trust boundary — the docker.sock mount above already grants
+    # host-root-equivalent power (see SECURITY NOTE); SYS_ADMIN + pid:host add
+    # no capability the socket didn't already imply.
+    pid: "host"
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
     # /dev/dri/card0 is the GPU/NPU device node. Owned by root:video
     # (GID 44) with mode 0660 on Armbian/Ubuntu; the bloxai container
     # uid (1000) is not in `video` by default, so without group_add
