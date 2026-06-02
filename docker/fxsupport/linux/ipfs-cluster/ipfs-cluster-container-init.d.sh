@@ -70,11 +70,19 @@ get_poolcreator_peerid() {
   while [ $attempt -le $max_attempts ]; do
     response=$(curl -s --connect-timeout 10 --max-time 15 "${endpoint}" 2>/dev/null)
     cluster_peer_id=$(echo "$response" | jq -r '."ipfs-cluster-peerid" // empty' 2>/dev/null)
+    # Federation: prefer the trusted-peer ARRAY if the pool API provides it; fall back to
+    # the single legacy field. Result is a comma-separated list for CLUSTER_CRDT_TRUSTEDPEERS.
+    cluster_trusted_csv=$(echo "$response" | jq -r '(."ipfs-cluster-trustedpeers" // []) | map(select(. != null and . != "")) | join(",")' 2>/dev/null)
     kubo_peer_id=$(echo "$response" | jq -r '."kubo-peerid" // empty' 2>/dev/null)
 
-    if [ -n "$cluster_peer_id" ] && [ "$cluster_peer_id" != "null" ]; then
-      log "Fetched master cluster peer ID: $cluster_peer_id (attempt $attempt)"
-      export CLUSTER_CRDT_TRUSTEDPEERS="$cluster_peer_id"
+    resolved_trusted="$cluster_trusted_csv"
+    if [ -z "$resolved_trusted" ] || [ "$resolved_trusted" = "null" ]; then
+      resolved_trusted="$cluster_peer_id"
+    fi
+
+    if [ -n "$resolved_trusted" ] && [ "$resolved_trusted" != "null" ]; then
+      log "Fetched trusted cluster peers: $resolved_trusted (attempt $attempt)"
+      export CLUSTER_CRDT_TRUSTEDPEERS="$resolved_trusted"
       if [ -n "$kubo_peer_id" ] && [ "$kubo_peer_id" != "null" ]; then
         MASTER_KUBO_PEERID="$kubo_peer_id"
         log "Fetched master kubo peer ID: $kubo_peer_id"
@@ -181,6 +189,11 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
     mkdir -p /uniondrive/.tmp
     get_poolcreator_peerid
     append_or_replace "/.env.cluster" "CLUSTER_CRDT_TRUSTEDPEERS" "${CLUSTER_CRDT_TRUSTEDPEERS}"
+
+    # Federation: CLUSTER_CRDT_TRUSTEDPEERS may now be a comma-separated set of writers.
+    # The PRIMARY (first) peer is the bootstrap/tunnel target (the master); single-peer
+    # multiaddr construction below must use it, never the whole comma-separated list.
+    PRIMARY_TRUSTED_PEER=$(printf '%s' "${CLUSTER_CRDT_TRUSTEDPEERS}" | cut -d',' -f1)
 
     # Add master's kubo peer to follower's kubo Peering for faster content discovery
     if [ -n "${MASTER_KUBO_PEERID}" ] && [ "${MASTER_KUBO_PEERID}" != "${ipfs_peer_id}" ]; then
@@ -306,8 +319,8 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
                 }
             } |
             if $trust_peer != "" then
-                .cluster.peer_addresses = ["/ip4/127.0.0.1/tcp/19096/p2p/" + $trust_peer]
-                | .consensus.crdt.trusted_peers = [$trust_peer]
+                .cluster.peer_addresses = ["/ip4/127.0.0.1/tcp/19096/p2p/" + ($trust_peer | split(",")[0])]
+                | .consensus.crdt.trusted_peers = ($trust_peer | split(","))
             else . end
         ' "${IPFS_CLUSTER_PATH}/service.json" > "$service_temp" \
            && [ -s "$service_temp" ] \
@@ -338,7 +351,7 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
         append_or_replace "/.env.cluster" "CLUSTER_FOLLOWERMODE" "${CLUSTER_FOLLOWERMODE}"
 
         # Construct the DNS fallback address (always reliable)
-        constructed_addr="/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${CLUSTER_CRDT_TRUSTEDPEERS}"
+        constructed_addr="/dns4/${poolName}.pools.functionyard.fula.network/tcp/9096/p2p/${PRIMARY_TRUSTED_PEER}"
 
         # Populate peerstore and select bootstrap address
         if [ -n "${CLUSTER_BOOTSTRAP_ADDRS}" ]; then
