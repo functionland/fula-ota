@@ -1,129 +1,98 @@
 #!/usr/bin/env bash
 #
-# Phase 1 (cluster write-federation) — provision a 2nd trusted cluster WRITER on a
-# FRESH, plain Ubuntu/Debian cloud box (no Fula /uniondrive layout, no kubo, no cluster).
+# Phase 1 — provision/maintain a 2nd ipfs-cluster WRITER on a plain Ubuntu/Debian cloud box.
 #
-# It installs kubo (ipfs_host) + ipfs-cluster (ipfs_cluster) as systemd units under
-# self-contained paths (/opt/fula-writer), mirroring the master's cluster env exactly
-# (same CLUSTER_SECRET=sha256(CLUSTERNAME), CLUSTERNAME, allocator, replication, and
-# FOLLOWERMODE=false so it is a WRITER), joins the existing CRDT cluster by directly
-# bootstrapping to the master (public->public, no relay tunnel needed), and prints the
-# new writer's cluster + kubo peer ids.
+# Idempotent + re-runnable: detects what is already installed and skips/reuses it
+# (Docker, kubo repo, cluster identity), rewrites a systemd unit (and restarts) ONLY when
+# it actually changed, and remembers your inputs in $ENV_FILE — so a re-run just updates
+# what is needed. Run interactively and it asks for the parameters (pressing Enter keeps
+# the saved value); run non-interactively (CI/cron) and it uses env/.env or halts.
 #
-# It does NOT touch the master. After it runs, on the MASTER:
-#   NEW_WRITER_PEERID=<printed cluster id> ./phase-1-master-trust.sh
-# and add that id to IPFS_CLUSTER_TRUSTED_PEERS on the pool-server (join-server) so
-# followers trust it too (join-server#2).
-#
-# The new writer stores ~nothing: it mirrors the master's allocator (tag:group,...),
-# which keeps non-storage writers from being allocated pins — so kubo runs with the
-# default datastore (no need to mirror the master's custom flatfs+pebble 900GB spec).
-#
-# REQUIRED env (HALTS if missing — never guesses):
-#   PUBLIC_HOST   this box's PUBLIC ip or dns (kubo announce + cluster reachability)
-# Optional env:
-#   CLUSTERNAME            (default "1")  -> CLUSTER_SECRET = sha256(CLUSTERNAME)
-#   POOL_API               (default https://pools.fx.land/pools/<CLUSTERNAME>)
-#   MASTER_CLUSTER_PEERID / MASTER_CLUSTER_BOOTSTRAP / MASTER_KUBO_PEERID
-#                          (auto-read from POOL_API if unset)
-#   REPL_MIN / REPL_MAX    (default 2 / 6)
-#   BASE_DIR               (default /opt/fula-writer)
-#   KUBO_IMAGE             (default ipfs/kubo:release)
-#   CLUSTER_IMAGE          (default ipfs/ipfs-cluster:stable)
-#   DRY_RUN=1              print the plan; change nothing
+# Run on the NEW box (as root). Re-running is safe. See lib/phase-common.sh for prompt/env behaviour.
 #
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/phase-common.sh
+. "$SCRIPT_DIR/lib/phase-common.sh"
+PC_TAG="phase-1-setup-writer"
 
-CLUSTERNAME="${CLUSTERNAME:-1}"
-POOL_API="${POOL_API:-https://pools.fx.land/pools/${CLUSTERNAME}}"
-BASE_DIR="${BASE_DIR:-/opt/fula-writer}"
-KUBO_IMAGE="${KUBO_IMAGE:-ipfs/kubo:release}"
-CLUSTER_IMAGE="${CLUSTER_IMAGE:-ipfs/ipfs-cluster:stable}"
-REPL_MIN="${REPL_MIN:-2}"
-REPL_MAX="${REPL_MAX:-6}"
+ENV_FILE="${ENV_FILE:-/opt/fula-writer/.env}"
+pc_load_env "$ENV_FILE"
+
+: "${CLUSTERNAME:=1}"
+: "${BASE_DIR:=/opt/fula-writer}"
+: "${KUBO_IMAGE:=ipfs/kubo:release}"
+: "${CLUSTER_IMAGE:=ipfs/ipfs-cluster:stable}"
+: "${REPL_MIN:=2}"; : "${REPL_MAX:=6}"
+: "${POOL_API:=}"
+: "${MASTER_CLUSTER_PEERID:=}"; : "${MASTER_CLUSTER_BOOTSTRAP:=}"; : "${MASTER_KUBO_PEERID:=}"
 DRY_RUN="${DRY_RUN:-0}"
-PUBLIC_HOST="${PUBLIC_HOST:-}"
-MASTER_CLUSTER_PEERID="${MASTER_CLUSTER_PEERID:-}"
-MASTER_CLUSTER_BOOTSTRAP="${MASTER_CLUSTER_BOOTSTRAP:-}"
-MASTER_KUBO_PEERID="${MASTER_KUBO_PEERID:-}"
-
-KUBO_DIR="$BASE_DIR/kubo"
-CLUSTER_DIR="$BASE_DIR/ipfs-cluster"
-
-die()  { echo "ERROR: $*" >&2; exit 1; }
-info() { echo "[phase-1-setup-writer] $*"; }
-
-# ---- preconditions -------------------------------------------------------------
-[ -n "$PUBLIC_HOST" ] || die "PUBLIC_HOST is required (this box's public IP or DNS). Refusing to guess."
-if [ "$DRY_RUN" != "1" ]; then
-  [ "$(id -u)" = "0" ] || die "Must run as root (installs packages, writes systemd units)."
-fi
 
 ensure_pkg() {
-  command -v "$1" >/dev/null 2>&1 && return 0
-  [ "$DRY_RUN" = "1" ] && { info "(dry-run) would install $1"; return 0; }
-  command -v apt-get >/dev/null 2>&1 || die "$1 missing and apt-get not found — install $1 manually (this script targets Debian/Ubuntu)."
-  info "Installing $1 ..."
-  apt-get update -y >/dev/null 2>&1 || true
+  pc_have "$1" && { info "$1 present — skip"; return 0; }
+  [ "$DRY_RUN" = 1 ] && { info "(dry-run) would install $1"; return 0; }
+  pc_have apt-get || die "$1 missing and apt-get not found (Debian/Ubuntu only) — install $1 manually."
+  info "installing $1 ..."; apt-get update -y >/dev/null 2>&1 || true
   apt-get install -y "$1" >/dev/null 2>&1 || die "failed to install $1"
 }
+
+# ---- gather params (interactive prompts with saved defaults; else env/.env or halt) ----
+pc_prompt PUBLIC_HOST "Public IP or DNS of THIS writer box"
+pc_prompt CLUSTERNAME "Cluster/pool name" '^[0-9A-Za-z._-]+$'
+[ -n "$POOL_API" ] || POOL_API="https://pools.fx.land/pools/${CLUSTERNAME}"
+
+if [ "$DRY_RUN" != 1 ]; then [ "$(id -u)" = 0 ] || die "run as root (installs packages + writes systemd units)."; fi
+
 ensure_pkg curl
 ensure_pkg jq
-if ! command -v docker >/dev/null 2>&1; then
-  if [ "$DRY_RUN" = "1" ]; then info "(dry-run) would install Docker via get.docker.com"; else
-    info "Installing Docker ..."
-    curl -fsSL https://get.docker.com | sh || die "Docker install failed"
-    systemctl enable --now docker || die "could not start docker"
-  fi
-fi
+if pc_have docker; then info "docker present — skip"
+elif [ "$DRY_RUN" = 1 ]; then info "(dry-run) would install Docker"
+else info "installing Docker ..."; curl -fsSL https://get.docker.com | sh || die "Docker install failed"; systemctl enable --now docker || die "could not start docker"; fi
 
-# ---- derive secret + resolve master info --------------------------------------
 SECRET="$(printf '%s' "$CLUSTERNAME" | sha256sum | cut -d' ' -f1)"
 
-resolve_master() {
-  [ -n "$MASTER_CLUSTER_PEERID" ] && [ -n "$MASTER_CLUSTER_BOOTSTRAP" ] && return 0
-  info "Reading master identity from $POOL_API ..."
-  local resp; resp="$(curl -s --max-time 20 "$POOL_API" || true)"
-  echo "$resp" | jq -e . >/dev/null 2>&1 || die "could not fetch/parse $POOL_API (set MASTER_CLUSTER_PEERID + MASTER_CLUSTER_BOOTSTRAP manually)."
-  [ -n "$MASTER_CLUSTER_PEERID" ]   || MASTER_CLUSTER_PEERID="$(echo "$resp" | jq -r '."ipfs-cluster-peerid" // empty')"
-  [ -n "$MASTER_KUBO_PEERID" ]      || MASTER_KUBO_PEERID="$(echo "$resp" | jq -r '."kubo-peerid" // empty')"
-  [ -n "$MASTER_CLUSTER_BOOTSTRAP" ] || MASTER_CLUSTER_BOOTSTRAP="$(echo "$resp" | jq -r '(.ipfs_cluster.addresses // [])[] | select(test("/tcp/"))' | head -1)"
-  [ -n "$MASTER_CLUSTER_BOOTSTRAP" ] || MASTER_CLUSTER_BOOTSTRAP="$(echo "$resp" | jq -r '(.ipfs_cluster.addresses // [])[0] // empty')"
-}
-resolve_master
-[ -n "$MASTER_CLUSTER_PEERID" ]    || die "could not resolve MASTER_CLUSTER_PEERID."
-[ -n "$MASTER_CLUSTER_BOOTSTRAP" ] || die "could not resolve MASTER_CLUSTER_BOOTSTRAP (master cluster multiaddr)."
+# resolve master identity from the pool endpoint unless already provided/saved
+if [ -z "$MASTER_CLUSTER_PEERID" ] || [ -z "$MASTER_CLUSTER_BOOTSTRAP" ]; then
+  if [ "$DRY_RUN" = 1 ] && ! pc_have curl; then info "(dry-run) would read $POOL_API"
+  else
+    info "reading master identity from $POOL_API ..."
+    resp="$(curl -s --max-time 20 "$POOL_API" 2>/dev/null || true)"
+    if printf '%s' "$resp" | jq -e . >/dev/null 2>&1; then
+      [ -n "$MASTER_CLUSTER_PEERID" ]   || MASTER_CLUSTER_PEERID="$(printf '%s' "$resp" | jq -r '."ipfs-cluster-peerid" // empty')"
+      [ -n "$MASTER_KUBO_PEERID" ]      || MASTER_KUBO_PEERID="$(printf '%s' "$resp" | jq -r '."kubo-peerid" // empty')"
+      [ -n "$MASTER_CLUSTER_BOOTSTRAP" ] || MASTER_CLUSTER_BOOTSTRAP="$(printf '%s' "$resp" | jq -r '(.ipfs_cluster.addresses // [])[] | select(test("/tcp/"))' | head -1)"
+      [ -n "$MASTER_CLUSTER_BOOTSTRAP" ] || MASTER_CLUSTER_BOOTSTRAP="$(printf '%s' "$resp" | jq -r '(.ipfs_cluster.addresses // [])[0] // empty')"
+    fi
+  fi
+fi
+pc_prompt MASTER_CLUSTER_PEERID "Master cluster peer id" '^(12D3KooW|Qm)'
+pc_prompt MASTER_CLUSTER_BOOTSTRAP "Master cluster bootstrap multiaddr" '^/'
 
-# announce protocol: /ip4 for an IPv4 literal, else /dns4
-if printf '%s' "$PUBLIC_HOST" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then PROTO=ip4; else PROTO=dns4; fi
+if [[ "$PUBLIC_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then PROTO=ip4; else PROTO=dns4; fi
+
+pc_save_env "$ENV_FILE" PUBLIC_HOST CLUSTERNAME POOL_API BASE_DIR KUBO_IMAGE CLUSTER_IMAGE REPL_MIN REPL_MAX MASTER_CLUSTER_PEERID MASTER_CLUSTER_BOOTSTRAP MASTER_KUBO_PEERID
 
 cat <<EOF
 [phase-1-setup-writer] plan:
-  CLUSTERNAME           = $CLUSTERNAME   (CLUSTER_SECRET = sha256 -> ${SECRET:0:12}...)
-  PUBLIC_HOST           = $PUBLIC_HOST   (announce as /$PROTO/$PUBLIC_HOST)
-  master cluster peer   = $MASTER_CLUSTER_PEERID
-  master bootstrap addr = $MASTER_CLUSTER_BOOTSTRAP
-  master kubo peer      = ${MASTER_KUBO_PEERID:-<none>}
-  base dir              = $BASE_DIR   (kubo: $KUBO_DIR, cluster: $CLUSTER_DIR)
-  replication           = $REPL_MIN..$REPL_MAX ; FOLLOWERMODE=false (writer)
+  PUBLIC_HOST=$PUBLIC_HOST (announce /$PROTO)   CLUSTERNAME=$CLUSTERNAME   secret=${SECRET:0:12}...
+  master peer=$MASTER_CLUSTER_PEERID
+  master bootstrap=$MASTER_CLUSTER_BOOTSTRAP
+  base=$BASE_DIR   repl=$REPL_MIN..$REPL_MAX   FOLLOWERMODE=false (writer)   env=$ENV_FILE
 EOF
-[ "$DRY_RUN" = "1" ] && { info "DRY_RUN=1 — no changes made."; exit 0; }
+[ "$DRY_RUN" = 1 ] && { info "DRY_RUN=1 — params saved; no system changes made."; exit 0; }
 
+KUBO_DIR="$BASE_DIR/kubo"; CLUSTER_DIR="$BASE_DIR/ipfs-cluster"
 mkdir -p "$KUBO_DIR" "$CLUSTER_DIR"
 
-# ---- kubo: init (default datastore, server profile) + announce -----------------
+# ---- kubo (idempotent init + config) ----
 kubo_oneshot() { docker run --rm -e IPFS_PATH=/data/ipfs -v "$KUBO_DIR":/data/ipfs "$KUBO_IMAGE" "$@"; }
-if [ ! -f "$KUBO_DIR/config" ]; then
-  info "Initializing kubo repo (server profile) ..."
-  kubo_oneshot init --profile=server >/dev/null
-fi
+if [ -f "$KUBO_DIR/config" ]; then info "kubo repo exists — skip init"; else info "init kubo repo (server profile)"; kubo_oneshot init --profile=server >/dev/null; fi
 kubo_oneshot config --json Addresses.Announce "[\"/$PROTO/$PUBLIC_HOST/tcp/4001\",\"/$PROTO/$PUBLIC_HOST/udp/4001/quic-v1\"]" >/dev/null
 kubo_oneshot config Routing.Type dhtserver >/dev/null
 kubo_oneshot config --json Routing.AcceleratedDHTClient true >/dev/null
-NEW_KUBO_PEERID="$(kubo_oneshot config Identity.PeerID)"
-[ -n "$NEW_KUBO_PEERID" ] || die "could not read new kubo peer id."
+NEW_KUBO_PEERID="$(kubo_oneshot config Identity.PeerID)"; [ -n "$NEW_KUBO_PEERID" ] || die "could not read new kubo peer id."
 
-cat > /etc/systemd/system/ipfs.service <<EOF
+kubo_ch="$(cat <<EOF | pc_write_if_changed /etc/systemd/system/ipfs.service
 [Unit]
 Description=IPFS (fula writer)
 After=docker.service
@@ -144,30 +113,20 @@ TimeoutStopSec=60
 [Install]
 WantedBy=multi-user.target
 EOF
+)"
+systemctl daemon-reload; systemctl enable --now ipfs.service
+[ "$kubo_ch" = changed ] && { info "ipfs.service changed — restarting"; systemctl restart ipfs.service; } || info "ipfs.service unchanged"
+for i in $(seq 1 30); do curl -s -X POST http://127.0.0.1:5001/api/v0/id >/dev/null 2>&1 && break; [ "$i" = 30 ] && die "kubo not healthy on :5001"; sleep 3; done
+info "kubo healthy ($NEW_KUBO_PEERID)"
 
-info "Starting kubo ..."
-systemctl daemon-reload
-systemctl enable --now ipfs.service
-for i in $(seq 1 30); do
-  curl -s -X POST http://127.0.0.1:5001/api/v0/id >/dev/null 2>&1 && break
-  [ "$i" = 30 ] && die "kubo did not become healthy on :5001"
-  sleep 3
-done
-info "kubo healthy (peer $NEW_KUBO_PEERID)"
-
-# ---- ipfs-cluster: init (read identity) + systemd unit + join -----------------
+# ---- ipfs-cluster (idempotent init + join) ----
 cl_oneshot() { docker run --rm -e IPFS_CLUSTER_PATH=/data/ipfs-cluster -e CLUSTER_SECRET="$SECRET" -v "$CLUSTER_DIR":/data/ipfs-cluster --entrypoint ipfs-cluster-service "$CLUSTER_IMAGE" "$@"; }
-if [ ! -f "$CLUSTER_DIR/identity.json" ]; then
-  info "Initializing ipfs-cluster ..."
-  cl_oneshot init >/dev/null 2>&1 || cl_oneshot init >/dev/null
-fi
-NEW_CLUSTER_PEERID="$(jq -r '.id' "$CLUSTER_DIR/identity.json")"
-[ -n "$NEW_CLUSTER_PEERID" ] && [ "$NEW_CLUSTER_PEERID" != "null" ] || die "could not read new cluster peer id."
-# persistent connectivity to the master
-echo "$MASTER_CLUSTER_BOOTSTRAP" > "$CLUSTER_DIR/peerstore"
-
+if [ -f "$CLUSTER_DIR/identity.json" ]; then info "cluster identity exists — skip init"; else info "init ipfs-cluster"; cl_oneshot init >/dev/null 2>&1 || cl_oneshot init >/dev/null; fi
+NEW_CLUSTER_PEERID="$(jq -r '.id' "$CLUSTER_DIR/identity.json")"; { [ -n "$NEW_CLUSTER_PEERID" ] && [ "$NEW_CLUSTER_PEERID" != null ]; } || die "could not read new cluster peer id."
+printf '%s\n' "$MASTER_CLUSTER_BOOTSTRAP" > "$CLUSTER_DIR/peerstore"
 TRUSTED="$MASTER_CLUSTER_PEERID,$NEW_CLUSTER_PEERID"
-cat > /etc/systemd/system/ipfscluster.service <<EOF
+
+cl_ch="$(cat <<EOF | pc_write_if_changed /etc/systemd/system/ipfscluster.service
 [Unit]
 Description=IPFSCLUSTER (fula writer)
 After=ipfs.service
@@ -187,25 +146,20 @@ TimeoutStopSec=60
 [Install]
 WantedBy=multi-user.target
 EOF
-
-info "Starting ipfs-cluster (joining master) ..."
-systemctl daemon-reload
-systemctl enable --now ipfscluster.service
+)"
+systemctl daemon-reload; systemctl enable --now ipfscluster.service
+[ "$cl_ch" = changed ] && { info "ipfscluster.service changed — restarting"; systemctl restart ipfscluster.service; } || info "ipfscluster.service unchanged"
 sleep 8
-docker exec ipfs_cluster ipfs-cluster-ctl id >/dev/null 2>&1 && info "cluster API up" || info "NOTE: cluster API not responding yet; check: docker logs ipfs_cluster"
+docker exec ipfs_cluster ipfs-cluster-ctl id >/dev/null 2>&1 && info "cluster API up" || info "NOTE: cluster API not up yet — check: docker logs ipfs_cluster"
+
+pc_save_env "$ENV_FILE" PUBLIC_HOST CLUSTERNAME POOL_API BASE_DIR KUBO_IMAGE CLUSTER_IMAGE REPL_MIN REPL_MAX MASTER_CLUSTER_PEERID MASTER_CLUSTER_BOOTSTRAP MASTER_KUBO_PEERID NEW_CLUSTER_PEERID NEW_KUBO_PEERID
 
 cat <<EOF
-
-[phase-1-setup-writer] DONE — new WRITER provisioned.
+[phase-1-setup-writer] DONE.
   NEW cluster peer id : $NEW_CLUSTER_PEERID
   NEW kubo peer id    : $NEW_KUBO_PEERID
-  announcing on       : /$PROTO/$PUBLIC_HOST
-
-Verify it joined + is replicating the pinset:
-  docker exec ipfs_cluster ipfs-cluster-ctl peers ls   # should list the master + others
-  docker exec ipfs_cluster ipfs-cluster-ctl status --filter pinned | wc -l   # grows toward master's count
-
-Next (so the rest of the network trusts this writer):
-  1) On the MASTER:   NEW_WRITER_PEERID=$NEW_CLUSTER_PEERID ./phase-1-master-trust.sh
-  2) On the pool-server (join-server): add $NEW_CLUSTER_PEERID to IPFS_CLUSTER_TRUSTED_PEERS and restart.
+Verify it joined:  docker exec ipfs_cluster ipfs-cluster-ctl peers ls
+Next (trust it network-wide):
+  1) on the MASTER:   NEW_WRITER_PEERID=$NEW_CLUSTER_PEERID ./phase-1-master-trust.sh
+  2) on the pool-server (join-server): add $NEW_CLUSTER_PEERID to IPFS_CLUSTER_TRUSTED_PEERS and restart.
 EOF
