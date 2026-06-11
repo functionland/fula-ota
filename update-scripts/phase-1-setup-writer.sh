@@ -85,12 +85,21 @@ KUBO_DIR="$BASE_DIR/kubo"; CLUSTER_DIR="$BASE_DIR/ipfs-cluster"
 mkdir -p "$KUBO_DIR" "$CLUSTER_DIR"
 
 # ---- kubo (idempotent init + config) ----
-kubo_oneshot() { docker run --rm -e IPFS_PATH=/data/ipfs -v "$KUBO_DIR":/data/ipfs "$KUBO_IMAGE" "$@"; }
+# --entrypoint ipfs: the official kubo image's entrypoint auto-inits an empty repo before
+# running the CMD, so a plain `docker run ... init` double-inits and fails ("configuration
+# file already exists"). Bypassing the entrypoint makes init/config single, explicit ops.
+kubo_oneshot() { docker run --rm --entrypoint ipfs -e IPFS_PATH=/data/ipfs -v "$KUBO_DIR":/data/ipfs "$KUBO_IMAGE" "$@"; }
+# kubo_cfg: on RE-RUNS the ipfs_host daemon holds the repo lock, so a one-shot `ipfs config`
+# would fail. Route through the running daemon (RPC, no lock) when up, one-shot otherwise.
+# Note: config set via a running daemon takes effect on its next restart (restart
+# ipfs.service manually if you changed PUBLIC_HOST on a re-run).
+kubo_cfg() { if [ -n "$(docker ps -q -f name='^ipfs_host$')" ]; then docker exec ipfs_host ipfs "$@"; else kubo_oneshot "$@"; fi; }
 if [ -f "$KUBO_DIR/config" ]; then info "kubo repo exists — skip init"; else info "init kubo repo (server profile)"; kubo_oneshot init --profile=server >/dev/null; fi
-kubo_oneshot config --json Addresses.Announce "[\"/$PROTO/$PUBLIC_HOST/tcp/4001\",\"/$PROTO/$PUBLIC_HOST/udp/4001/quic-v1\"]" >/dev/null
-kubo_oneshot config Routing.Type dhtserver >/dev/null
-kubo_oneshot config --json Routing.AcceleratedDHTClient true >/dev/null
-NEW_KUBO_PEERID="$(kubo_oneshot config Identity.PeerID)"; [ -n "$NEW_KUBO_PEERID" ] || die "could not read new kubo peer id."
+kubo_cfg config --json Addresses.Announce "[\"/$PROTO/$PUBLIC_HOST/tcp/4001\",\"/$PROTO/$PUBLIC_HOST/udp/4001/quic-v1\"]" >/dev/null
+kubo_cfg config Routing.Type dhtserver >/dev/null
+kubo_cfg config --json Routing.AcceleratedDHTClient true >/dev/null
+# read identity from the repo file directly — lock-free, daemon-state-independent
+NEW_KUBO_PEERID="$(jq -r '.Identity.PeerID // empty' "$KUBO_DIR/config")"; [ -n "$NEW_KUBO_PEERID" ] || die "could not read new kubo peer id."
 
 kubo_ch="$(cat <<EOF | pc_write_if_changed /etc/systemd/system/ipfs.service
 [Unit]
