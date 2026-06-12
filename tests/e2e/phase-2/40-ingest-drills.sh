@@ -124,6 +124,10 @@ print((h+b"."+p+b"."+sig).decode())
 PYEOF
 )
 [ -n "$JWT" ] && ok "I9 minted gateway JWT" || bad "I9 JWT mint failed"
+# S3 semantics: the bucket must exist before object PUTs.
+code=$(curl -s -m 20 -o /tmp/p2-mkbkt.txt -w "%{http_code}" -X PUT \
+  "http://127.0.0.1:9000/p2-drill-bucket" -H "Authorization: Bearer $JWT")
+case "$code" in 200|409) ok "I9 bucket ready (code=$code)";; *) bad "I9 create bucket got $code: $(head -c200 /tmp/p2-mkbkt.txt)";; esac
 code=$(curl -s -m 20 -o /tmp/p2-map.txt -D /tmp/p2-map-h.txt -w "%{http_code}" -X PUT \
   "http://127.0.0.1:9000/p2-drill-bucket/chunk-0001" \
   -H "Authorization: Bearer $JWT" \
