@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 #
 # Phase 2 fidelity suite (TEST SERVER ONLY). Runs AFTER 40-ingest-drills.sh
 # (gateway rebuilt with FULA_REMOTE_CID_PUT=true; fula-ingest-e2e running).
@@ -8,7 +8,7 @@
 #   F2 v8-OFF legacy round-trip (client CID off matrix leg)
 #   F3 FxFiles-faithful suite: offline_e2e single + chunked upload/download
 #      (the byte-for-byte FxFiles flow, legacy path)
-#   F4 â‰¥1 GiB chunked via ingest (FULA_BIG=1; scale invariant)
+#   F4 ≥1 GiB chunked via ingest (FULA_BIG=1; scale invariant)
 #
 set -uo pipefail
 PASS=0; FAIL=0

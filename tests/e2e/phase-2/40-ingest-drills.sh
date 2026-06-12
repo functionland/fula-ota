@@ -1,6 +1,6 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 #
-# Phase 2 e2e drills â€” verified byte ingress (TEST SERVER ONLY).
+# Phase 2 e2e drills — verified byte ingress (TEST SERVER ONLY).
 # Requires: Stage-A master stack up (join-as-master), fxe2e writer kubo on
 # :5001, /root/fula-ota on phase-2-ingest, /root/fula-api on
 # phase-2-client-ingest. Run as root from anywhere.
@@ -44,7 +44,7 @@ docker run -d --name fula-ingest-e2e --network host \
 sleep 3
 
 echo "== seed drill identity (webui_users + legacy api_key + healthy credits) =="
-# api_keys.user_id has an FK to webui_users.user_id â€” seed both columns.
+# api_keys.user_id has an FK to webui_users.user_id — seed both columns.
 psqlc "INSERT INTO webui_users (email, user_id) VALUES ('$EMAIL', '$U') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
 psqlc "INSERT INTO api_keys (key_id, user_email, user_id) VALUES ('$APIKEY', '$EMAIL', '$U') ON CONFLICT (key_id) DO UPDATE SET is_deleted=0, user_id='$U'" >/dev/null \
   && ok "seeded api key" || bad "could not seed api key"
@@ -64,7 +64,7 @@ echo "== I4 tampered body -> 422, not stored =="
 F2=/tmp/p2-orig.bin; head -c 2048 /dev/urandom > "$F2"
 C2="$(cid_of "$F2")"
 F2T=/tmp/p2-tampered.bin; cp "$F2" "$F2T"; printf 'X' | dd of="$F2T" bs=1 seek=10 count=1 conv=notrunc 2>/dev/null
-C2T="$(cid_of "$F2T")"   # true cid of the tampered bytes â€” must NOT appear in kubo
+C2T="$(cid_of "$F2T")"   # true cid of the tampered bytes — must NOT appear in kubo
 code=$(curl -s -m 15 -o /tmp/p2-r2.json -w "%{http_code}" -X PUT "$ING/v0/block?cid=$C2" -H "Authorization: Bearer $APIKEY" --data-binary @"$F2T")
 [ "$code" = 422 ] && ok "I4 tampered -> 422" || bad "I4 got $code: $(cat /tmp/p2-r2.json)"
 docker exec ipfs_host ipfs block stat --offline "$C2T" >/dev/null 2>&1 && bad "I4 tampered bytes WERE stored" || ok "I4 tampered bytes not stored"
@@ -85,7 +85,7 @@ code=$(curl -s -m 5 -o /tmp/p2-r4.json -w "%{http_code}" -X PUT "$ING/v0/block?c
 
 echo "== I7 gateway DOWN -> ingest still ingests =="
 docker stop fula-gateway-1 >/dev/null 2>&1
-sleep 31   # fresh quota window so the check runs while gateway is down (webui still up â€” quota is webui's)
+sleep 31   # fresh quota window so the check runs while gateway is down (webui still up — quota is webui's)
 F4=/tmp/p2-gwdown.bin; head -c 2048 /dev/urandom > "$F4"
 C4="$(cid_of "$F4")"
 code=$(curl -s -m 15 -o /tmp/p2-r5.json -w "%{http_code}" -X PUT "$ING/v0/block?cid=$C4" -H "Authorization: Bearer $APIKEY" --data-binary @"$F4")
@@ -144,7 +144,7 @@ code=$(curl -s -m 30 -o /tmp/p2-abs.txt -w "%{http_code}" -X PUT \
   -H "x-amz-meta-fula-remote-cid: $CA" \
   -H "x-amz-meta-fula-remote-size: 1024" \
   -H "Content-Length: 0")
-case "$code" in 409|4*) ok "I10 absent cid rejected (code=$code â€” client falls back to full bytes)";; *) bad "I10 got $code: $(head -c200 /tmp/p2-abs.txt)";; esac
+case "$code" in 409|4*) ok "I10 absent cid rejected (code=$code — client falls back to full bytes)";; *) bad "I10 got $code: $(head -c200 /tmp/p2-abs.txt)";; esac
 
 echo
 echo "RESULT: pass=$PASS fail=$FAIL"
