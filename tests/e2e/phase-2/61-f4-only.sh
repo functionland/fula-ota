@@ -17,7 +17,10 @@ docker exec -i postgres-pinning psql -U "${POSTGRES_USER:-pinning_user}" -d "${P
   "INSERT INTO sessions (username, session_token, token_hash, expires_at) VALUES ('e2e-drill-user', '$JWT_HASH', '$JWT_HASH', NOW() + interval '12 hours') ON CONFLICT DO NOTHING" >/dev/null
 curl -s -m 15 -o /dev/null -X PUT "http://127.0.0.1:9000/p2-live-big" -H "Authorization: Bearer $JWT"
 
-cd /root/fula-api && git pull -q
+# Pin the branch — other jobs (e.g. the Phase-2.5 gate) may have left the
+# checkout elsewhere; a bare pull would silently test the wrong code.
+cd /root/fula-api && git fetch origin phase-2-client-ingest -q && git checkout -q phase-2-client-ingest && git pull -q
+git log --oneline -1
 docker run --rm --network host -v /root/fula-api:/src \
   -v fula-cargo-cache:/usr/local/cargo/registry -v fula-cargo-cache-target:/src/target \
   -w /src -e CARGO_TERM_COLOR=never \
