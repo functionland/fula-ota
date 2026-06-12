@@ -125,6 +125,15 @@ print((h+b"."+p+b"."+sig).decode())
 PYEOF
 )
 [ -n "$JWT" ] && ok "I9 minted gateway JWT" || bad "I9 JWT mint failed"
+# Prod parity: gateway JWTs are ISSUED by the pinning service (/auth/google),
+# so they exist in its sessions table. The gateway forwards the user's JWT for
+# the registry pin — a minted token must be registered as a session too
+# (hashed storage per migration 009; legacy-plaintext fallback also tried).
+JWT_HASH=$(printf '%s' "$JWT" | sha256sum | cut -d' ' -f1)
+psqlc "INSERT INTO users (username, password_hash) VALUES ('$U','x') ON CONFLICT (username) DO NOTHING" >/dev/null 2>&1 || true
+psqlc "INSERT INTO sessions (username, session_token) VALUES ('$U', '$JWT_HASH') ON CONFLICT DO NOTHING" >/dev/null 2>&1 \
+  || psqlc "INSERT INTO sessions (username, session_token, expires_at) VALUES ('$U', '$JWT_HASH', NOW() + interval '2 hours') ON CONFLICT DO NOTHING" >/dev/null 2>&1 \
+  || true
 # S3 semantics: the bucket must exist before object PUTs.
 code=$(curl -s -m 20 -o /tmp/p2-mkbkt.txt -w "%{http_code}" -X PUT \
   "http://127.0.0.1:9000/p2-drill-bucket" -H "Authorization: Bearer $JWT")
