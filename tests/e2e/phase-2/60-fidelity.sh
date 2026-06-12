@@ -38,6 +38,14 @@ psqlc "INSERT INTO users (username, password_hash) VALUES ('$U','x') ON CONFLICT
 psqlc "INSERT INTO sessions (username, session_token, token_hash, expires_at) VALUES ('$U', '$JWT_HASH', '$JWT_HASH', NOW() + interval '4 hours') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
 psqlc "UPDATE user_credits SET is_suspended=0, balance_fula=50 WHERE user_id='$U'" >/dev/null 2>&1 || true
 
+# Pre-create every bucket the suites touch (prod has them; a fresh stack
+# doesn't — offline_e2e's default bucket is "other").
+for b in other p2-live-ingest p2-live-legacy p2-live-big; do
+  code=$(curl -s -m 15 -o /dev/null -w "%{http_code}" -X PUT "http://127.0.0.1:9000/$b" -H "Authorization: Bearer $JWT")
+  case "$code" in 200|409) :;; *) bad "could not create bucket $b (code=$code)";; esac
+done
+ok "buckets ready (other, p2-live-*)"
+
 cd /root/fula-api && git pull -q
 
 run_tests() { # $1=extra-env  $2=test-filter
