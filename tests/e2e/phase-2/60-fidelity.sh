@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 #
 # Phase 2 fidelity suite (TEST SERVER ONLY). Runs AFTER 40-ingest-drills.sh
 # (gateway rebuilt with FULA_REMOTE_CID_PUT=true; fula-ingest-e2e running).
@@ -8,7 +8,7 @@
 #   F2 v8-OFF legacy round-trip (client CID off matrix leg)
 #   F3 FxFiles-faithful suite: offline_e2e single + chunked upload/download
 #      (the byte-for-byte FxFiles flow, legacy path)
-#   F4 ≥1 GiB chunked via ingest (FULA_BIG=1; scale invariant)
+#   F4 â‰¥1 GiB chunked via ingest (FULA_BIG=1; scale invariant)
 #
 set -uo pipefail
 PASS=0; FAIL=0
@@ -21,7 +21,7 @@ import sys, hmac, hashlib, base64, json, time
 def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b"=")
 secret = sys.argv[1].encode()
 h = b64u(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
-p = b64u(json.dumps({"sub":"e2e-drill@fxe2e.local","iat":int(time.time()),"exp":int(time.time())+7200}).encode())
+p = b64u(json.dumps({"sub":"e2e-drill@fxe2e.local","scope":"storage:*","iat":int(time.time()),"exp":int(time.time())+7200}).encode())
 sig = b64u(hmac.new(secret, h+b"."+p, hashlib.sha256).digest())
 print((h+b"."+p+b"."+sig).decode())
 PYEOF
