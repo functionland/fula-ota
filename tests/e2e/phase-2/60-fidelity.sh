@@ -28,6 +28,16 @@ PYEOF
 )
 [ -n "$JWT" ] && ok "minted 2h gateway JWT" || { bad "JWT mint failed"; exit 1; }
 
+# Register the minted JWT as a pinning-service session (token_hash =
+# sha256(token), postgres_service.go:804) so per-PUT registry pins authenticate
+# — exactly how production tokens work (the service issues + stores them).
+psqlc() { docker exec -i postgres-pinning psql -U "${POSTGRES_USER:-pinning_user}" -d "${POSTGRES_DB:-pinning_service}" -tA -c "$1"; }
+U="e2e-drill-user"
+JWT_HASH=$(printf '%s' "$JWT" | sha256sum | cut -d' ' -f1)
+psqlc "INSERT INTO users (username, password_hash) VALUES ('$U','x') ON CONFLICT (username) DO NOTHING" >/dev/null 2>&1 || true
+psqlc "INSERT INTO sessions (username, session_token, token_hash, expires_at) VALUES ('$U', '$JWT_HASH', '$JWT_HASH', NOW() + interval '4 hours') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
+psqlc "UPDATE user_credits SET is_suspended=0, balance_fula=50 WHERE user_id='$U'" >/dev/null 2>&1 || true
+
 cd /root/fula-api && git pull -q
 
 run_tests() { # $1=extra-env  $2=test-filter
