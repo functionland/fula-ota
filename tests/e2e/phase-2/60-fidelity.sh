@@ -21,7 +21,7 @@ import sys, hmac, hashlib, base64, json, time
 def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b"=")
 secret = sys.argv[1].encode()
 h = b64u(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
-p = b64u(json.dumps({"sub":"e2e-drill@fxe2e.local","scope":"storage:*","iat":int(time.time()),"exp":int(time.time())+7200}).encode())
+p = b64u(json.dumps({"sub":"e2e-drill@fxe2e.local","scope":"storage:*","iat":int(time.time()),"exp":int(time.time())+43200}).encode())
 sig = b64u(hmac.new(secret, h+b"."+p, hashlib.sha256).digest())
 print((h+b"."+p+b"."+sig).decode())
 PYEOF
@@ -35,7 +35,9 @@ psqlc() { docker exec -i postgres-pinning psql -U "${POSTGRES_USER:-pinning_user
 U="e2e-drill-user"
 JWT_HASH=$(printf '%s' "$JWT" | sha256sum | cut -d' ' -f1)
 psqlc "INSERT INTO users (username, password_hash) VALUES ('$U','x') ON CONFLICT (username) DO NOTHING" >/dev/null 2>&1 || true
-psqlc "INSERT INTO sessions (username, session_token, token_hash, expires_at) VALUES ('$U', '$JWT_HASH', '$JWT_HASH', NOW() + interval '4 hours') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
+# 12h: the 1 GiB leg alone runs ~2h on the contended test box — a fixed-expiry
+# token must outlive it (real clients refresh; e2e tokens cannot).
+psqlc "INSERT INTO sessions (username, session_token, token_hash, expires_at) VALUES ('$U', '$JWT_HASH', '$JWT_HASH', NOW() + interval '12 hours') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
 psqlc "UPDATE user_credits SET is_suspended=0, balance_fula=50 WHERE user_id='$U'" >/dev/null 2>&1 || true
 
 # Pre-create every bucket the suites touch (prod has them; a fresh stack
