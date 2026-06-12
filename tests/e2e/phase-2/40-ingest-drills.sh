@@ -44,7 +44,8 @@ docker run -d --name fula-ingest-e2e --network host \
 sleep 3
 
 echo "== seed drill identity (webui_users + legacy api_key + healthy credits) =="
-psqlc "INSERT INTO webui_users (email) VALUES ('$EMAIL') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
+# api_keys.user_id has an FK to webui_users.user_id — seed both columns.
+psqlc "INSERT INTO webui_users (email, user_id) VALUES ('$EMAIL', '$U') ON CONFLICT DO NOTHING" >/dev/null 2>&1 || true
 psqlc "INSERT INTO api_keys (key_id, user_email, user_id) VALUES ('$APIKEY', '$EMAIL', '$U') ON CONFLICT (key_id) DO UPDATE SET is_deleted=0, user_id='$U'" >/dev/null \
   && ok "seeded api key" || bad "could not seed api key"
 psqlc "UPDATE user_credits SET is_suspended=0, balance_fula=50 WHERE user_id='$U'" >/dev/null
