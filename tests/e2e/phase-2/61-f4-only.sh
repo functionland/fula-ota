@@ -26,6 +26,6 @@ docker run --rm --network host -v /root/fula-api:/src \
   -w /src -e CARGO_TERM_COLOR=never \
   -e FULA_S3=http://127.0.0.1:9000 -e FULA_JWT="$JWT" \
   -e FULA_INGEST=http://127.0.0.1:3601 -e FULA_BIG=1 \
-  rust:1-bookworm bash -c "set -o pipefail; cargo test -p fula-client --release --test live_ingest_e2e live_1gib_chunked_via_ingest -- --ignored --nocapture 2>&1 | tail -20"
+  rust:1-bookworm bash -c "set -o pipefail; cargo test -p fula-client --release --test live_ingest_e2e live_large_file_chunked_via_ingest -- --ignored --nocapture 2>&1 | tail -20"
 rc=$?
 [ $rc -eq 0 ] && echo "RESULT: pass=1 fail=0" || echo "RESULT: pass=0 fail=1"
