@@ -25,7 +25,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Pull Watchtower Docker Image
@@ -86,7 +86,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Pull Kubo Docker Image
@@ -147,7 +147,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build fxsupport
@@ -176,7 +176,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build go-fula
@@ -207,7 +207,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build ipfs-cluster
@@ -240,7 +240,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build fula-pinning
@@ -269,7 +269,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build fula-gateway
@@ -299,7 +299,7 @@ jobs:
           # ("qemu: uncaught target signal 11") emulating arm64 dpkg/libc-bin in
           # the fula-gateway apt-get layer (same failure blox-ai hit 2026-06-18).
           # Pin a validated QEMU so the cross-build is reproducible.
-          image: tonistiigi/binfmt:latest
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Tag all images for release
