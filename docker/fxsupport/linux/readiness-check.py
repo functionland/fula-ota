@@ -2533,6 +2533,75 @@ def check_and_fix_ipfs_cluster():
         ipfs_cluster_logs = subprocess.getoutput("sudo docker logs ipfs_cluster --tail 80 2>&1")
         cluster_error_found = False
 
+        # --- identity.json created as a DIRECTORY (Docker bind-mount footgun) ---
+        # A plugin's *file* bind-mount of /uniondrive/ipfs-cluster/identity.json
+        # (blox-ai's diag/identity_health) makes the Docker daemon auto-create the
+        # path as an empty ROOT-OWNED DIRECTORY whenever the real file is absent at
+        # container-create time (fresh/reformatted /uniondrive, or before go-fula's
+        # initipfscluster has written it). That permanently wedges the cluster: its
+        # init loops forever on `[ -f identity.json ]` ("Waiting for /internal and
+        # /uniondrive...") and go-fula's initipfscluster panics trying to WriteFile
+        # over a directory. This emits NO daemon-log error the patterns below match,
+        # so detect the directory directly.
+        #
+        # Recovery: stop blox-ai first so its bind-mount can't recreate the dir,
+        # remove it, then restart fula so go-fula regenerates identity.json. The
+        # regenerated cluster PeerID is DETERMINISTIC (derived from the persistent
+        # identity in /internal/config.yaml), so the on-chain registration — and
+        # therefore earnings — are preserved. Only restart blox-ai once the file is
+        # back, so its (possibly still-old, file-style) bind-mount binds an existing
+        # file and cannot re-create the directory mid-recovery.
+        identity_path = "/uniondrive/ipfs-cluster/identity.json"
+        if os.path.isdir(identity_path):
+            logging.warning("ipfs-cluster identity.json is a DIRECTORY (Docker "
+                            "bind-mount artifact). Removing + restarting fula so it "
+                            "can be regenerated.")
+            try:
+                # Every call carries a timeout so a container wedged in 'D'
+                # (uninterruptible IO wait — common on the flaky storage that
+                # triggers this bug) can never hang the watchdog itself. A
+                # timeout raises TimeoutExpired (NOT CalledProcessError), so
+                # catch both and retry next cycle rather than killing the loop.
+                subprocess.run(["sudo", "systemctl", "stop", "blox-ai.service"],
+                               capture_output=True, timeout=90)
+                subprocess.run(["sudo", "systemctl", "stop", "fula.service"],
+                               capture_output=True, timeout=150, check=True)
+                time.sleep(10)
+                subprocess.run(["sudo", "rm", "-rf", identity_path],
+                               capture_output=True, timeout=60)
+                subprocess.run(["sudo", "sync"], capture_output=True, timeout=60)
+                safe_start_fula(capture_output=True, timeout=150, check=True)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                logging.error("cluster identity.json dir repair: a command failed "
+                              "or timed out (%s); will retry next cycle.", e)
+                return True
+            # go-fula rewrites identity.json during startup. Wait for it to reappear
+            # as a regular FILE before bringing blox-ai back (up to ~180s).
+            identity_restored = False
+            for _ in range(36):
+                time.sleep(5)
+                if os.path.isfile(identity_path):
+                    identity_restored = True
+                    break
+            if identity_restored:
+                try:
+                    subprocess.run(["sudo", "systemctl", "start", "blox-ai.service"],
+                                   capture_output=True, timeout=90)
+                except subprocess.TimeoutExpired:
+                    logging.warning("blox-ai start timed out; it will start on the "
+                                    "next cycle/boot (identity.json is a file, so safe).")
+            else:
+                logging.warning("identity.json not regenerated within timeout; leaving "
+                                "blox-ai stopped to avoid re-creating the directory. It "
+                                "will come back on the next stack start once the file exists.")
+            _append_event("restart", {
+                "unit": "fula.service",
+                "action": "cluster_identity_dir_repair",
+                "remediation": "rm_identity_dir+restart_fula",
+                "identity_restored": identity_restored,
+            })
+            return True
+
         # Empty or unparseable service.json — triggers "unexpected end of JSON input" /
         # "error loading configurations" in the daemon. Root cause is the init-script jq
         # pipeline overwriting service.json with an empty temp file when a filter errors.
