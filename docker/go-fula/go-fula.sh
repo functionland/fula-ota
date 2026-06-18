@@ -343,6 +343,17 @@ while true; do
       log "The initipfs exited with an error: Exit code $exit_code"
     fi
 
+    # Docker bind-mount footgun guard: a plugin's file bind-mount (blox-ai) can
+    # create /uniondrive/ipfs-cluster/identity.json as a DIRECTORY when the real
+    # file is absent at container-create time. initipfscluster would then panic
+    # trying to WriteFile over a directory — and this script has no `set -e`, so
+    # it would touch .ipfscluster_setup anyway and mask the failure. Remove a
+    # directory-shaped identity.json so initipfscluster writes the real
+    # (deterministic) file.
+    if [ -d /uniondrive/ipfs-cluster/identity.json ]; then
+      log "identity.json is a directory (bind-mount artifact); removing before initipfscluster"
+      rm -rf /uniondrive/ipfs-cluster/identity.json
+    fi
     /initipfscluster
     touch /internal/.ipfscluster_setup
 

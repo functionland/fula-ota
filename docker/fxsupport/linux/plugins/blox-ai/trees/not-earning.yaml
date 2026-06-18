@@ -80,6 +80,27 @@ nodes:
     diag: identity_health
     timeout_s: 12
     branches:
+      # ipfs-cluster identity.json got created as a DIRECTORY (Docker bind-mount
+      # footgun) — the cluster is "running" but wedged in its init wait-loop, so
+      # the container_check above passed it through. identity_health reports this
+      # precisely (distinct from a legitimately-absent identity). Surface it with
+      # a concrete repair instead of the generic "indeterminate" verdict.
+      - when: "result.pool_member == None and result.pool_member_reason == 'cluster_identity_is_directory'"
+        then:
+          emit_thought: |
+            ipfs-cluster's identity file (/uniondrive/ipfs-cluster/identity.json) is a
+            DIRECTORY, not a file — a Docker bind-mount artifact that wedges the cluster
+            so it never starts and the blox can't earn. Restarting fula clears it
+            (go-fula removes the bogus dir and regenerates the deterministic identity).
+          emit_verdict:
+            summary: "Your Blox's cluster identity got created as a folder instead of a file, so ipfs-cluster can't start — that's why it isn't earning. Restarting your Blox's services repairs it automatically; your cluster ID and earnings are preserved."
+            severity: red
+            root_cause: cluster_identity_is_directory
+          emit_recommendation:
+            action_name: restart_fula
+            tier: 2
+            reasoning: "Restart fula.service so go-fula removes the directory-shaped identity.json and regenerates the deterministic identity, un-wedging ipfs-cluster."
+          stop: true
       - when: "result.pool_member == False"
         then:
           emit_thought: |
