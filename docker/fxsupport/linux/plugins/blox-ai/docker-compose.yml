@@ -73,6 +73,21 @@ services:
     #   - CAP_SYS_ADMIN -> setns(2) into the host mount/ipc/net/uts/pid
     #                      namespaces; without it nsenter fails EPERM
     #                      ("reassociate to namespace 'ns/ipc' failed").
+    #   - CAP_SYS_PTRACE -> nsenter must OPEN /proc/1/ns/* before it can setns
+    #                      into them, and reading another process's namespace
+    #                      links is governed by ptrace_may_access(). SYS_ADMIN
+    #                      alone gets EPERM at that open, one step earlier than
+    #                      the setns it was added for: every host command failed
+    #                      with "nsenter: cannot open /proc/1/ns/ipc: Permission
+    #                      denied" (exit 1), so "Enable remote support" could
+    #                      never work -- status.sh returned unknown, the
+    #                      install-on-demand branch was skipped, the restart
+    #                      failed, and the endpoint answered 500. Measured on
+    #                      hardware, running as root as this container does:
+    #                        SYS_ADMIN+NET_ADMIN          -> exit 1
+    #                        SYS_ADMIN+NET_ADMIN+PTRACE   -> exit 0
+    #                        SYS_PTRACE alone             -> exit 1
+    #                      so both are required, and neither is sufficient.
     #   - CAP_NET_ADMIN -> `wg show` (status.sh runs in-process via nsenter,
     #                      not via host systemd) and `wg-quick up/down` / `ip
     #                      link` for the bounce action read/modify the WireGuard
@@ -86,6 +101,7 @@ services:
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN
+      - SYS_PTRACE
     # /dev/dri/card0 is the GPU/NPU device node. Owned by root:video
     # (GID 44) with mode 0660 on Armbian/Ubuntu; the bloxai container
     # uid (1000) is not in `video` by default, so without group_add
