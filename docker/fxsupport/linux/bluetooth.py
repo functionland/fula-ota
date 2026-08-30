@@ -269,7 +269,20 @@ class CommandCharacteristic(Characteristic):
         Characteristic.__init__(
                 self, self.COMMAND_CHARACTERISTIC_UUID,
                 ["read", "write", "notify", "indicate"], service)
-        self.add_descriptor(CommandDescriptor(self))
+        # No CCCD is declared here on purpose. BlueZ creates and owns the 0x2902 Client Characteristic
+        # Configuration Descriptor for any characteristic flagged notify/indicate, so declaring one as well
+        # put TWO of them on this characteristic. Confirmed from a browser with getDescriptors():
+        #
+        #     command   (00000003-...):  00002902-...  +  00002902-...   <- duplicated
+        #     broadcast (00000002-...):  00000003-...  +  00002902-...   <- one, and it works
+        #
+        # Subscribing IS a CCCD write, so Chrome hit the ambiguity and startNotifications() failed with
+        # NotSupportedError every time, while connecting, reading and writing all succeeded. Replies are
+        # delivered on this characteristic alone, so no browser could receive any answer at all. The mobile
+        # app was unaffected, which is why this went unnoticed.
+        #
+        # BlueZ calls StartNotify()/StopNotify() on the characteristic itself when a client subscribes
+        # through the real descriptor, so nothing is lost by removing ours.
         self._start_response_handler()
     
     def _start_response_handler(self):
@@ -668,31 +681,15 @@ class CommandCharacteristic(Characteristic):
             subprocess.call(['sudo', 'nmcli', 'con', 'delete', conn])
         print("remove_wifi_connections finished")
 
-class CommandDescriptor(Descriptor):
-    CCCD_UUID = "2902"
-
-    def __init__(self, characteristic):
-        Descriptor.__init__(
-                self, self.CCCD_UUID,
-                ["read", "write"],
-                characteristic)
-        self.value = [0, 0]
-
-    def WriteValue(self, value, options):
-        print("CommandDescriptor")
-        if value:
-            self.value = value
-            if self.value[0] & 0x01:  # Notifications
-                self.characteristic.StartNotify()
-            else:
-                self.characteristic.StopNotify()
-            if self.value[0] & 0x02:  # Indications
-                self.characteristic.StartIndicate()
-            else:
-                self.characteristic.StopIndicate()
-
-    def ReadValue(self, options):
-        return self.value
+# CommandDescriptor was here: a hand-rolled 0x2902 CCCD attached to CommandCharacteristic. It duplicated the
+# one BlueZ already creates for a notify characteristic, which broke subscribing from a browser entirely -- see
+# the comment in CommandCharacteristic.__init__. It is gone rather than merely unused so that reattaching it
+# takes a deliberate act.
+#
+# Its WriteValue drove StartNotify/StopNotify by hand; BlueZ now calls those on the characteristic itself. It
+# also drove StartIndicate/StopIndicate, which were its only callers -- those methods remain on the
+# characteristic but nothing sets `indicating` any more, so the `indicate` flag is vestigial. Removing the flag
+# is a sensible follow-up; it is left alone here because the configuration proven on hardware kept it.
 
 
 def register_bluetooth_service(max_retries=10, initial_delay=5):
