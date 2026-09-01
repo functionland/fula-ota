@@ -128,8 +128,26 @@ class FulatowerService(Service):
         self.lastCommand = command
 
 
+# The ATT MTU to size notifications for.
+#
+# This server sends every chunk as a D-Bus PropertiesChanged "Value", and BlueZ silently TRUNCATES that to the
+# NEGOTIATED ATT MTU minus 3. Nothing here can see what was negotiated: service.py implements none of the BlueZ
+# APIs that report it (no AcquireNotify, no MTU property), so there is no value to read and no error when a
+# chunk is cut short — the client just receives half a JSON object.
+#
+# It used to assume 512, which is the largest MTU anyone negotiates rather than the smallest. A phone that
+# settles on 247 — completely ordinary on Android — then had every chunk cut at 244, and the reply could never
+# be reassembled. That is what "the logs panel shows its two headers and nothing under them" was: the reply
+# arrived as damaged JSON, failed to parse, and left an object with no `docker` and no `system` key in it.
+#
+# 185 is the conservative floor: it is what iOS uses, and it is at or below every MTU seen in practice, so a
+# chunk built to it fits whatever the link actually negotiated. The cost is more chunks per reply; the benefit
+# is that each one arrives whole. A truncated chunk is a certain failure, a longer transfer is not.
+SAFE_NOTIFY_ATT_MTU = 185
+
+
 class BLEResponseHandler:
-    def __init__(self, mtu_size=512):
+    def __init__(self, mtu_size=SAFE_NOTIFY_ATT_MTU):
         self.mtu_size = mtu_size - 3  # Account for BLE overhead
         self.chunks = []
         self.current_chunk_index = 0
@@ -145,9 +163,14 @@ class BLEResponseHandler:
         # JSON escaping of data content (quotes, backslashes, newlines) makes
         # the serialized chunk larger than the raw substring, so we verify the
         # real encoded size and shrink per-chunk if needed.
-        # Use 2x safety margin to account for worst-case double-escaping.
+        #
+        # This is a starting guess, not a guarantee: the loop below measures the ENCODED chunk and shrinks
+        # until it fits, so nothing oversized can escape regardless of what is chosen here. It used to halve
+        # the budget as a "2x safety margin against worst-case double-escaping", which the verification loop
+        # already covers — its real effect was to accidentally soften an MTU that was set far too high. With
+        # the MTU now honest (see SAFE_NOTIFY_ATT_MTU), halving would only double the chunk count for nothing.
         base_overhead = len(json.dumps({"type": "ble_chunk", "index": 999, "data": ""}))
-        initial_data_size = (self.mtu_size - base_overhead) // 2
+        initial_data_size = self.mtu_size - base_overhead
 
         pos = 0
         data_chunks = []
