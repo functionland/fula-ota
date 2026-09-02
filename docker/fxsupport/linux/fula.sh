@@ -2487,32 +2487,6 @@ case $1 in
       sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
     fi
 
-    # Safety net for the change-detection above. That comparison only sees a
-    # change if size:mtime differs across the docker cp *within this one
-    # invocation*. An OTA can refresh readiness-check.py in a pass whose flags
-    # are never acted on (e.g. fula.sh also changed, so `restart` re-entered the
-    # stack), and the next pass then sees an already-updated file and detects
-    # nothing. Field-observed on an OTA to test153: the new readiness-check.py
-    # sat on disk for 3+ hours while the OLD daemon kept running, because
-    # "readiness-check.py has changed" never fired.
-    #
-    # That silently reverts the cold-start restart-suppression logic until the
-    # next reboot, so compare the running daemon against the file directly.
-    # /proc/<pid> mtime is the process start time.
-    if systemctl is-active --quiet fula-readiness-check; then
-      rc_pid=$(systemctl show fula-readiness-check.service -p ExecMainPID --value 2>/dev/null)
-      case "$rc_pid" in
-        ''|*[!0-9]*) rc_pid=0 ;;
-      esac
-      if [ "$rc_pid" -gt 0 ]; then
-        rc_start=$(stat -c %Y "/proc/$rc_pid" 2>/dev/null || echo 0)
-        rc_file=$(stat -c %Y "${FULA_PATH}/readiness-check.py" 2>/dev/null || echo 0)
-        if [ "$rc_start" -gt 0 ] && [ "$rc_file" -gt "$rc_start" ]; then
-          echo "readiness-check.py ($rc_file) is newer than the running daemon ($rc_start); restarting to pick it up" | sudo tee -a $FULA_LOG_PATH
-          sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
-        fi
-      fi
-    fi
 
     if [ "$restart_bluetooth" = true ]; then
       echo "bluetooth.py or local_command_server.py changed, restarting bluetooth" | sudo tee -a $FULA_LOG_PATH
@@ -2536,6 +2510,39 @@ case $1 in
     fi
   else
     echo "File stop_docker_copy.txt has been modified in the last 24 hours or remote docker image was not updated after the file was modified, skipping docker cp command." | sudo tee -a $FULA_LOG_PATH
+  fi
+
+  # Safety net for the size:mtime change-detection above, and DELIBERATELY
+  # OUTSIDE the docker-cp branch: a net that only runs under the same condition
+  # that creates the problem is not a net. If a device reaches a stale state and
+  # the copy is subsequently skipped (fula_fxsupport not running, or a fresh
+  # stop_docker_copy.txt) it would otherwise stay stale indefinitely.
+  #
+  # The detection only registers a change if size:mtime differs across the copy
+  # *within one fula.sh invocation*. An OTA can refresh readiness-check.py in a
+  # pass whose flags are never acted on (e.g. fula.sh also changed, so `restart`
+  # re-entered the stack), and the next pass then compares an already-updated
+  # file against itself and sees nothing. Field-observed on an OTA to test153:
+  # the new readiness-check.py sat on disk for 3+ hours while the OLD daemon
+  # kept running -- "readiness-check.py has changed" never fired across 5 copy
+  # events -- silently reverting the cold-start restart-suppression logic until
+  # the next reboot.
+  #
+  # Two stat calls, so it is cheap enough to run on every start.
+  # /proc/<pid> mtime is the process start time.
+  if systemctl is-active --quiet fula-readiness-check; then
+    rc_pid=$(systemctl show fula-readiness-check.service -p ExecMainPID --value 2>/dev/null)
+    case "$rc_pid" in
+      ''|*[!0-9]*) rc_pid=0 ;;
+    esac
+    if [ "$rc_pid" -gt 0 ]; then
+      rc_start=$(stat -c %Y "/proc/$rc_pid" 2>/dev/null || echo 0)
+      rc_file=$(stat -c %Y "${FULA_PATH}/readiness-check.py" 2>/dev/null || echo 0)
+      if [ "$rc_start" -gt 0 ] && [ "$rc_file" -gt "$rc_start" ]; then
+        echo "readiness-check.py ($rc_file) is newer than the running daemon ($rc_start); restarting to pick it up" | sudo tee -a $FULA_LOG_PATH
+        sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+      fi
+    fi
   fi
   sync
   sleep 1
