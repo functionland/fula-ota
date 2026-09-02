@@ -882,6 +882,51 @@ function ensureEnvServices() {
   fi
 }
 
+# Write RAM-tier-dependent values into .env so docker-compose can interpolate them.
+#
+# Two SKUs exist (8 GB and 32 GB) and most of the fleet is 8 GB, but the stack's
+# CPU/memory defaults were sized for the 32 GB part. On 8 GB that combination
+# produced a global OOM (cluster anon-rss 4.4 GB, MemAvailable floor 86 MB, all
+# 4 GB of zram drained) followed by a kernel thermal poweroff at the 115 C
+# critical trip. Lab-measured on an 8 GB RK3588, the 8 GB tier holds the same
+# node at 88 C peak with a 5.2 GB memory floor.
+#
+# A failed or zero MemTotal read falls through to the 32 GB profile, i.e. today's
+# behaviour, so a parse failure can never starve a large device.
+function upsertEnvVar() {
+  local key="$1" val="$2"
+  [ -f "$ENV_FILE" ] || return 0
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+  else
+    # .env may not end in a newline; appending blind would concatenate onto the
+    # previous variable and silently corrupt both.
+    [ -n "$(tail -c1 "$ENV_FILE")" ] && printf '\n' >> "$ENV_FILE"
+    printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
+  fi
+}
+
+function ensureRamTierEnv() {
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "ensureRamTierEnv: ENV_FILE ($ENV_FILE) not found, skipping" | sudo tee -a $FULA_LOG_PATH
+    return
+  fi
+  local mem_kb mem_gb tier
+  mem_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+  mem_gb=$(( ${mem_kb:-0} / 1024 / 1024 ))
+  # 8 GB parts report ~7.7 GB after kernel reservations, hence the 12 GB split.
+  if [ "$mem_gb" -gt 0 ] && [ "$mem_gb" -le 12 ]; then
+    tier="8GB"
+    upsertEnvVar CLUSTER_GOMAXPROCS 2
+    upsertEnvVar KUBO_GOMAXPROCS    2
+  else
+    tier="32GB"
+    upsertEnvVar CLUSTER_GOMAXPROCS 6
+    upsertEnvVar KUBO_GOMAXPROCS    0
+  fi
+  echo "ensureRamTierEnv: MemTotal=${mem_gb}GB -> ${tier} profile (CLUSTER_GOMAXPROCS=$(grep '^CLUSTER_GOMAXPROCS=' "$ENV_FILE" | cut -d= -f2), KUBO_GOMAXPROCS=$(grep '^KUBO_GOMAXPROCS=' "$ENV_FILE" | cut -d= -f2))" | sudo tee -a $FULA_LOG_PATH
+}
+
 function dockerComposeUp() {
   local service image tar_path
 
@@ -1887,13 +1932,59 @@ PYEOF
     rm -f "${HOME_DIR}/.internal/ipfs_data_local/repo.lock" 2>/dev/null || true
     chown -R 1000:1000 "${HOME_DIR}/.internal/ipfs_data_local" 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
+  # The recursive chown below walks the whole flatfs block store through the
+  # mergerfs FUSE mount -- lab-measured at 268,651+ files across 1026 shard dirs,
+  # costing minutes of CPU and FUSE round-trips on EVERY start, in the exact
+  # window the DHT crawl and CRDT sync begin. kubo created those blocks as UID
+  # 1000 itself; only the handful of root-created entries actually need fixing.
+  #
+  # The sentinel lives ON /uniondrive, not on the root fs: if the drive is
+  # reformatted or swapped, the sentinel goes with it and the chown correctly
+  # runs again. (An earlier version keyed it to a filesystem UUID and fell back
+  # to a hardcoded /dev/sda1, which is not the backing device on every unit.)
+  #
+  # The sentinel alone would drop the protection the unconditional chown gave
+  # against NEW root-owned files appearing later, so it is paired with a cheap
+  # bounded probe: -maxdepth 3 with -print -quit stops at the first offender
+  # instead of walking 268k inodes, and any hit forces the full pass.
+  #
+  # The probe tests UID ONLY, deliberately. kubo's container user is uid 1000 /
+  # gid 100 ("users" in the ipfs/kubo image), so it legitimately (re)creates
+  # files such as datastore/LOCK as 1000:100 on every start -- lab-measured:
+  # 432401 entries at 1000:1000 and 17 at 1000:100. A `! -gid 1000` clause
+  # therefore matches on every boot, forcing the full walk forever and defeating
+  # the sentinel entirely. Only the owning UID governs kubo's access.
+  local chown_sentinel needs_chown
+  chown_sentinel="/uniondrive/.fula_chown_done"
+  needs_chown=false
+  if [ ! -f "$chown_sentinel" ]; then
+    needs_chown=true
+  elif [ -d "/uniondrive/ipfs_datastore" ] && \
+       find /uniondrive/ipfs_datastore -maxdepth 3 ! -uid 1000 -print -quit 2>/dev/null | grep -q .; then
+    echo "detected non-1000-owned entries under ipfs_datastore; re-running ownership pass" | sudo tee -a $FULA_LOG_PATH
+    needs_chown=true
+  fi
+
+  if [ "$needs_chown" = false ]; then
+    echo "datastore ownership already normalised; skipping recursive chown" | sudo tee -a $FULA_LOG_PATH
+  else
+    echo "normalising datastore ownership (one-time, slow)" | sudo tee -a $FULA_LOG_PATH
+    if [ -d "/uniondrive/ipfs_datastore" ]; then
+      chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    fi
+    if [ -d "/uniondrive/ipfs_datastore_local" ]; then
+      chown -R 1000:1000 /uniondrive/ipfs_datastore_local 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+    fi
+    touch "$chown_sentinel" 2>/dev/null || true
+  fi
+
+  # Stale lock removal is cheap and must happen on every start regardless of the
+  # sentinel -- a crashed kubo leaves these behind and they block startup.
   if [ -d "/uniondrive/ipfs_datastore" ]; then
     rm -f /uniondrive/ipfs_datastore/datastore/LOCK 2>/dev/null || true
-    chown -R 1000:1000 /uniondrive/ipfs_datastore 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
   if [ -d "/uniondrive/ipfs_datastore_local" ]; then
     rm -f /uniondrive/ipfs_datastore_local/datastore/LOCK 2>/dev/null || true
-    chown -R 1000:1000 /uniondrive/ipfs_datastore_local 2>&1 | sudo tee -a $FULA_LOG_PATH || true
   fi
 
   # Pre-flight: check root filesystem space. If critically low, prune Docker
@@ -1913,6 +2004,10 @@ PYEOF
   # predates these services.  Derive the tag from the existing FX_SUPPROT
   # image reference so the new services use the same tag as everything else.
   ensureEnvServices
+
+  # Must run before dockerComposeUp: compose interpolates CLUSTER_GOMAXPROCS /
+  # KUBO_GOMAXPROCS from .env at `up` time.
+  ensureRamTierEnv
 
   echo "dockerComposeUp" | sudo tee -a $FULA_LOG_PATH
   dockerComposeUp 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "dockerComposeUp failed" | sudo tee -a $FULA_LOG_PATH; } || true
@@ -2212,7 +2307,7 @@ case $1 in
     # Files in this list MUST match the files in the change-detection loop below.
     # Adding a file to one list but not the other means changes are never detected
     # for that file (old_info will be empty, so the [ -n "$old_info" ] guard skips).
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster docker-compose.yml kubo-local/config-local kubo/config; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         size=$(stat -c %s "${FULA_PATH}/${file}")
         mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2240,7 +2335,7 @@ case $1 in
     restart_bluetooth=false
     restart_commands=false
     restart_ipfs_cluster=false
-    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster; do
+    for file in fula.sh union-drive.sh firewall.sh readiness-check.py bluetooth.py local_command_server.py commands.sh ipfs-cluster/ipfs-cluster-container-init.d.sh .env.cluster docker-compose.yml kubo-local/config-local kubo/config; do
       if [ -f "${FULA_PATH}/${file}" ]; then
         new_size=$(stat -c %s "${FULA_PATH}/${file}")
         new_mtime=$(stat -c %Y "${FULA_PATH}/${file}")
@@ -2273,6 +2368,22 @@ case $1 in
             # rewriting the file on disk does nothing until the container is
             # recreated. Restart forces docker to reload the new env_file.
             restart_ipfs_cluster=true
+          elif [ "$file" = "docker-compose.yml" ]; then
+            # Service definitions (image tags, environment such as GOMAXPROCS,
+            # volumes, limits) are baked into containers at creation time. A
+            # rewritten compose file on disk changes nothing until the stack is
+            # recreated, so an OTA shipping only a compose change would
+            # otherwise never take effect on a running device.
+            restart_fula=true
+          elif [ "$file" = "kubo-local/config-local" ]; then
+            # kubo-local's container-init rebuilds its deployed config from this
+            # template on every container start, so a template change only lands
+            # once that container is recreated.
+            restart_fula=true
+          elif [ "$file" = "kubo/config" ]; then
+            # Host kubo template. update_kubo_config.py merges its MANAGED_FIELDS
+            # into the deployed config, but only when kubo is (re)started.
+            restart_fula=true
           fi
           # firewall.sh changes are handled by unconditional re-apply at end of start
         fi

@@ -56,6 +56,11 @@ services:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data
       - IPFS_TELEMETRY=off
+      # CPU budget. 0 = Go default (all cores) and is what 32 GB units keep.
+      # fula.sh sets this to 2 on the 8 GB SKU: the accelerated DHT client's
+      # crawl burst is throughput-bound, so spreading the same work over more
+      # wall-clock at lower instantaneous power costs little and sheds heat.
+      - GOMAXPROCS=${KUBO_GOMAXPROCS:-0}
     dns:
       - 1.1.1.1
       - 8.8.8.8
@@ -87,6 +92,7 @@ services:
       - IPFS_PROFILE=flatfs
       - IPFS_PATH=/internal/ipfs_data_local
       - IPFS_TELEMETRY=off
+      - GOMAXPROCS=${KUBO_GOMAXPROCS:-0}
     dns:
       - 1.1.1.1
       - 8.8.8.8
@@ -120,7 +126,11 @@ services:
     env_file:
       - .env.cluster
     environment:
-      - GOMAXPROCS=6
+      # Lab-measured on 8 GB: ipfs-cluster was THE thermal driver, climbing to
+      # 321% CPU and holding it while kubo sat at ~180%. 6 of 8 cores was the
+      # only explicit CPU budget in the stack and it was the wrong one to grant.
+      # Dropping it to 2 moved time-to-95C from 395s to 1210s. 32 GB keeps 6.
+      - GOMAXPROCS=${CLUSTER_GOMAXPROCS:-6}
     security_opt:
       - no-new-privileges:true
     labels:

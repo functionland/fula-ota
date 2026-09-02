@@ -2394,6 +2394,79 @@ def check_fs_type(mount_path, expected_type):
     except subprocess.CalledProcessError:
         return False
 
+# === Cold-start protection ==================================================
+# check_conditions() below requires the fula_go container to be in `docker ps`,
+# but a legitimate cold start takes ~192 s (fula.service has ExecStartPre=sleep
+# 60, then fula.sh normalises datastore ownership, then `compose up`). The stock
+# watchdog restarted on the FIRST failed check -- lab-observed tearing the stack
+# down 5 seconds after systemd logged "Started". Each restart re-ran the whole
+# expensive cold start, so the node never left it: 4 full cold starts in 26
+# minutes, permanently pinned in the hottest, most memory-hungry phase. That is
+# what prevented the one-time CRDT sync from ever completing.
+#
+# The guard is PROGRESS-based, not a fixed timer: a timer cannot tell "still
+# starting" from "hung". But it is also bounded -- if the mergerfs mount
+# deadlocks, fula.sh hangs forever and an unbounded check would wedge the node
+# permanently with the watchdog suppressed. The ceiling is ~9x the measured
+# cold start, so it only fires on a genuine hang.
+FULA_START_HARD_CEILING_SEC = int(os.environ.get("FULA_START_HARD_CEILING_SEC", "1800"))
+
+
+def _fula_active_age_sec():
+    """Seconds since fula.service entered the active state, or None."""
+    try:
+        out = subprocess.getoutput(
+            "systemctl show fula.service -p ActiveEnterTimestampMonotonic --value").strip()
+        if not out.isdigit():
+            return None
+        active_since = int(out) / 1e6
+        if active_since <= 0:
+            return None
+        with open("/proc/uptime") as f:
+            up = float(f.readline().split()[0])
+        age = up - active_since
+        return age if age >= 0 else None
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def fula_start_in_progress():
+    """True while fula.sh is genuinely still bringing the stack up AND within
+    the hard ceiling. Callers must not restart fula.service while this holds.
+
+    Scoped to fula.service's OWN main PID, deliberately not `pgrep -f
+    'fula.sh start'`: fula.sh backgrounds pullFailedServices as
+    `(nohup pullFailedServices ... &)`, and that subshell inherits the parent's
+    /proc/PID/cmdline. A cmdline match would therefore keep firing for as long
+    as that unbounded image-pull retry loop runs -- indefinitely on a device
+    that cannot reach Docker Hub -- suppressing the watchdog on every boot.
+    ExecMainPID is the ExecStart process only, so the retry subshell is excluded.
+    """
+    try:
+        pid_s = subprocess.getoutput(
+            "systemctl show fula.service -p ExecMainPID --value").strip()
+        if not pid_s.isdigit() or int(pid_s) <= 0:
+            return False
+        pid = int(pid_s)
+        # ExecMainPID lingers after the process exits (RemainAfterExit=true),
+        # so confirm it is still alive and is still the start invocation.
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            cmdline = f.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        if "fula.sh start" not in cmdline:
+            return False
+    except (OSError, ValueError):
+        return False
+    age = _fula_active_age_sec()
+    if age is not None and age > FULA_START_HARD_CEILING_SEC:
+        logging.warning(
+            "fula.sh still running after %.0fs (> %ds ceiling) - treating as hung, allowing restart",
+            age, FULA_START_HARD_CEILING_SEC)
+        return False
+    logging.info("cold start in progress (fula.sh running, age=%s) - suppressing restart",
+                 "%.0fs" % age if age is not None else "unknown")
+    return True
+
+
 def check_conditions():
     # Check all required conditions
     conditions = [
@@ -4119,6 +4192,60 @@ def _escalate_kubo_hang(component):
     _record_api_success(component)
 
 
+# === Container log health ===================================================
+# This previously restarted the ENTIRE stack whenever `docker logs --tail 15`
+# contained the substring "ERROR:" or "Error:", for five containers. kubo and
+# ipfs-cluster are P2P daemons: transient dial, reprovide and bitswap errors are
+# normal steady-state output, and this repo already has a known upstream source
+# of them (the kad-dht reprovider spam after the v0.39.2 bump). That made a full
+# stack restart -- with its ~192 s cold start, DHT re-crawl and CRDT re-sync --
+# reachable from ordinary network noise, which is exactly the amplification loop
+# the cold-start guard above exists to stop.
+#
+# Restart now requires a genuinely fatal signature, observed on
+# FATAL_LOG_STRIKES consecutive monitor cycles, and at most once per container
+# per FATAL_RESTART_COOLDOWN_SEC.
+# Deliberately narrow. Bare "corrupted" and "repo.lock" were considered and
+# rejected: kubo logs both in benign contexts (e.g. refetching a bad block,
+# or naming the lock file on a normal start), and a false positive here costs a
+# full stack restart. Every pattern below is a condition the daemon cannot
+# recover from on its own.
+FATAL_LOG_RE = re.compile(
+    r"(panic:|fatal error:|no space left on device|"
+    r"database is corrupt|datastore is corrupt|"
+    r"lock is already held|cannot allocate memory|"
+    r"failed to open datastore|error opening repo|repo is corrupt)",
+    re.IGNORECASE,
+)
+FATAL_LOG_STRIKES = int(os.environ.get("FATAL_LOG_STRIKES", "3"))
+FATAL_RESTART_COOLDOWN_SEC = int(os.environ.get("FATAL_RESTART_COOLDOWN_SEC", "1800"))
+_fatal_log_strikes = {}
+_fatal_last_restart = {}
+
+
+def _container_log_is_fatal(container, logs):
+    """True only for a persistent, genuinely fatal condition. Transient P2P
+    errors must never reach here -- they are normal output for these daemons."""
+    if not FATAL_LOG_RE.search(logs or ""):
+        _fatal_log_strikes[container] = 0
+        return False
+    _fatal_log_strikes[container] = _fatal_log_strikes.get(container, 0) + 1
+    strikes = _fatal_log_strikes[container]
+    if strikes < FATAL_LOG_STRIKES:
+        logging.warning("%s: fatal-looking log line (strike %d/%d) - not restarting yet",
+                        container, strikes, FATAL_LOG_STRIKES)
+        return False
+    now = time.time()
+    last = _fatal_last_restart.get(container, 0)
+    if now - last < FATAL_RESTART_COOLDOWN_SEC:
+        logging.warning("%s: fatal condition persists but within %ds cooldown (%.0fs since last) - not restarting",
+                        container, FATAL_RESTART_COOLDOWN_SEC, now - last)
+        return False
+    _fatal_last_restart[container] = now
+    _fatal_log_strikes[container] = 0
+    return True
+
+
 def monitor_docker_logs_and_restart():
     # Phase 3 diagnostic gates: run BEFORE the generic-internet early-return so
     # /run/fula-discovery.state and /run/fula-time.state stay fresh even when
@@ -4203,6 +4330,9 @@ def monitor_docker_logs_and_restart():
         # Check if Docker service is running
         docker_service_status = subprocess.getoutput("sudo systemctl is-active docker.service")
         if not check_conditions():
+            if fula_start_in_progress():
+                time.sleep(30)
+                continue
             logging.error("conditions not pass")
             if check_and_repair_ext4():
                 logging.info("ext4 repair attempted inside monitor loop.")
@@ -4242,11 +4372,11 @@ def monitor_docker_logs_and_restart():
             if container_running:
                 logging.info(f"container_running inside monitor passed for {container}")
                 logs = subprocess.getoutput(f"sudo docker logs --tail 15 {container} 2>&1")
-                if "ERROR:" in logs or "Error:" in logs:
-                    logging.error(f"{container} logs contain ERROR:. Attempting to restart fula.service")
+                if _container_log_is_fatal(container, logs):
+                    logging.error(f"{container} logs show a persistent FATAL condition. Attempting to restart fula.service")
                     container_running = False
                 else:
-                    logging.info(f"no ERROR found in the logs of {container}")
+                    logging.info(f"no fatal condition in the logs of {container}")
             else:
                 all_containers_running = False
                 logging.error(f"{container} is not running or logs contain ERROR:. Attempting to restart fula.service")
@@ -4457,6 +4587,9 @@ def main():
             docker_ps_a_output = subprocess.getoutput("sudo docker ps -a --format '{{.Names}}'")
             docker_ps_output = subprocess.getoutput("sudo docker ps --format '{{.Names}}'")
 
+            if fula_start_in_progress():
+                time.sleep(20)
+                continue
             if "fula_go" in docker_ps_a_output and \
                 all(container in docker_ps_output for container in ["fula_fxsupport", "fula_updater"]) and \
                 fula_restart_attempts < 4:

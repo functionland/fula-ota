@@ -120,7 +120,7 @@
     "Router": ""
   },
   "Routing": {
-    "AcceleratedDHTClient": true,
+    "AcceleratedDHTClient": false,
     "Methods": null,
     "Routers": null
   },

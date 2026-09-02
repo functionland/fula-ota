@@ -242,19 +242,56 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
     if [ -f "${IPFS_CLUSTER_PATH}/service.json" ]; then
         echo "Modifying service.json to replace allocator and informer sections..."
 
+        # --- RAM-aware sizing -------------------------------------------------
+        # Two SKUs exist (8 GB and 32 GB) and most of the fleet is 8 GB, but every
+        # default below was sized for the 32 GB part. On 8 GB that combination put
+        # the board into a global OOM (cluster anon-rss 4.4 GB, MemAvailable floor
+        # 86 MB, all 4 GB of zram drained) and then a kernel thermal poweroff at the
+        # 115 C critical trip. Lab-measured on an 8 GB RK3588: with the 8 GB tier the
+        # same node peaks at 88 C with a 5.2 GB memory floor.
+        #
+        # Containers see the host's /proc/meminfo, so this is the host's RAM.
+        # A failed/zero read falls through to the 32 GB profile, i.e. today's
+        # behaviour, so a parse failure can never starve a large device.
+        MEM_TOTAL_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+        MEM_GB=$(( ${MEM_TOTAL_KB:-0} / 1024 / 1024 ))
+        # 8 GB parts report ~7.7 GB after kernel reservations, hence the 12 GB split.
+        if [ "$MEM_GB" -gt 0 ] && [ "$MEM_GB" -le 12 ]; then
+            CONN_HIGH=150; CONN_LOW=50
+            STATE_SYNC="30m0s"; PIN_RECOVER="1h0m0s"
+            PEBBLE_CACHE=134217728   # 128 MiB (was 1 GiB)
+            MEMTABLE=16777216        # 16 MiB (was 64 MiB)
+            MEMTABLE_STOP=8          # was 20 -> worst-case memtables 1.28 GB -> 128 MB
+            RAM_TIER="8GB"
+        else
+            CONN_HIGH=400; CONN_LOW=100
+            STATE_SYNC="5m0s"; PIN_RECOVER="8m0s"
+            PEBBLE_CACHE=1073741824; MEMTABLE=67108864; MEMTABLE_STOP=20
+            RAM_TIER="32GB"
+        fi
+        echo "RAM tier: ${MEM_GB}GB -> ${RAM_TIER} profile (connmgr ${CONN_HIGH}/${CONN_LOW}, pebble cache ${PEBBLE_CACHE})"
+
         service_temp="${IPFS_CLUSTER_PATH}/service_temp.json"
         rm -f "$service_temp"
 
         # Use jq to update the JSON file.
         # --arg trust_peer passes the server cluster peer ID for peer_addresses tunnel fallback.
+        # NOTE: this block is the single source of truth for these values. Anything
+        # set only in .env.cluster is overwritten here on every container start.
         # Guard the write: only overwrite service.json if jq exits 0 AND the temp file is
         # non-empty AND parses as JSON. Otherwise preserve the original so the daemon still starts.
-        if jq --arg trust_peer "$CLUSTER_CRDT_TRUSTEDPEERS" '
+        if jq --arg trust_peer "$CLUSTER_CRDT_TRUSTEDPEERS" \
+              --argjson ch "$CONN_HIGH" --argjson cl "$CONN_LOW" \
+              --arg ss "$STATE_SYNC" --arg pr "$PIN_RECOVER" \
+              --argjson pc "$PEBBLE_CACHE" --argjson mt "$MEMTABLE" --argjson ms "$MEMTABLE_STOP" '
             .cluster.connection_manager = {
-                "high_water": 400,
-                "low_water": 100,
+                "high_water": $ch,
+                "low_water": $cl,
                 "grace_period": "2m0s"
             } |
+            .datastore.pebble.pebble_options.cache_size_bytes                = $pc |
+            .datastore.pebble.pebble_options.mem_table_size                  = $mt |
+            .datastore.pebble.pebble_options.mem_table_stop_writes_threshold = $ms |
             .cluster.pubsub = {
                 "seen_messages_ttl": "30m0s",
                 "heartbeat_interval": "10s",
@@ -266,8 +303,8 @@ append_or_replace "/.env.cluster" "CLUSTER_PEERNAME" "${CLUSTER_PEERNAME}"
             .cluster.dial_peer_timeout = "30s" |
             .cluster.monitor_ping_interval = "5m0s" |
             .cluster.peer_watch_interval = "60s" |
-            .cluster.pin_recover_interval = "8m0s" |
-            .cluster.state_sync_interval = "5m0s" |
+            .cluster.pin_recover_interval = $pr |
+            .cluster.state_sync_interval = $ss |
             .cluster.listen_multiaddress = (
                 (.cluster.listen_multiaddress // [])
                 | (if type == "array" then . else [tostring] end)
