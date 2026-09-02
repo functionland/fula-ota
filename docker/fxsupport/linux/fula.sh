@@ -2528,20 +2528,25 @@ case $1 in
   # events -- silently reverting the cold-start restart-suppression logic until
   # the next reboot.
   #
-  # Two stat calls, so it is cheap enough to run on every start.
-  # /proc/<pid> mtime is the process start time.
+  # Compare a CONTENT HASH against the copy the daemon was last started with.
+  # A "file mtime newer than the process" test does NOT work here: `docker cp`
+  # PRESERVES the mtime from the image (verified on-device), so after an OTA the
+  # file carries the image BUILD time, which in normal fleet operation is EARLIER
+  # than the device's boot time. Such a test would silently never fire in the
+  # field -- it only appears to work when the image happens to be built while the
+  # target device is already running.
+  #
+  # An absent marker is treated as "unknown", so the daemon is restarted once and
+  # the marker seeded. That costs one extra restart per device, which is the safe
+  # direction: the alternative silently keeps a stale daemon.
   if systemctl is-active --quiet fula-readiness-check; then
-    rc_pid=$(systemctl show fula-readiness-check.service -p ExecMainPID --value 2>/dev/null)
-    case "$rc_pid" in
-      ''|*[!0-9]*) rc_pid=0 ;;
-    esac
-    if [ "$rc_pid" -gt 0 ]; then
-      rc_start=$(stat -c %Y "/proc/$rc_pid" 2>/dev/null || echo 0)
-      rc_file=$(stat -c %Y "${FULA_PATH}/readiness-check.py" 2>/dev/null || echo 0)
-      if [ "$rc_start" -gt 0 ] && [ "$rc_file" -gt "$rc_start" ]; then
-        echo "readiness-check.py ($rc_file) is newer than the running daemon ($rc_start); restarting to pick it up" | sudo tee -a $FULA_LOG_PATH
-        sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
-      fi
+    rc_marker="${HOME_DIR}/.internal/.readiness_check_applied"
+    rc_hash=$(md5sum "${FULA_PATH}/readiness-check.py" 2>/dev/null | cut -d' ' -f1)
+    rc_prev=$(cat "$rc_marker" 2>/dev/null || echo "")
+    if [ -n "$rc_hash" ] && [ "$rc_hash" != "$rc_prev" ]; then
+      echo "readiness-check.py changed (was ${rc_prev:-unknown}, now ${rc_hash}); restarting fula-readiness-check" | sudo tee -a $FULA_LOG_PATH
+      sudo systemctl restart fula-readiness-check 2>&1 | sudo tee -a $FULA_LOG_PATH || true
+      printf '%s\n' "$rc_hash" | sudo tee "$rc_marker" >/dev/null
     fi
   fi
   sync
