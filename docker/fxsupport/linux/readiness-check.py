@@ -3727,90 +3727,292 @@ def check_internet_connection():
         return False
 
 
-def safe_run(command):
-    try:
-        subprocess.run(command, check=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        logging.error(f'Command timed out after 120s: {command}')
-    except subprocess.CalledProcessError as e:
-        logging.error(f'Error running command {command}: {e}')
+# === External drive onboarding (auto-format only EMPTY drives) ==============
+# Retail drives ship factory-formatted (exFAT/NTFS) and the storage pool only
+# accepts ext4 (union-drive.sh), so a new, empty drive is converted to ext4
+# automatically. A drive that holds data is NEVER touched: it is skipped,
+# logged once, and recorded in DRIVE_FORMAT_STATE_PATH for the app to surface;
+# the owner can still format it explicitly with the Partition action.
+# Destructive steps run strictly in sequence and abort on the first failure.
+# Nothing here deletes files or touches /uniondrive. After a successful format
+# a reboot is requested so the new drive is mounted and joins the pool on a
+# clean boot (the old code path also ended in a reboot, via resize.sh).
+DRIVE_FORMAT_STATE_PATH = "/run/fula-drive-format.state"
+DRIVE_FORMAT_MIN_GIB = 500
+DRIVE_EMPTY_MAX_USED_BYTES = 1024 ** 3   # retail vendor bundles are far smaller
+DRIVE_EMPTY_MAX_FILES = 100
+# A partition with no recognisable filesystem may only be ignored when it is
+# tiny (e.g. Windows' 16-128 MiB MSR); a large one could be an encrypted or
+# unknown volume holding data we cannot see.
+DRIVE_IGNORABLE_RAW_PART_BYTES = 256 * 1024 ** 2
+# automount.sh mounts external drives here; anything mounted elsewhere is
+# never a candidate for formatting.
+DRIVE_AUTOMOUNT_ROOT = "/media/pi/"
+COMMAND_REBOOT_PATH = os.path.join(HOME_PATH, "commands/.command_reboot")
+_drive_skip_logged = set()
 
-def format_drive(drive):
-    try:
-        # Delete all partitions on the drive
-        safe_run(["sudo", "wipefs", "--all", drive])
-        
-        # Create a new partition table and a single ext4 partition
-        safe_run(["sudo", "parted", "-s", drive, "mklabel", "gpt"])
-        safe_run(["sudo", "parted", "-s", drive, "mkpart", "primary", "ext4", "0%", "100%"])
-        
-        # Format the new partition as ext4
-        partition = f"{drive}1"  # Assuming the first partition is created
-        safe_run(["sudo", "mkfs.ext4", partition])
 
-        logging.info(f'Successfully formatted {drive} as ext4')
-        return True
-    except subprocess.CalledProcessError as e:
-        logging.error(f'Error during formatting the drive {drive}: {e}')
+def _out(cmd, timeout):
+    """Run a read-only command and return its stdout ('' on any failure)."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
+def _must(cmd, timeout):
+    """Run a destructive step; raise on a non-zero exit or a timeout."""
+    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+
+
+def _drive_format_candidates():
+    """(device, fstype) for non-ext4 filesystems > DRIVE_FORMAT_MIN_GIB on sd*/nvme*."""
+    candidates = []
+    for line in _out(["sudo", "blkid"], 30).splitlines():
+        if not (line.startswith("/dev/sd") or line.startswith("/dev/nvme")):
+            continue
+        dev, _, attrs = line.partition(":")
+        # TYPE=, not PTTYPE= / SEC_TYPE=
+        m = re.search(r'(?<![A-Z_])TYPE="([^"]+)"', attrs)
+        if not m or m.group(1).lower() == "ext4":
+            continue
+        size = _out(["sudo", "lsblk", "-b", "-n", "-d", "-o", "SIZE", dev], 10).split()
+        if size and size[0].isdigit() and int(size[0]) / (1024 ** 3) > DRIVE_FORMAT_MIN_GIB:
+            candidates.append((dev.strip(), m.group(1)))
+    return candidates
+
+
+def _parent_disk(dev):
+    """/dev/sdb1 -> /dev/sdb; a whole-disk filesystem is its own parent."""
+    lines = _out(["lsblk", "-no", "PKNAME", dev], 10).strip().splitlines()
+    return "/dev/" + lines[0].strip() if lines and lines[0].strip() else dev
+
+
+def _disk_partitions(disk):
+    parts = []
+    for line in _out(["lsblk", "-lnp", "-o", "NAME,TYPE", disk], 10).splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[1] == "part":
+            parts.append(fields[0])
+    return parts or [disk]
+
+
+def _fstype(dev):
+    fields = _out(["lsblk", "-no", "FSTYPE", "-d", dev], 10).split()
+    return fields[0] if fields else ""
+
+
+def _partition_bytes(dev):
+    """Size in bytes; an unreadable size counts as huge (never ignorable)."""
+    fields = _out(["lsblk", "-b", "-n", "-d", "-o", "SIZE", dev], 10).split()
+    return int(fields[0]) if fields and fields[0].isdigit() else float("inf")
+
+
+def _mountpoints(dev):
+    return [l for l in _out(["findmnt", "-rn", "-S", dev, "-o", "TARGET"], 10).splitlines() if l]
+
+
+def _pool_branches():
+    """Branch paths of the mergerfs pool mounted on /uniondrive."""
+    try:
+        with open("/proc/self/mounts") as f:
+            for line in f:
+                p = line.split()
+                if len(p) >= 3 and p[1] == "/uniondrive" and p[2] == "fuse.mergerfs":
+                    return {b.split("=")[0] for b in p[0].split(":")}
+    except OSError:
+        pass
+    return set()
+
+
+def _system_disks():
+    disks = set()
+    for mp in ("/", "/boot"):
+        src = _out(["findmnt", "-n", "-o", "SOURCE", mp], 10).strip()
+        if src.startswith("/dev/"):
+            disks.add(_parent_disk(src))
+    return disks
+
+
+def _is_effectively_empty(mountpoint):
+    """True only if the filesystem is provably near-empty. Any failure or
+    timeout counts as NOT empty, so an unreadable drive is never formatted."""
+    used = _out(["df", "-B1", "--output=used", mountpoint], 10).split()
+    if len(used) < 2 or not used[-1].isdigit() or int(used[-1]) > DRIVE_EMPTY_MAX_USED_BYTES:
         return False
+    try:
+        p = subprocess.run(
+            ["bash", "-c", 'set -o pipefail; find "$1" -xdev -type f 2>/dev/null | head -n "$2"',
+             "bash", mountpoint, str(DRIVE_EMPTY_MAX_FILES + 1)],
+            capture_output=True, text=True, timeout=30)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    if len(p.stdout.splitlines()) > DRIVE_EMPTY_MAX_FILES:
+        return False
+    return p.returncode == 0
+
+
+def _record_drive_skip(dev, fstype, reason, skipped):
+    skipped[dev] = {"fstype": fstype, "reason": reason}
+    key = (dev, fstype, reason)
+    if key not in _drive_skip_logged:
+        _drive_skip_logged.add(key)
+        logging.warning("Drive %s (%s) not auto-formatted: %s", dev, fstype, reason)
+        _append_event("drive_format_skipped", {"device": dev, "fstype": fstype, "reason": reason})
+
+
+def _format_disk(disk, parts):
+    """Wipe `disk` and create one ext4 partition. Raises on the first failure."""
+    for p in parts:
+        # automount@'s ExecStop unmounts and rmdirs the (empty) mount folder.
+        subprocess.run(["sudo", "systemctl", "stop", "automount@%s.service" % os.path.basename(p)],
+                       capture_output=True, timeout=60)
+        for mp in _mountpoints(p):
+            _must(["sudo", "umount", mp], 60)
+    for p in parts + [disk]:
+        if _mountpoints(p):
+            raise RuntimeError("%s is still mounted" % p)
+    for p in parts:
+        if p != disk:
+            _must(["sudo", "wipefs", "-a", p], 60)
+    _must(["sudo", "wipefs", "-a", disk], 60)
+    _must(["sudo", "parted", "-s", disk, "mklabel", "gpt", "mkpart", "primary", "ext4", "0%", "100%"], 120)
+    _must(["sudo", "udevadm", "settle", "--timeout=30"], 45)
+    part1 = disk + ("p1" if disk[-1].isdigit() else "1")
+    _must(["sudo", "mkfs.ext4", "-F", part1], 1800)
+
 
 def check_external_drive():
-    logging.info("Checking external drives for correct formatting")
+    """Auto-format new, EMPTY non-ext4 drives > DRIVE_FORMAT_MIN_GIB as ext4;
+    never touch a drive that holds data. Returns True only when a drive was
+    formatted and a reboot was requested (the caller stops monitoring this
+    cycle). Never raises and never triggers the restart escalation."""
     try:
-        blkid_output = subprocess.check_output(["sudo", "blkid"], universal_newlines=True)
-        drives = [line.split(':') for line in blkid_output.splitlines() if line.startswith('/dev/sd') or line.startswith('/dev/nvme')]
-        
-        for drive_info in drives:
-            drive = drive_info[0]
-            fstype = next((item.split('=')[1].strip('"') for item in drive_info[1].split() if item.startswith('TYPE=')), None)
-            
-            # Check the disk size
-            size_output = subprocess.check_output(["sudo", "lsblk", "-b", "-n", "-o", "SIZE", drive], universal_newlines=True)
-            disk_size = int(size_output.split()[0])  # Size in bytes
-            disk_size_gb = disk_size / (1024 ** 3)  # Convert to GB
-
-            if fstype and (fstype.lower() != 'ext4') and (disk_size_gb > 500):
-                logging.warning(f"Drive {drive} is formatted as {fstype} and is larger than 500GB. Attempting to fix.")
-                
-                # Stop services
-                safe_run(["sudo", "systemctl", "stop", "fula.service"])
-                time.sleep(10)
-                safe_run(["sudo", "systemctl", "stop", "uniondrive.service"])
-                time.sleep(10)
-
-                # Stop automount service for the drive
-                partition = drive.split('/')[-1]
-                safe_run(["sudo", "systemctl", "stop", f"automount@{partition}.service"])
-                time.sleep(10)
-
-                # Delete mount folder
-                mount_folder = f"/media/pi/{partition}"
-                if os.path.exists(mount_folder):
-                    safe_run(["sudo", "umount", mount_folder])
-                    time.sleep(5)
-                    safe_run(["sudo", "rm", "-rf", mount_folder])
-
-                # Delete and recreate /uniondrive
-                if os.path.exists("/uniondrive"):
-                    safe_run(["sudo", "rm", "-rf", "/uniondrive"])
-                safe_run(["sudo", "mkdir", "/uniondrive"])
-                safe_run(["sudo", "chown", "-R", "pi:pi", "/uniondrive"])
-                safe_run(["sudo", "chmod", "-R", "777", "/uniondrive"])
-
-                # Format the drive as ext4
-                format_drive(drive)
-
-                return True
-
-        logging.info("No drives needing format correction found")
-        return False
-        
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error in check_external_drive: {e}")
+        candidates = _drive_format_candidates()
+        if not candidates:
+            return False
+        skipped = {}
+        system_disks = _system_disks()
+        branches = _pool_branches()
+        seen = set()
+        for dev, fstype in candidates:
+            disk = _parent_disk(dev)
+            if disk in seen:
+                continue
+            seen.add(disk)
+            if disk in system_disks:
+                _record_drive_skip(dev, fstype, "system disk", skipped)
+                continue
+            parts = _disk_partitions(disk)
+            reason = None
+            for p in parts:
+                p_fstype = _fstype(p)
+                if not p_fstype:
+                    if _partition_bytes(p) <= DRIVE_IGNORABLE_RAW_PART_BYTES:
+                        continue  # tiny raw partition (e.g. Windows MSR) holds no files
+                    reason = "partition %s has no recognisable filesystem" % p
+                    break
+                if p_fstype.lower() == "ext4":
+                    reason = "disk has an ext4 partition"
+                    break
+                mounts = _mountpoints(p)
+                if not mounts:
+                    reason = "partition %s is not mounted, cannot verify it is empty" % p
+                    break
+                if any(not mp.startswith(DRIVE_AUTOMOUNT_ROOT) for mp in mounts):
+                    reason = "partition %s is mounted outside %s" % (p, DRIVE_AUTOMOUNT_ROOT)
+                    break
+                if any(mp in branches for mp in mounts):
+                    reason = "partition is part of the storage pool"
+                    break
+                if not all(_is_effectively_empty(mp) for mp in mounts):
+                    reason = "drive holds data"
+                    break
+            if reason:
+                _record_drive_skip(dev, fstype, reason, skipped)
+                continue
+            logging.warning("Formatting new empty drive %s (%s on %s) as ext4", disk, fstype, dev)
+            try:
+                _format_disk(disk, parts)
+            except Exception as e:
+                logging.error("Formatting %s aborted: %s", disk, e)
+                _append_event("drive_format_failed", {"device": disk, "error": str(e)[:200]})
+                _record_drive_skip(dev, fstype, "format aborted: %s" % str(e)[:120], skipped)
+                continue
+            _append_event("drive_formatted", {"device": disk, "previous_fstype": fstype})
+            logging.warning("Drive %s formatted as ext4; requesting a reboot to add it to the pool", disk)
+            subprocess.run(["sudo", "touch", COMMAND_REBOOT_PATH], capture_output=True, timeout=20)
+            return True
+        if skipped:
+            _atomic_write_state(DRIVE_FORMAT_STATE_PATH, {
+                "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "skipped": skipped,
+            })
         return False
     except Exception as e:
-        logging.error(f"Unexpected error in check_external_drive: {e}")
+        logging.error("check_external_drive failed (non-fatal): %s", e)
         return False
+
+
+# === One-shot storage-access apply (OTA gap) ================================
+# During an OTA, `fula.sh start` runs the copy of fula.sh it loaded before
+# docker cp replaced it, so a change inside setup_storage_access would only run
+# on the NEXT fula.sh start (a reboot or fula restart). When the on-disk fula.sh
+# declares a newer STORAGE_ACCESS_REV than the applied marker, run just that
+# step. Samba-scoped, time-bounded, rate-limited; never raises. Lives here (not
+# in fula-ota-update.sh) so a bug can never stop OTA detection itself.
+STORAGE_ACCESS_REV_FILE = os.path.join(HOME_PATH, ".internal", ".storage_access_rev")
+STORAGE_ACCESS_RETRY_SEC = 3600
+_last_storage_access_attempt = 0.0
+
+
+def _declared_storage_access_rev(path=None):
+    path = path or os.path.join(FULA_PATH, "fula.sh")
+    try:
+        with open(path) as f:
+            for line in f:
+                m = re.match(r"^STORAGE_ACCESS_REV=([0-9]+)\s*$", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return None
+
+
+def apply_storage_access_rev():
+    """Run `fula.sh storage-access` once when its revision changed. Returns True
+    if it ran. Never raises."""
+    global _last_storage_access_attempt
+    try:
+        want = _declared_storage_access_rev()
+        if not want:
+            return False
+        try:
+            with open(STORAGE_ACCESS_REV_FILE) as f:
+                have = f.read().strip()
+        except OSError:
+            have = ""
+        if have == want:
+            return False
+        now = time.time()
+        if now - _last_storage_access_attempt < STORAGE_ACCESS_RETRY_SEC:
+            return False
+        if fula_start_in_progress():
+            return False
+        _last_storage_access_attempt = now
+        logging.info("storage-access rev %s -> %s: applying via fula.sh storage-access",
+                     have or "none", want)
+        result = subprocess.run(
+            ["sudo", "timeout", "-k", "10", "120", "bash",
+             os.path.join(FULA_PATH, "fula.sh"), "storage-access"],
+            capture_output=True, timeout=150)
+        _append_event("storage-access", {"from": have or None, "to": want,
+                                         "returncode": result.returncode})
+        return True
+    except Exception as e:
+        logging.warning("apply_storage_access_rev failed (non-fatal): %s", e)
+        return False
+
 
 def activate_wireguard_support():
     """Start WireGuard support tunnel; install on demand if missing, then verify it actually came up."""
@@ -4295,9 +4497,12 @@ def monitor_docker_logs_and_restart():
     # downtime never triggers fula.service restarts or counts toward reboot.
     # It has its own self-contained check_and_fix_kubo_local() instead.
     restart_attempts = 0
+    # A new, empty non-ext4 drive is converted to ext4 and a reboot is
+    # requested; drives holding data are never touched. This must never feed
+    # the restart escalation below, so it returns instead of bumping
+    # restart_attempts (the main loop re-enters fresh after the reboot).
     if check_external_drive():
-        # a partition needs reformatting, skip the loop and go to partition section
-        restart_attempts = 4
+        return
 
     while restart_attempts < 4:
         logging.info("Entered into monitor while loop")
@@ -4309,6 +4514,7 @@ def monitor_docker_logs_and_restart():
             maybe_refresh_relays()
         except Exception as e:
             logging.debug(f"maybe_refresh_relays raised in monitor: {e}")
+        apply_storage_access_rev()  # never raises; no-op unless the rev changed
         # Phase 3 checks also run inside the while loop so they refresh on
         # every monitor cycle (~450s) — the placement above only handled the
         # cold-entry path. /run/fula-*.state freshness lets the BLE diag layer
@@ -4504,18 +4710,22 @@ def monitor_docker_logs_and_restart():
                 time.sleep(3600)
                 return  # NOT sys.exit(1) — stay alive in main loop
             else:
-                # More than 24 hours have passed, update the reboot flag
-                logging.warning("Previous reboot flag is older than 24 hours. Updating and initiating re-partition process.")
+                # Reboot flag is stale: refresh it and reboot. This used to
+                # touch .command_partition (resize.sh 1 = force-format EVERY
+                # data drive >= 64 GB, then reboot). Escalation must never wipe
+                # user data, so it now only reboots; a problem that survives
+                # the reboot takes the red-LED + support path above.
+                logging.warning("Previous reboot flag is stale. Updating it and rebooting (auto re-partition disabled).")
                 subprocess.run(['sudo', 'rm', REBOOT_FLAG_PATH], timeout=20)
                 time.sleep(2)
                 subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH], timeout=20)
-                subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH], timeout=20)
+                subprocess.run(['sudo', 'touch', COMMAND_REBOOT_PATH], timeout=20)
                 subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True, timeout=20)
         else:
-            # No existing reboot flag, create it and initiate re-partition process
-            logging.warning("No existing reboot flag. Creating flag and initiating re-partition process.")
+            # No existing reboot flag: create it and reboot (never re-partition).
+            logging.warning("No existing reboot flag. Creating flag and rebooting (auto re-partition disabled).")
             subprocess.run(['sudo', 'touch', REBOOT_FLAG_PATH], timeout=20)
-            subprocess.run(['sudo', 'touch', COMMAND_PARTITION_PATH], timeout=20)
+            subprocess.run(['sudo', 'touch', COMMAND_REBOOT_PATH], timeout=20)
             subprocess.run(["sudo", "python", LED_PATH, "purple", "5"], capture_output=True, timeout=20)
 
 def main():
@@ -4541,6 +4751,7 @@ def main():
             maybe_refresh_relays()
         except Exception as e:
             logging.debug(f"maybe_refresh_relays raised: {e}")
+        apply_storage_access_rev()  # never raises; no-op unless the rev changed
 
         if check_conditions():
             logging.info("check_conditions passed")
