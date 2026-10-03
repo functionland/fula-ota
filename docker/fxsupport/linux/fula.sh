@@ -40,7 +40,7 @@ fi
 
 # Revision of setup_storage_access (Samba). Must stay a literal line:
 # readiness-check.py reads it to re-apply storage access after an OTA.
-STORAGE_ACCESS_REV=2
+STORAGE_ACCESS_REV=3
 
 declare -x CURRENT_USER
 CURRENT_USER=$(whoami)
@@ -264,6 +264,20 @@ render_smb_conf() {
         "# <<< fula-managed <<<"
 }
 
+# WS-Discovery responder unit (Windows "Network" view). Ubuntu noble / Debian
+# trixie ship it as wsdd-server.service in the wsdd-server package (wsdd itself
+# is only the binary); older Debian ships wsdd.service in wsdd.
+wsdd_unit() {
+    local u
+    for u in wsdd-server wsdd; do
+        if timeout 10 systemctl cat "$u" >/dev/null 2>&1; then
+            echo "$u"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Install missing Samba-related packages in a transient systemd unit, never
 # inline: fula.sh start must not wait on apt (no internet, dpkg lock, slow
 # mirror). At most one attempt per 24 h.
@@ -332,7 +346,13 @@ _setup_storage_access_locked() {
     # 2. Packages: dispatched in the background, never installed inline.
     dpkg -s samba >/dev/null 2>&1 || missing="$missing samba"
     dpkg -s samba-common-bin >/dev/null 2>&1 || missing="$missing samba-common-bin"
-    dpkg -s wsdd >/dev/null 2>&1 || missing="$missing wsdd"
+    if [ -z "$(wsdd_unit)" ]; then
+        if timeout 20 apt-cache show wsdd-server >/dev/null 2>&1; then
+            missing="$missing wsdd-server"
+        else
+            missing="$missing wsdd"
+        fi
+    fi
     if [ -n "$missing" ]; then
         # shellcheck disable=SC2086
         dispatch_samba_pkgs $missing
@@ -404,7 +424,7 @@ _setup_storage_access_locked() {
 
     # 8. Services: make sure they run; reload (never restart) smbd on a config
     #    change so live transfers continue.
-    for svc in nmbd smbd wsdd; do
+    for svc in nmbd smbd $(wsdd_unit); do
         systemctl cat "$svc" >/dev/null 2>&1 || continue
         timeout 10 systemctl is-enabled --quiet "$svc" 2>/dev/null || \
             timeout 30 sudo systemctl enable "$svc" >/dev/null 2>&1 || true

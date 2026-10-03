@@ -17,6 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINUX_DIR = os.path.join(ROOT, "docker", "fxsupport", "linux")
 FULA_SH = os.path.join(LINUX_DIR, "fula.sh")
 FIREWALL_SH = os.path.join(LINUX_DIR, "firewall.sh")
+SAMBA_PKGS_SH = os.path.join(LINUX_DIR, "samba-pkgs.sh")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 needs_bash = pytest.mark.skipif(
@@ -80,6 +81,19 @@ def test_packages_are_dispatched_not_installed_inline():
     assert "-mmin -1440" in body                      # at most one attempt per 24 h
 
 
+def test_wsdd_uses_the_unit_that_exists():
+    # Ubuntu noble's wsdd package is only the binary; the unit is in
+    # wsdd-server (found on a real device: "Unit wsdd.service could not be found").
+    src = _read(FULA_SH)
+    body = _function_body(src, "_setup_storage_access_locked")
+    assert "apt-cache show wsdd-server" in body
+    assert "for svc in nmbd smbd $(wsdd_unit); do" in body
+    assert "dpkg -s wsdd " not in body
+    pkgs = _read(SAMBA_PKGS_SH)
+    assert "for unit in wsdd-server wsdd; do" in pkgs
+    assert "enable --now wsdd " not in pkgs
+
+
 def test_storage_access_branch_and_restart_call_are_non_fatal():
     src = _read(FULA_SH)
     assert re.search(r'^"storage-access"\)\n(?:.*\n){0,4}\s*setup_storage_access \|\|', src, re.M)
@@ -107,7 +121,10 @@ def _run_firewall_with_stubs(tmp_path, script_text):
     bindir.mkdir()
     for tool in ("iptables", "ip6tables"):
         stub = bindir / tool
-        stub.write_text('#!/bin/sh\necho "$*" >> "%s/%s.log"\nexit 0\n' % (tmp_path, tool))
+        # `-D` must fail like real iptables does once the rule is gone, or
+        # firewall.sh's `while iptables -D INPUT ...; do :; done` never ends.
+        stub.write_text('#!/bin/sh\n[ "$1" = "-D" ] && exit 1\necho "$*" >> "%s/%s.log"\nexit 0\n'
+                        % (tmp_path, tool))
         stub.chmod(0o755)
     script = tmp_path / "firewall.sh"
     script.write_text(script_text.replace("/home/pi/fula.sh.log", str(tmp_path / "fw.log")))
@@ -182,7 +199,9 @@ def test_render_smb_conf_replaces_legacy_share_and_is_idempotent(fixture):
     once = _render(src)
     assert _render(once) == once                               # idempotent
     assert once.count("[SharedFolder]") == 1
-    assert "guest ok = yes" not in once
+    # Ubuntu's file keeps commented-out examples (";   guest ok = yes"); only
+    # active settings matter.
+    assert not re.search(r"^[ \t]*guest ok[ \t]*=[ \t]*yes", once, re.M | re.I)
     assert "map to guest = never" in once
     # Ubuntu's own content survives byte-for-byte (minus trailing blank lines).
     default = _read(os.path.join(FIXTURES, "smb.conf.noble-default")).rstrip("\n")
@@ -202,9 +221,13 @@ def test_render_smb_conf_keeps_sections_after_a_legacy_share():
 def test_rendered_config_passes_testparm(tmp_path):
     out = tmp_path / "smb.conf"
     out.write_text(_render(_read(os.path.join(FIXTURES, "smb.conf.legacy-fula"))))
-    p = subprocess.run(["testparm", "-s", str(out)], capture_output=True, text=True, timeout=30)
+    # -v prints defaults too: "Never" is Samba's default, so plain -s omits it
+    # once the trailing [global] has overridden Ubuntu's "bad user".
+    p = subprocess.run(["testparm", "-s", "-v", str(out)], capture_output=True, text=True, timeout=30)
     assert p.returncode == 0, p.stderr
     assert re.search(r"map to guest = Never", p.stdout)
+    assert not re.search(r"map to guest = Bad User", p.stdout, re.I)
+    assert not re.search(r"guest ok = Yes", p.stdout)
 
 
 @needs_bash
@@ -240,3 +263,24 @@ def test_uniondrive_is_mergerfs_reads_top_of_stack(tmp_path):
     assert not check("/dev/mmcblk0p1 / ext4 rw 0 0\n")
     # A non-mergerfs layer stacked on top must be rejected.
     assert not check("/media/pi/sda1 /uniondrive fuse.mergerfs rw 0 0\n/dev/sdb1 /uniondrive ext4 rw 0 0\n")
+
+
+@needs_bash
+@pytest.mark.parametrize("units, expected", [
+    ("wsdd-server", "wsdd-server"),          # Ubuntu noble / Debian trixie
+    ("wsdd", "wsdd"),                        # older Debian
+    ("wsdd-server wsdd", "wsdd-server"),     # never both
+    ("", ""),
+])
+def test_wsdd_unit_picks_the_installed_unit(tmp_path, units, expected):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "systemctl"
+    stub.write_text('#!/bin/sh\n[ "$1" = cat ] || exit 1\nfor u in %s; do [ "$2" = "$u" ] && exit 0; done\nexit 1\n'
+                    % units)
+    stub.chmod(0o755)
+    cmd = 'source "$1" >/dev/null 2>&1; set +e; echo "unit=$(wsdd_unit)"'
+    p = subprocess.run(["bash", "-c", cmd, "bash", FULA_SH],
+                       env=dict(os.environ, PATH="%s:%s" % (bindir, os.environ.get("PATH", ""))),
+                       capture_output=True, text=True, timeout=30)
+    assert "unit=%s\n" % expected in p.stdout, p.stdout + p.stderr
