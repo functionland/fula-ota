@@ -107,7 +107,10 @@ def _run_firewall_with_stubs(tmp_path, script_text):
     bindir.mkdir()
     for tool in ("iptables", "ip6tables"):
         stub = bindir / tool
-        stub.write_text('#!/bin/sh\necho "$*" >> "%s/%s.log"\nexit 0\n' % (tmp_path, tool))
+        # `-D` must fail like real iptables does once the rule is gone, or
+        # firewall.sh's `while iptables -D INPUT ...; do :; done` never ends.
+        stub.write_text('#!/bin/sh\n[ "$1" = "-D" ] && exit 1\necho "$*" >> "%s/%s.log"\nexit 0\n'
+                        % (tmp_path, tool))
         stub.chmod(0o755)
     script = tmp_path / "firewall.sh"
     script.write_text(script_text.replace("/home/pi/fula.sh.log", str(tmp_path / "fw.log")))
@@ -182,7 +185,9 @@ def test_render_smb_conf_replaces_legacy_share_and_is_idempotent(fixture):
     once = _render(src)
     assert _render(once) == once                               # idempotent
     assert once.count("[SharedFolder]") == 1
-    assert "guest ok = yes" not in once
+    # Ubuntu's file keeps commented-out examples (";   guest ok = yes"); only
+    # active settings matter.
+    assert not re.search(r"^[ \t]*guest ok[ \t]*=[ \t]*yes", once, re.M | re.I)
     assert "map to guest = never" in once
     # Ubuntu's own content survives byte-for-byte (minus trailing blank lines).
     default = _read(os.path.join(FIXTURES, "smb.conf.noble-default")).rstrip("\n")
@@ -202,9 +207,13 @@ def test_render_smb_conf_keeps_sections_after_a_legacy_share():
 def test_rendered_config_passes_testparm(tmp_path):
     out = tmp_path / "smb.conf"
     out.write_text(_render(_read(os.path.join(FIXTURES, "smb.conf.legacy-fula"))))
-    p = subprocess.run(["testparm", "-s", str(out)], capture_output=True, text=True, timeout=30)
+    # -v prints defaults too: "Never" is Samba's default, so plain -s omits it
+    # once the trailing [global] has overridden Ubuntu's "bad user".
+    p = subprocess.run(["testparm", "-s", "-v", str(out)], capture_output=True, text=True, timeout=30)
     assert p.returncode == 0, p.stderr
     assert re.search(r"map to guest = Never", p.stdout)
+    assert not re.search(r"map to guest = Bad User", p.stdout, re.I)
+    assert not re.search(r"guest ok = Yes", p.stdout)
 
 
 @needs_bash
