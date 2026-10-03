@@ -70,9 +70,12 @@ def test_setup_storage_access_never_blocks_or_restarts():
 def test_smbd_dropin_is_samba_scoped_and_bounded():
     body = _function_body(_read(FULA_SH), "install_smbd_dropin")
     for needle in ("After=uniondrive.service", "PartOf=uniondrive.service",
-                   "ExecCondition=", "fuse.mergerfs", "TimeoutStopSec=15", "KillMode=mixed"):
+                   "ExecCondition=", "fuse.mergerfs", "TimeoutStopSec=15"):
         assert needle in body, needle
     assert "RequiresMountsFor" not in body
+    # KillMode=mixed SIGKILLed per-client smbd processes on stop (seen on a
+    # real device); the default lets them close files, TimeoutStopSec bounds it.
+    assert "KillMode" not in body
 
 
 def test_packages_are_dispatched_not_installed_inline():

@@ -40,7 +40,7 @@ fi
 
 # Revision of setup_storage_access (Samba). Must stay a literal line:
 # readiness-check.py reads it to re-apply storage access after an OTA.
-STORAGE_ACCESS_REV=3
+STORAGE_ACCESS_REV=4
 
 declare -x CURRENT_USER
 CURRENT_USER=$(whoami)
@@ -302,6 +302,8 @@ dispatch_samba_pkgs() {
 # smbd drop-in: start only when /uniondrive is the mergerfs pool; stop before
 # uniondrive stops/restarts (PartOf) so open SMB files can never make its
 # unmount fail with EBUSY; and never hold up a uniondrive stop for long.
+# KillMode stays at the default (control-group): every smbd process gets
+# SIGTERM and can close its files; TimeoutStopSec alone bounds the stop.
 install_smbd_dropin() {
     local dropin="${FULA_SMBD_DROPIN:-${SYSTEMD_PATH}/smbd.service.d/10-fula-uniondrive.conf}"
     local tmp
@@ -315,7 +317,6 @@ PartOf=uniondrive.service
 [Service]
 ExecCondition=/usr/bin/awk '$$2 == "/uniondrive" { t = $$3 } END { exit (t != "fuse.mergerfs") }' /proc/self/mounts
 TimeoutStopSec=15
-KillMode=mixed
 EOF
     if ! cmp -s "$tmp" "$dropin" 2>/dev/null; then
         if sudo mkdir -p "$(dirname "$dropin")" && sudo install -m 0644 "$tmp" "$dropin"; then
