@@ -38,11 +38,15 @@ if ! apt-get "${APT_OPTS[@]}" install "$@"; then
     exit 1
 fi
 
-# setup_storage_access starts smbd/nmbd itself once samba is configured; wsdd
-# has no config, so start it here as soon as it is installed.
-if dpkg -s wsdd >/dev/null 2>&1; then
-    systemctl enable --now wsdd >/dev/null 2>&1 || log "could not start wsdd"
-fi
+# setup_storage_access starts smbd/nmbd itself once samba is configured; the
+# WS-Discovery responder has no config, so start it here as soon as it is
+# installed (wsdd-server.service on Ubuntu noble, wsdd.service on older Debian).
+for unit in wsdd-server wsdd; do
+    if systemctl cat "$unit" >/dev/null 2>&1; then
+        systemctl enable --now "$unit" >/dev/null 2>&1 || log "could not start $unit"
+        break
+    fi
+done
 
 log "installed: $*"
 exit 0

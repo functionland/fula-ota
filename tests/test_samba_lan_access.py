@@ -17,6 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINUX_DIR = os.path.join(ROOT, "docker", "fxsupport", "linux")
 FULA_SH = os.path.join(LINUX_DIR, "fula.sh")
 FIREWALL_SH = os.path.join(LINUX_DIR, "firewall.sh")
+SAMBA_PKGS_SH = os.path.join(LINUX_DIR, "samba-pkgs.sh")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 needs_bash = pytest.mark.skipif(
@@ -78,6 +79,19 @@ def test_packages_are_dispatched_not_installed_inline():
     body = _function_body(_read(FULA_SH), "dispatch_samba_pkgs")
     assert "systemd-run --no-block" in body
     assert "-mmin -1440" in body                      # at most one attempt per 24 h
+
+
+def test_wsdd_uses_the_unit_that_exists():
+    # Ubuntu noble's wsdd package is only the binary; the unit is in
+    # wsdd-server (found on a real device: "Unit wsdd.service could not be found").
+    src = _read(FULA_SH)
+    body = _function_body(src, "_setup_storage_access_locked")
+    assert "apt-cache show wsdd-server" in body
+    assert "for svc in nmbd smbd $(wsdd_unit); do" in body
+    assert "dpkg -s wsdd " not in body
+    pkgs = _read(SAMBA_PKGS_SH)
+    assert "for unit in wsdd-server wsdd; do" in pkgs
+    assert "enable --now wsdd " not in pkgs
 
 
 def test_storage_access_branch_and_restart_call_are_non_fatal():
@@ -249,3 +263,24 @@ def test_uniondrive_is_mergerfs_reads_top_of_stack(tmp_path):
     assert not check("/dev/mmcblk0p1 / ext4 rw 0 0\n")
     # A non-mergerfs layer stacked on top must be rejected.
     assert not check("/media/pi/sda1 /uniondrive fuse.mergerfs rw 0 0\n/dev/sdb1 /uniondrive ext4 rw 0 0\n")
+
+
+@needs_bash
+@pytest.mark.parametrize("units, expected", [
+    ("wsdd-server", "wsdd-server"),          # Ubuntu noble / Debian trixie
+    ("wsdd", "wsdd"),                        # older Debian
+    ("wsdd-server wsdd", "wsdd-server"),     # never both
+    ("", ""),
+])
+def test_wsdd_unit_picks_the_installed_unit(tmp_path, units, expected):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "systemctl"
+    stub.write_text('#!/bin/sh\n[ "$1" = cat ] || exit 1\nfor u in %s; do [ "$2" = "$u" ] && exit 0; done\nexit 1\n'
+                    % units)
+    stub.chmod(0o755)
+    cmd = 'source "$1" >/dev/null 2>&1; set +e; echo "unit=$(wsdd_unit)"'
+    p = subprocess.run(["bash", "-c", cmd, "bash", FULA_SH],
+                       env=dict(os.environ, PATH="%s:%s" % (bindir, os.environ.get("PATH", ""))),
+                       capture_output=True, text=True, timeout=30)
+    assert "unit=%s\n" % expected in p.stdout, p.stdout + p.stderr
