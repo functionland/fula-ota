@@ -38,6 +38,10 @@ else
     arch=RPI4
 fi
 
+# Revision of setup_storage_access (Samba). Must stay a literal line:
+# readiness-check.py reads it to re-apply storage access after an OTA.
+STORAGE_ACCESS_REV=4
+
 declare -x CURRENT_USER
 CURRENT_USER=$(whoami)
 export MOUNT_PATH=/media/$CURRENT_USER
@@ -201,193 +205,264 @@ function create_cron() {
   echo "Cron jobs created/updated." 2>&1 | sudo tee -a $FULA_LOG_PATH
 }
 
-setup_storage_access() {
-    local setup_flag="${HOME_DIR}/.storage_setup"
-    local smb_conf="/etc/samba/smb.conf"
-    local shared_folder="/uniondrive/fxblox"
+# --- Samba LAN storage access (SharedFolder on /uniondrive/fxblox) ----------
+# Everything below is Samba-scoped and must never stall `fula.sh start`: no
+# inline apt, every external call is time-bounded, and nothing runs unless
+# /uniondrive is the mergerfs pool. Bump STORAGE_ACCESS_REV whenever this
+# behaviour changes: readiness-check re-applies it via `fula.sh storage-access`
+# so OTA'd devices pick it up without waiting for the next fula.sh start.
 
-    # Check if setup has already been done
-    if [ -f "$setup_flag" ]; then
-        echo "Storage access already set up."
-        sudo mkdir -p "$shared_folder"
-        sync
-        sleep 1
-        sudo chown -R pi:pi "$shared_folder"
-        sudo chmod 777 -R "$shared_folder"
-        sleep 1
-        sleep 2
-        
-        # Ensure Samba configuration and user are properly set up
-        echo "Verifying Samba configuration..."
-        
-        # Check and add SharedFolder configuration if missing
-        if ! grep -q "\[SharedFolder\]" "$smb_conf" 2>/dev/null; then
-            echo "Adding missing SharedFolder configuration..."
-            local smb_config="[SharedFolder]
-path = $shared_folder
-browseable = yes
-writable = yes
-guest ok = yes
-read only = no
-create mask = 0777
-directory mask = 0777"
-            echo "" | sudo tee -a "$smb_conf" > /dev/null
-            echo -e "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
+# True only when the topmost mount on /uniondrive is the mergerfs pool. Reads
+# /proc only, so it can never hang on a stuck FUSE mount, and it rejects a
+# non-mergerfs layer stacked on top (never the eMMC root).
+uniondrive_is_mergerfs() {
+    awk '$2 == "/uniondrive" { t = $3 } END { exit (t != "fuse.mergerfs") }' \
+        "${FULA_PROC_MOUNTS:-/proc/self/mounts}" 2>/dev/null
+}
+
+# Render smb.conf with the fula-managed storage block. Pure filter (stdin ->
+# stdout) so it can be tested: drops any previous managed block and the legacy
+# fula-written [SharedFolder] section (up to the next [section] or EOF, not the
+# next blank line), keeps every other line byte-for-byte, drops trailing blank
+# lines, then appends the managed block. render(render(x)) == render(x).
+#
+# Why both auth settings: `guest ok = no` alone still maps an unknown Windows
+# user to guest (Ubuntu's default `map to guest = bad user`) and Windows answers
+# "Access is denied" with no prompt. `map to guest = never` makes Samba return
+# LOGON_FAILURE, which is what makes Windows show its credential dialog.
+# Samba merges repeated [global] sections (the later value wins), so the
+# trailing [global] overrides Ubuntu's file without editing it. Only
+# global-only parameters may go there.
+render_smb_conf() {
+    local share_dir="$1" nas_user="$2"
+    awk '
+        /^# >>> fula-managed/ { managed = 1; legacy = 0; next }
+        managed { if ($0 ~ /^# <<< fula-managed/) managed = 0; next }
+        /^[ \t]*\[/ {
+            if (tolower($0) ~ /^[ \t]*\[sharedfolder\][ \t]*$/) { legacy = 1; next }
+            legacy = 0
+        }
+        legacy { next }
+        /^[ \t]*$/ { blanks++; next }
+        { for (; blanks > 0; blanks--) print ""; print }
+    '
+    printf '\n'
+    printf '%s\n' \
+        "# >>> fula-managed: storage access (fula.sh setup_storage_access rewrites this block; do not edit) >>>" \
+        "[global]" \
+        "   map to guest = never" \
+        "   local master = no" \
+        "" \
+        "[SharedFolder]" \
+        "   path = ${share_dir}" \
+        "   browseable = yes" \
+        "   read only = no" \
+        "   guest ok = no" \
+        "   valid users = ${nas_user}" \
+        "   create mask = 0777" \
+        "   directory mask = 0777" \
+        "# <<< fula-managed <<<"
+}
+
+# WS-Discovery responder unit (Windows "Network" view). Ubuntu noble / Debian
+# trixie ship it as wsdd-server.service in the wsdd-server package (wsdd itself
+# is only the binary); older Debian ships wsdd.service in wsdd.
+wsdd_unit() {
+    local u
+    for u in wsdd-server wsdd; do
+        if timeout 10 systemctl cat "$u" >/dev/null 2>&1; then
+            echo "$u"
+            return 0
         fi
-        
-        # Ensure pi user exists in Samba
-        if ! sudo pdbedit -L | grep -q "pi"; then
-            echo "Adding missing Samba user 'pi'..."
-            # Check if pi user exists in system
-            if ! id "pi" &>/dev/null; then
-                echo "Creating pi user..."
-                sudo useradd -m -s /bin/bash pi
-                echo "pi:fxblox" | sudo chpasswd
-            fi
-            
-            # Add pi user to Samba
-            if [ "${arch}" == "RPI4" ]; then
-                echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi 2>/dev/null || {
-                    echo -e "raspberry\nraspberry" | sudo smbpasswd pi
-                }
-            else
-                echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi 2>/dev/null || {
-                    echo -e "fxblox\nfxblox" | sudo smbpasswd pi
-                }
-            fi
-        fi
-        
-        # Check if smbd service exists and handle it properly
-        if service_exists "smbd"; then
-            echo "Restarting smbd service..."
-            sudo systemctl restart smbd
-        elif service_exists "samba"; then
-            echo "Restarting samba service..."
-            sudo systemctl restart samba
+    done
+    return 1
+}
+
+# Install missing Samba-related packages in a transient systemd unit, never
+# inline: fula.sh start must not wait on apt (no internet, dpkg lock, slow
+# mirror). At most one attempt per 24 h.
+dispatch_samba_pkgs() {
+    local stamp="${HOME_DIR}/.internal/.samba_pkgs_attempt"
+    [ "$#" -gt 0 ] || return 0
+    if timeout 5 systemctl is-active --quiet fula-samba-pkgs 2>/dev/null; then
+        return 0
+    fi
+    if [ -n "$(find "$stamp" -mmin -1440 2>/dev/null)" ]; then
+        return 0
+    fi
+    sudo mkdir -p "${HOME_DIR}/.internal" 2>/dev/null || true
+    sudo touch "$stamp" 2>/dev/null || true
+    echo "setup_storage_access: dispatching background install of:$(printf ' %s' "$@")" | sudo tee -a $FULA_LOG_PATH
+    timeout 10 sudo systemd-run --no-block --collect --unit=fula-samba-pkgs \
+        /bin/bash "${FULA_PATH}/samba-pkgs.sh" "$@" >/dev/null 2>&1 || \
+        echo "setup_storage_access: could not dispatch fula-samba-pkgs (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+    return 0
+}
+
+# smbd drop-in: start only when /uniondrive is the mergerfs pool; stop before
+# uniondrive stops/restarts (PartOf) so open SMB files can never make its
+# unmount fail with EBUSY; and never hold up a uniondrive stop for long.
+# KillMode stays at the default (control-group): every smbd process gets
+# SIGTERM and can close its files; TimeoutStopSec alone bounds the stop.
+install_smbd_dropin() {
+    local dropin="${FULA_SMBD_DROPIN:-${SYSTEMD_PATH}/smbd.service.d/10-fula-uniondrive.conf}"
+    local tmp
+    tmp=$(mktemp) || return 1
+    cat > "$tmp" <<'EOF'
+# Installed by fula.sh setup_storage_access; rewritten on every start.
+[Unit]
+After=uniondrive.service
+PartOf=uniondrive.service
+
+[Service]
+ExecCondition=/usr/bin/awk '$$2 == "/uniondrive" { t = $$3 } END { exit (t != "fuse.mergerfs") }' /proc/self/mounts
+TimeoutStopSec=15
+EOF
+    if ! cmp -s "$tmp" "$dropin" 2>/dev/null; then
+        if sudo mkdir -p "$(dirname "$dropin")" && sudo install -m 0644 "$tmp" "$dropin"; then
+            timeout 30 sudo systemctl daemon-reload >/dev/null 2>&1 || true
+            echo "setup_storage_access: smbd drop-in installed" | sudo tee -a $FULA_LOG_PATH
         else
-            echo "Warning: Neither smbd nor samba service found. Installing and setting up Samba..."
-            # Install Samba if not already installed
-            if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
-                if check_internet; then
-                    echo "Installing Samba..."
-                    sudo apt update
-                    sudo apt install -y samba samba-common-bin
-                else
-                    echo "Samba not installed and no internet available, skipping" | sudo tee -a $FULA_LOG_PATH
-                fi
-            fi
-
-            # Enable and start the service
-            if service_exists "smbd"; then
-                sudo systemctl enable smbd
-                sudo systemctl start smbd
-            elif service_exists "samba"; then
-                sudo systemctl enable samba
-                sudo systemctl start samba
-            fi
+            rm -f "$tmp"
+            return 1
         fi
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+_setup_storage_access_locked() {
+    local smb_conf="${FULA_SMB_CONF:-/etc/samba/smb.conf}"
+    local share_dir="${FULA_SMB_SHARE:-/uniondrive/fxblox}"
+    local rev_file="${FULA_STORAGE_REV_FILE:-${HOME_DIR}/.internal/.storage_access_rev}"
+    local nas_sh="${FULA_PATH}/nas-credentials.sh"
+    local nas_user="" missing="" changed=false ok=true tmp svc
+
+    # 1. Only ever operate on the real mergerfs pool (never the eMMC root).
+    if ! uniondrive_is_mergerfs; then
+        echo "setup_storage_access: /uniondrive is not the mergerfs pool, skipping (non-fatal)" | sudo tee -a $FULA_LOG_PATH
         return 0
     fi
 
-    # Wait for uniondrive to be mounted
-    while [ ! -d "/uniondrive" ]; do
-        echo "Waiting for uniondrive to be mounted..."
-        sleep 5
+    # 2. Packages: dispatched in the background, never installed inline.
+    dpkg -s samba >/dev/null 2>&1 || missing="$missing samba"
+    dpkg -s samba-common-bin >/dev/null 2>&1 || missing="$missing samba-common-bin"
+    if [ -z "$(wsdd_unit)" ]; then
+        if timeout 20 apt-cache show wsdd-server >/dev/null 2>&1; then
+            missing="$missing wsdd-server"
+        else
+            missing="$missing wsdd"
+        fi
+    fi
+    if [ -n "$missing" ]; then
+        # shellcheck disable=SC2086
+        dispatch_samba_pkgs $missing
+    fi
+    if ! command -v smbd >/dev/null 2>&1 || ! command -v testparm >/dev/null 2>&1; then
+        echo "setup_storage_access: samba not installed yet, skipping (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+        return 0
+    fi
+
+    # 3. Share root: create if missing; top-level ownership/mode only (never -R).
+    if [ ! -d "$share_dir" ]; then
+        timeout 10 sudo mkdir -p "$share_dir" || {
+            echo "setup_storage_access: cannot create $share_dir (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+            return 0
+        }
+    fi
+    timeout 10 sudo chown pi:pi "$share_dir" 2>/dev/null || true
+    timeout 10 sudo chmod 777 "$share_dir" 2>/dev/null || true
+
+    # 4. Dedicated Samba-only user with a per-device password. Output is
+    #    discarded so the password can never reach a log.
+    if [ -f "$nas_sh" ]; then
+        if ! timeout 60 sudo bash "$nas_sh" ensure >/dev/null 2>&1; then
+            echo "setup_storage_access: nas-credentials ensure failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+            ok=false
+        fi
+        nas_user=$(timeout 10 bash "$nas_sh" username 2>/dev/null)
+    else
+        ok=false
+    fi
+    nas_user="${nas_user:-fxnas}"
+
+    # 5. smb.conf: render, validate with testparm, then swap in atomically.
+    tmp=$(mktemp) || return 0
+    if [ -f "$smb_conf" ] && render_smb_conf "$share_dir" "$nas_user" < "$smb_conf" > "$tmp"; then
+        if ! cmp -s "$tmp" "$smb_conf"; then
+            if timeout 20 testparm -s "$tmp" >/dev/null 2>&1; then
+                sudo cp -p "$smb_conf" "${smb_conf}.fula.bak" 2>/dev/null || true
+                if sudo install -m 0644 "$tmp" "${smb_conf}.fula.new" && sudo mv -f "${smb_conf}.fula.new" "$smb_conf"; then
+                    changed=true
+                    echo "setup_storage_access: smb.conf updated (managed block)" | sudo tee -a $FULA_LOG_PATH
+                else
+                    ok=false
+                fi
+            else
+                echo "setup_storage_access: rendered smb.conf failed testparm, keeping current file (non-fatal)" | sudo tee -a $FULA_LOG_PATH
+                rm -f "$tmp"
+                return 0
+            fi
+        fi
+    else
+        ok=false
+    fi
+    rm -f "$tmp"
+
+    # 6. smbd drop-in (Samba-scoped coordination with uniondrive).
+    install_smbd_dropin || { echo "setup_storage_access: smbd drop-in failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH; ok=false; }
+
+    # 7. Retire the shared default Samba account once the dedicated user is live.
+    if [ "$nas_user" != "pi" ] && grep -q "valid users = ${nas_user}" "$smb_conf" 2>/dev/null; then
+        local smb_users
+        smb_users=$(timeout 20 sudo pdbedit -L 2>/dev/null | cut -d: -f1)
+        if printf '%s\n' "$smb_users" | grep -qx "$nas_user" && printf '%s\n' "$smb_users" | grep -qx pi; then
+            timeout 20 sudo smbpasswd -x pi >/dev/null 2>&1 && \
+                echo "setup_storage_access: removed legacy Samba account 'pi'" | sudo tee -a $FULA_LOG_PATH
+        fi
+        printf '%s\n' "$smb_users" | grep -qx "$nas_user" || ok=false
+    fi
+
+    # 8. Services: make sure they run; reload (never restart) smbd on a config
+    #    change so live transfers continue.
+    for svc in nmbd smbd $(wsdd_unit); do
+        systemctl cat "$svc" >/dev/null 2>&1 || continue
+        timeout 10 systemctl is-enabled --quiet "$svc" 2>/dev/null || \
+            timeout 30 sudo systemctl enable "$svc" >/dev/null 2>&1 || true
+        if ! timeout 10 systemctl is-active --quiet "$svc" 2>/dev/null; then
+            timeout 10 sudo systemctl start --no-block "$svc" >/dev/null 2>&1 || true
+        elif [ "$svc" = "smbd" ] && [ "$changed" = true ]; then
+            timeout 10 sudo systemctl reload --no-block smbd >/dev/null 2>&1 || true
+        fi
     done
 
-    # Install Samba if not already installed
-    if ! dpkg -s samba samba-common-bin >/dev/null 2>&1; then
-        if check_internet; then
-            echo "Installing Samba..."
-            sudo apt update
-            sudo apt install -y samba samba-common-bin
-        else
-            echo "Samba not installed and no internet available, skipping" | sudo tee -a $FULA_LOG_PATH
+    # Keep pre-rev-2 fula.sh (e.g. after a rollback) on its benign
+    # "already set up" path.
+    sudo touch "${HOME_DIR}/.storage_setup" 2>/dev/null || true
+
+    # 9. Record success only when everything is in place, so readiness-check's
+    #    one-shot trigger retries a partial run.
+    if [ "$ok" = true ]; then
+        sudo mkdir -p "$(dirname "$rev_file")" 2>/dev/null || true
+        echo "$STORAGE_ACCESS_REV" | sudo tee "$rev_file" >/dev/null
+        echo "setup_storage_access: done (rev $STORAGE_ACCESS_REV)" | sudo tee -a $FULA_LOG_PATH
+    else
+        echo "setup_storage_access: incomplete, will retry (rev $STORAGE_ACCESS_REV)" | sudo tee -a $FULA_LOG_PATH
+    fi
+    return 0
+}
+
+setup_storage_access() {
+    # Non-blocking lock: a concurrent run (start vs readiness-check trigger)
+    # simply skips instead of waiting.
+    (
+        if ! flock -n 9; then
+            echo "setup_storage_access: already running, skipping" | sudo tee -a $FULA_LOG_PATH
+            exit 0
         fi
-    fi
-
-    # Create shared folder
-    sudo mkdir -p "$shared_folder"
-    sync 
-    sleep 1
-    sudo chown -R pi:pi "$shared_folder"
-    sudo chmod 777 -R "$shared_folder"
-    sleep 1
-
-    # Configure Samba
-    local smb_config="[SharedFolder]
-path = $shared_folder
-browseable = yes
-writable = yes
-guest ok = yes
-read only = no
-create mask = 0777
-directory mask = 0777"
-
-    # Configure Samba - ensure SharedFolder section is added
-    if ! grep -q "\[SharedFolder\]" "$smb_conf" 2>/dev/null; then
-        echo "Adding SharedFolder configuration to Samba..."
-        echo "" | sudo tee -a "$smb_conf" > /dev/null
-        echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
-    else
-        echo "SharedFolder configuration already exists in Samba config."
-        # Update existing configuration if different
-        if ! diff <(echo "$smb_config") <(sed -n '/\[SharedFolder\]/,/^$/p' "$smb_conf" | head -n -1) > /dev/null 2>&1; then
-            echo "Updating existing SharedFolder configuration..."
-            sudo sed -i '/\[SharedFolder\]/,/^$/d' "$smb_conf"
-            echo "" | sudo tee -a "$smb_conf" > /dev/null
-            echo "$smb_config" | sudo tee -a "$smb_conf" > /dev/null
-        fi
-    fi
-
-    # Set up Samba user - ensure pi user exists in system first
-    echo "Setting up Samba user..."
-    
-    # Check if pi user exists in system
-    if ! id "pi" &>/dev/null; then
-        echo "Creating pi user..."
-        sudo useradd -m -s /bin/bash pi
-        echo "pi:fxblox" | sudo chpasswd
-    fi
-    
-    # Add pi user to Samba with appropriate password
-    if [ "${arch}" == "RPI4" ]; then
-        echo "Adding pi user to Samba with raspberry password..."
-        echo -e "raspberry\nraspberry" | sudo smbpasswd -a pi 2>/dev/null || {
-            echo "Failed to add pi user to Samba, trying to update existing user..."
-            echo -e "raspberry\nraspberry" | sudo smbpasswd pi
-        }
-    else
-        echo "Adding pi user to Samba with fxblox password..."
-        echo -e "fxblox\nfxblox" | sudo smbpasswd -a pi 2>/dev/null || {
-            echo "Failed to add pi user to Samba, trying to update existing user..."
-            echo -e "fxblox\nfxblox" | sudo smbpasswd pi
-        }
-    fi
-    
-    # Verify Samba user was created
-    if sudo pdbedit -L | grep -q "pi"; then
-        echo "Samba user 'pi' successfully configured."
-    else
-        echo "Warning: Failed to configure Samba user 'pi'."
-    fi
-
-    # Restart Samba service
-    echo "Restarting Samba service..."
-    if service_exists "smbd"; then
-        sudo systemctl enable smbd
-        sudo systemctl restart smbd
-    elif service_exists "samba"; then
-        sudo systemctl enable samba
-        sudo systemctl restart samba
-    else
-        echo "Error: Neither smbd nor samba service found after installation. This should not happen."
-        return 1
-    fi
-
-    # Create setup flag
-    touch "$setup_flag"
-    echo "Storage access setup completed."
+        _setup_storage_access_locked
+    ) 9>"${FULA_STORAGE_LOCK:-/run/fula-storage-access.lock}"
+    return 0
 }
 
 # Functions
@@ -540,6 +615,8 @@ function install() {
     cp ${INSTALLATION_FULA_DIR}/readiness-check-recover.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file readiness-check-recover.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/update_kubo_config.py $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file update_kubo_config.py" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/automount.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file automount.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/nas-credentials.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file nas-credentials.sh" | sudo tee -a $FULA_LOG_PATH; } || true
+    cp ${INSTALLATION_FULA_DIR}/samba-pkgs.sh $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file samba-pkgs.sh" | sudo tee -a $FULA_LOG_PATH; } || true
     cp ${INSTALLATION_FULA_DIR}/version $FULA_PATH/ 2>&1 | sudo tee -a $FULA_LOG_PATH || { echo "Error copying file version" | sudo tee -a $FULA_LOG_PATH; } || true
 
 
@@ -2626,5 +2703,11 @@ case $1 in
 "pull-failed")
   echo "ran pull-failed at: $(date)" | sudo tee -a $FULA_LOG_PATH
   pullFailedServices
+  ;;
+"storage-access")
+  # Re-apply Samba storage access only (used by readiness-check after an OTA,
+  # and for tests). `||` keeps set -e from aborting inside the function.
+  echo "ran storage-access at: $(date)" | sudo tee -a $FULA_LOG_PATH
+  setup_storage_access || echo "setup_storage_access failed (non-fatal)" | sudo tee -a $FULA_LOG_PATH
   ;;
 esac

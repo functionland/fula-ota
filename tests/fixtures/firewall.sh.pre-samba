@@ -40,12 +40,6 @@ iptables -A "$CHAIN" -i lo -j ACCEPT
 iptables -A "$CHAIN" -p icmp -m limit --limit 10/s --limit-burst 20 -j ACCEPT
 iptables -A "$CHAIN" -p icmp -j DROP
 
-# 3a. IGMP — answer the LAN router's membership queries. Without this the
-#     final DROP eats them, the kernel never re-reports its multicast groups,
-#     and IGMP-snooping APs/switches stop forwarding 239.255.255.250
-#     (WS-Discovery) a few minutes later. IGMP is link-local (TTL 1).
-iptables -A "$CHAIN" -p igmp -j ACCEPT
-
 # 4. Accept all traffic from Docker bridges (container-to-host)
 #    docker0  = default bridge
 #    br-+     = Docker Compose project bridges (e.g. br-c5a389b718ee)
@@ -145,22 +139,6 @@ iptables -A "$CHAIN" -i support -p tcp --dport 22 -j ACCEPT
 iptables -A "$CHAIN" -i support -p tcp --dport 5001 -j ACCEPT
 iptables -A "$CHAIN" -i support -j DROP
 
-# 15a. Samba LAN discovery / name resolution — LOCAL NETWORK only (RFC1918).
-#      Placed after the support-tunnel DROP so it never widens tunnel access.
-#      UDP 137/138 NetBIOS (nmbd), UDP 3702 WS-Discovery + TCP 5357 WSD
-#      metadata (wsdd). Source match only: multicast/broadcast queries carry
-#      the sender's unicast source, and unicast queries/replies must pass too.
-#      UDP 5353 (mDNS) is intentionally NOT opened: both kubo nodes have
-#      Discovery.MDNS enabled and would start LAN peer discovery.
-for port in 137 138 3702; do
-  iptables -A "$CHAIN" -p udp --dport "$port" -s 192.168.0.0/16 -j ACCEPT
-  iptables -A "$CHAIN" -p udp --dport "$port" -s 10.0.0.0/8 -j ACCEPT
-  iptables -A "$CHAIN" -p udp --dport "$port" -s 172.16.0.0/12 -j ACCEPT
-done
-iptables -A "$CHAIN" -p tcp --dport 5357 -s 192.168.0.0/16 -j ACCEPT
-iptables -A "$CHAIN" -p tcp --dport 5357 -s 10.0.0.0/8 -j ACCEPT
-iptables -A "$CHAIN" -p tcp --dport 5357 -s 172.16.0.0/12 -j ACCEPT
-
 # 16. Log dropped packets (rate-limited)
 iptables -A "$CHAIN" -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "FULA_FW_DROP: " --log-level 4
 
@@ -186,14 +164,6 @@ if command -v ip6tables >/dev/null 2>&1; then
   ip6tables -A "${CHAIN}_V6" -i support -p tcp --dport 22 -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -i support -p tcp --dport 5001 -j ACCEPT
   ip6tables -A "${CHAIN}_V6" -i support -j DROP
-  # Samba + WS-Discovery over IPv6 — link-local and ULA only (global
-  # addresses may be internet-routable; clients fall back to IPv4).
-  # No 137/138/139: NetBIOS is IPv4-only.
-  for src in fe80::/10 fc00::/7; do
-    ip6tables -A "${CHAIN}_V6" -p tcp --dport 445 -s "$src" -j ACCEPT
-    ip6tables -A "${CHAIN}_V6" -p tcp --dport 5357 -s "$src" -j ACCEPT
-    ip6tables -A "${CHAIN}_V6" -p udp --dport 3702 -s "$src" -j ACCEPT
-  done
   ip6tables -A "${CHAIN}_V6" -j DROP
 
   ip6tables -I INPUT 1 -j "${CHAIN}_V6"
