@@ -3820,8 +3820,8 @@ def _pool_branches():
                 p = line.split()
                 if len(p) >= 3 and p[1] == "/uniondrive" and p[2] == "fuse.mergerfs":
                     return {b.split("=")[0] for b in p[0].split(":")}
-    except OSError:
-        pass
+    except OSError as e:
+        logging.debug("Unable to read /proc/self/mounts for mergerfs branches: %s", e)
     return set()
 
 
@@ -3974,8 +3974,8 @@ def _declared_storage_access_rev(path=None):
                 m = re.match(r"^STORAGE_ACCESS_REV=([0-9]+)\s*$", line)
                 if m:
                     return m.group(1)
-    except OSError:
-        pass
+    except OSError as e:
+        logging.debug("Unable to read STORAGE_ACCESS_REV from %s (non-fatal): %s", path, e)
     return None
 
 
